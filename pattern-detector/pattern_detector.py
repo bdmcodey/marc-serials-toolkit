@@ -1,0 +1,526 @@
+"""
+pattern_detector.py
+-------------------
+Detects structural patterns in MARC 866 textual holdings statements and
+generates named-capture-group regular expressions for each pattern cluster.
+
+Fuzzy clustering: caption variant forms ("v.", "Vol.", "volume") all map to
+the same VOL_CAP token kind, so they land in the same pattern group.
+The generated regex uses alternation to match all observed forms.
+
+Public API
+----------
+    from pattern_detector import detect_patterns, split_multi_range, PatternGroup
+
+    groups = detect_patterns([
+        "v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)",
+        "Vol. 1, No. 1 (Spring 1990)-Vol. 5, No. 4 (Winter 1994)",
+        "v.6(1995)-",
+    ])
+    for g in groups:
+        print(g.human_label)
+        print(g.regex)
+        print(g.named_groups)
+"""
+from __future__ import annotations
+
+import re
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+# ── Token kind constants ──────────────────────────────────────────────────────
+
+VOL_CAP     = "VOL_CAP"
+ISS_CAP     = "ISS_CAP"
+PT_CAP      = "PT_CAP"
+YEAR        = "YEAR"
+MON         = "MON"
+SEASON      = "SEASON"
+NUMBER      = "NUMBER"
+PAREN_OPEN  = "PAREN_OPEN"
+PAREN_CLOSE = "PAREN_CLOSE"
+SEP_COLON   = "SEP_COLON"
+SEP_HYPHEN  = "SEP_HYPHEN"
+SEP_COMMA   = "SEP_COMMA"
+SPACE       = "SPACE"
+UNKNOWN     = "UNKNOWN"
+
+_CAPTION_KINDS = {VOL_CAP, ISS_CAP, PT_CAP}
+_VALUE_KINDS   = {YEAR, MON, SEASON, NUMBER}
+
+# General month/season patterns used in generated regex output —
+# broad enough to match any standard form, not just the forms observed.
+_MON_RE = (
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May"
+    r"|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?"
+    r"|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
+)
+_SEASON_RE = r"(?:Spring|Summer|Fall|Autumn|Winter)"
+
+
+# ── Token dataclass ───────────────────────────────────────────────────────────
+
+@dataclass
+class Token:
+    kind: str
+    raw: str   # original text as found in the input
+
+
+# ── Tokenizer ─────────────────────────────────────────────────────────────────
+#
+# Pattern ordering matters: first match wins per position.
+#   - YEAR before NUMBER  → "1990" → YEAR not NUMBER
+#   - SEASON/MON before ISS_CAP → "Nov." → MON not ISS_CAP("no") + garbage
+#   - VOL_CAP/PT_CAP before ISS_CAP → no ambiguity on "v", "pt"
+#
+_TOK_RE = re.compile(
+    # Volume caption  — v. | vol. | volume | v
+    r"(?P<VOL_CAP>\bv(?:ol(?:ume)?)?\.?)"
+    # Part caption    — pt. | part
+    r"|(?P<PT_CAP>\b(?:pt|part)\.?)"
+    # Four-digit year — 1800–2099 range, must precede NUMBER
+    r"|(?P<YEAR>\b(?:1[89]|20)\d{2}\b)"
+    # Season names    — word-boundary on both ends to avoid "springtime"
+    r"|(?P<SEASON>\b(?:spring|summer|fall|autumn|winter)\b)"
+    # Month names / abbreviations (must precede ISS_CAP to protect "Nov.", etc.)
+    r"|(?P<MON>\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?"
+    r"|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?"
+    r"|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?)"
+    # Issue caption   — no. | nr. | num. | number | iss. | issue
+    r"|(?P<ISS_CAP>\b(?:no|nr|num(?:ber)?|iss(?:ue)?)\.?)"
+    # Generic number (possibly with trailing letter: "4a", "12b")
+    r"|(?P<NUMBER>\d+[a-zA-Z]?)"
+    r"|(?P<PAREN_OPEN>\()"
+    r"|(?P<PAREN_CLOSE>\))"
+    r"|(?P<SEP_COLON>:)"
+    r"|(?P<SEP_HYPHEN>-)"
+    r"|(?P<SEP_COMMA>,)"
+    r"|(?P<SPACE>\s+)"
+    r"|(?P<UNKNOWN>.)",
+    re.IGNORECASE,
+)
+
+
+def tokenize(text: str) -> list[Token]:
+    """Tokenize a holdings statement into a list of Token objects."""
+    return [Token(kind=m.lastgroup, raw=m.group()) for m in _TOK_RE.finditer(text)]
+
+
+def _strip_spaces(tokens: list[Token]) -> list[Token]:
+    """Drop all SPACE tokens; spacing is handled with \\s* in generated regexes."""
+    return [t for t in tokens if t.kind != SPACE]
+
+
+def get_signature(text: str) -> str:
+    """
+    Compute the fuzzy pattern signature for a holdings string.
+
+    The signature is the pipe-separated sequence of token kinds with
+    SPACE tokens removed.  Because all caption variants (v., Vol., volume)
+    map to VOL_CAP, two statements that differ only in capitalisation or
+    abbreviation style will share the same signature and be clustered together.
+    """
+    return "|".join(t.kind for t in tokenize(text) if t.kind != SPACE)
+
+
+# ── Range separator detection ─────────────────────────────────────────────────
+
+def _find_range_sep(stripped: list[Token]) -> Optional[int]:
+    """
+    Return the index within `stripped` of the top-level SEP_HYPHEN that
+    separates the start unit from the end unit (e.g. the "-" in "v.1(1990)-v.5(1994)").
+
+    Rules:
+    • Must be at paren depth 0 (not inside a chronology block).
+    • Must be followed by at least one more token (not the trailing open-ended hyphen).
+
+    Returns None for open-ended statements ("v.6(1995)-") and single-unit
+    statements ("1990-1994" inside-paren style gets depth > 0 protection).
+    """
+    depth = 0
+    for i, tok in enumerate(stripped):
+        if tok.kind == PAREN_OPEN:
+            depth += 1
+        elif tok.kind == PAREN_CLOSE:
+            depth -= 1
+        elif tok.kind == SEP_HYPHEN and depth == 0:
+            # Has meaningful content after the hyphen?
+            if i + 1 < len(stripped):
+                return i
+    return None
+
+
+def _is_open_ended(stripped: list[Token]) -> bool:
+    """True when the statement ends with a bare hyphen (currently received)."""
+    return bool(stripped) and stripped[-1].kind == SEP_HYPHEN
+
+
+# ── Regex-building helpers ────────────────────────────────────────────────────
+
+def _alt_or_literal(vals: list[str]) -> str:
+    """
+    From a list of raw string values, produce either a single re.escape(val)
+    or a (?:...|...) alternation sorted longest-first for greedy correctness.
+    """
+    unique = sorted(set(v.strip() for v in vals if v.strip()), key=len, reverse=True)
+    if not unique:
+        return r"\S+"
+    if len(unique) == 1:
+        return re.escape(unique[0])
+    return "(?:" + "|".join(re.escape(v) for v in unique) + ")"
+
+
+def _unique_name(base: str, used: set[str]) -> str:
+    """Return `base` if not yet used, else `base_2`, `base_3`, …"""
+    if base not in used:
+        used.add(base)
+        return base
+    n = 2
+    while f"{base}_{n}" in used:
+        n += 1
+    name = f"{base}_{n}"
+    used.add(name)
+    return name
+
+
+# ── Compact human-readable label ─────────────────────────────────────────────
+
+_CAP_SHORT = {VOL_CAP: "VOL", ISS_CAP: "ISS", PT_CAP: "PT"}
+_VAL_SHORT = {YEAR: "YEAR", MON: "MON", SEASON: "SEASON"}
+_SEP_SHORT = {SEP_COLON: ":", SEP_COMMA: ",", PAREN_OPEN: "(", PAREN_CLOSE: ")"}
+
+
+def _compact_label(stripped: list[Token], range_sep_idx: Optional[int]) -> str:
+    """
+    Build a short human-readable description from the token sequence, e.g.:
+      "VOL:ISS(YEAR:MON) — VOL:ISS(YEAR:MON)"
+      "VOL(YEAR) — VOL(YEAR)"
+      "YEAR — YEAR"
+    Caption + NUMBER pairs are collapsed to just "VOL", "ISS", "PT".
+    """
+    parts: list[str] = []
+    i = 0
+    while i < len(stripped):
+        tok = stripped[i]
+        if i == range_sep_idx:
+            parts.append(" \u2014 ")       # em-dash
+            i += 1
+            continue
+        kind = tok.kind
+        if kind in _CAP_SHORT:
+            parts.append(_CAP_SHORT[kind])
+            # Silently consume the following NUMBER (it's implied)
+            if i + 1 < len(stripped) and stripped[i + 1].kind == NUMBER:
+                i += 2
+                continue
+        elif kind == NUMBER:
+            parts.append("#")
+        elif kind in _VAL_SHORT:
+            parts.append(_VAL_SHORT[kind])
+        elif kind in _SEP_SHORT:
+            parts.append(_SEP_SHORT[kind])
+        elif kind == SEP_HYPHEN:
+            # Non-range hyphens (e.g. year-year inside parens, trailing open)
+            if i == len(stripped) - 1:
+                parts.append("\u2013")     # trailing open-ended
+            # else: internal hyphen in compressed range, skip
+        i += 1
+    return "".join(parts)
+
+
+# ── Core regex builder ────────────────────────────────────────────────────────
+
+def _build_regex(
+    all_stripped: list[list[Token]],
+) -> tuple[str, list[str], dict[str, list[str]]]:
+    """
+    Given a list of stripped-token lists that all share the same signature,
+    build a Python named-group regex that matches all of them.
+
+    Returns
+    -------
+    regex         : the pattern string (use re.compile(regex, re.IGNORECASE))
+    named_groups  : ordered list of capture-group names (["start_vol", ...])
+    cap_variants  : observed caption forms per level, e.g. {"vol": ["v.", "Vol."]}
+    """
+    template = all_stripped[0]
+    n = len(template)
+
+    # Collect all raw values seen at each token position across all statements
+    pos_vals: list[list[str]] = [
+        [toks[i].raw for toks in all_stripped if i < len(toks)]
+        for i in range(n)
+    ]
+
+    range_sep_idx = _find_range_sep(template)
+    open_ended    = _is_open_ended(template)
+
+    parts: list[str]               = []
+    named_groups: list[str]        = []
+    cap_variants: dict[str, list]  = {}
+    used_names: set[str]           = set()
+
+    context   = "start"
+    prev_cap: Optional[str] = None    # last caption kind: "vol" | "iss" | "part"
+
+    for i, tok in enumerate(template):
+        kind  = tok.kind
+        vals  = pos_vals[i]
+        unique = sorted(set(v.strip() for v in vals if v.strip()), key=len, reverse=True)
+
+        # ── Range separator ───────────────────────────────────────────────────
+        if i == range_sep_idx:
+            context  = "end"
+            prev_cap = None
+            parts.append(r"\s*-\s*")
+            continue
+
+        # ── Caption tokens (VOL_CAP / ISS_CAP / PT_CAP) ──────────────────────
+        if kind == VOL_CAP:
+            prev_cap = "vol"
+            parts.append(_alt_or_literal(unique))
+            parts.append(r"\s*")
+            _record_variants(cap_variants, "vol", unique)
+            continue
+
+        if kind == ISS_CAP:
+            prev_cap = "iss"
+            parts.append(_alt_or_literal(unique))
+            parts.append(r"\s*")
+            _record_variants(cap_variants, "iss", unique)
+            continue
+
+        if kind == PT_CAP:
+            prev_cap = "part"
+            parts.append(_alt_or_literal(unique))
+            parts.append(r"\s*")
+            _record_variants(cap_variants, "part", unique)
+            continue
+
+        # ── Value tokens — named capture groups ───────────────────────────────
+        if kind == NUMBER:
+            slot = prev_cap or "num"
+            name = _unique_name(f"{context}_{slot}", used_names)
+            named_groups.append(name)
+            parts.append(rf"(?P<{name}>\d+[a-zA-Z]?)")
+            parts.append(r"\s*")
+            continue
+
+        if kind == YEAR:
+            name = _unique_name(f"{context}_year", used_names)
+            named_groups.append(name)
+            # Allow 4-digit years in the realistic range; keep flexible
+            parts.append(rf"(?P<{name}>(?:1[89]|20)\d{{2}})")
+            parts.append(r"\s*")
+            continue
+
+        if kind == MON:
+            name = _unique_name(f"{context}_month", used_names)
+            named_groups.append(name)
+            # Use the general month pattern so future statements with any
+            # standard month abbreviation will also be matched.
+            parts.append(rf"(?P<{name}>{_MON_RE})")
+            parts.append(r"\s*")
+            continue
+
+        if kind == SEASON:
+            name = _unique_name(f"{context}_month", used_names)
+            named_groups.append(name)
+            parts.append(rf"(?P<{name}>{_SEASON_RE})")
+            parts.append(r"\s*")
+            continue
+
+        # ── Structural / punctuation tokens ───────────────────────────────────
+        if kind == PAREN_OPEN:
+            parts.append(r"\(\s*")
+            continue
+
+        if kind == PAREN_CLOSE:
+            parts.append(r"\s*\)")
+            parts.append(r"\s*")
+            continue
+
+        if kind == SEP_COLON:
+            parts.append(r"\s*:\s*")
+            continue
+
+        if kind == SEP_HYPHEN:
+            # Hyphens at this point are internal to a chronology block
+            # (depth > 0 when the range_sep was already handled) or part of
+            # a compressed enumeration range (v.1-5).
+            parts.append(r"-")
+            continue
+
+        if kind == SEP_COMMA:
+            parts.append(r",\s*")
+            continue
+
+        # ── Fallback: escape whatever is left ─────────────────────────────────
+        parts.append(_alt_or_literal(unique))
+
+    return "".join(parts), named_groups, cap_variants
+
+
+def _record_variants(
+    cap_variants: dict[str, list[str]],
+    key: str,
+    unique: list[str],
+) -> None:
+    """Update cap_variants[key] with any new values from unique."""
+    existing = cap_variants.setdefault(key, [])
+    for v in unique:
+        if v not in existing:
+            existing.append(v)
+
+
+# ── Regex validator ───────────────────────────────────────────────────────────
+
+def _validate(
+    regex: str,
+    statements: list[str],
+) -> tuple[float, list[str], list[str]]:
+    """
+    Test a regex against every statement using re.fullmatch (IGNORECASE).
+
+    Returns (match_rate 0.0–1.0, matched_list, failed_list).
+    Falls back to re.search on fullmatch failure so partially-parsed
+    multi-range strings still report a hit.
+    """
+    matched, failed = [], []
+    try:
+        compiled = re.compile(regex, re.IGNORECASE)
+    except re.error:
+        return 0.0, [], list(statements)
+
+    for s in statements:
+        hit = compiled.fullmatch(s.strip()) or compiled.search(s.strip())
+        (matched if hit else failed).append(s)
+
+    rate = len(matched) / len(statements) if statements else 1.0
+    return rate, matched, failed
+
+
+# ── PatternGroup dataclass ────────────────────────────────────────────────────
+
+@dataclass
+class PatternGroup:
+    signature: str                          # raw token-kind sequence
+    human_label: str                        # compact display label
+    count: int                              # number of statements
+    examples: list[str]                     # up to 5 example strings
+    regex: str                              # generated Python regex
+    named_groups: list[str]                 # ordered group names
+    match_rate: float                       # 0.0–1.0
+    matched: list[str]
+    failed: list[str]
+    caption_variants: dict[str, list[str]]  # e.g. {"vol": ["v.", "Vol."]}
+    is_open_ended: bool
+
+    def to_dict(self) -> dict:
+        return {
+            "signature":        self.signature,
+            "human_label":      self.human_label,
+            "count":            self.count,
+            "examples":         self.examples,
+            "regex":            self.regex,
+            "named_groups":     self.named_groups,
+            "match_rate":       round(self.match_rate, 4),
+            "matched_count":    len(self.matched),
+            "failed":           self.failed,
+            "caption_variants": self.caption_variants,
+            "is_open_ended":    self.is_open_ended,
+        }
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def detect_patterns(statements: list[str]) -> list[PatternGroup]:
+    """
+    Cluster a collection of 866 $a strings by structural pattern and
+    return one PatternGroup per cluster, sorted by count descending.
+
+    Parameters
+    ----------
+    statements : list of holdings strings, already de-duped and trimmed.
+                 Multi-range strings should be pre-split with split_multi_range()
+                 if sub-ranges should be analysed individually.
+    """
+    if not statements:
+        return []
+
+    # ── Cluster by fuzzy signature ────────────────────────────────────────────
+    clusters: dict[str, list[str]] = defaultdict(list)
+    for stmt in statements:
+        s = stmt.strip()
+        if not s:
+            continue
+        clusters[get_signature(s)].append(s)
+
+    groups: list[PatternGroup] = []
+
+    for sig, members in clusters.items():
+        all_stripped = [_strip_spaces(tokenize(m)) for m in members]
+        template     = all_stripped[0]
+
+        range_sep_idx = _find_range_sep(template)
+        open_ended    = _is_open_ended(template)
+        label         = _compact_label(template, range_sep_idx)
+
+        regex, named_groups, cap_variants = _build_regex(all_stripped)
+        match_rate, matched, failed       = _validate(regex, members)
+
+        groups.append(PatternGroup(
+            signature        = sig,
+            human_label      = label or sig[:80],
+            count            = len(members),
+            examples         = members[:5],
+            regex            = regex,
+            named_groups     = named_groups,
+            match_rate       = match_rate,
+            matched          = matched,
+            failed           = failed,
+            caption_variants = cap_variants,
+            is_open_ended    = open_ended,
+        ))
+
+    groups.sort(key=lambda g: g.count, reverse=True)
+    return groups
+
+
+def split_multi_range(text: str) -> list[str]:
+    """
+    Split a holdings string that contains multiple comma- or semicolon-
+    separated ranges into individual range strings, ignoring separators
+    that fall inside parentheses.
+
+    Example
+    -------
+    "v.1(1990)-v.3(1992), v.5(1994)-"
+    → ["v.1(1990)-v.3(1992)", "v.5(1994)-"]
+    """
+    depth   = 0
+    parts:   list[str] = []
+    current: list[str] = []
+
+    for ch in text:
+        if ch == "(":
+            depth += 1
+            current.append(ch)
+        elif ch == ")":
+            depth -= 1
+            current.append(ch)
+        elif ch in (",", ";") and depth == 0:
+            seg = "".join(current).strip()
+            if seg:
+                parts.append(seg)
+            current = []
+        else:
+            current.append(ch)
+
+    seg = "".join(current).strip()
+    if seg:
+        parts.append(seg)
+
+    return parts if parts else [text.strip()]

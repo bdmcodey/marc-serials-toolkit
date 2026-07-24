@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Holdings Pattern Detector — 866 $a → Regex</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Root ───────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0b0d17;
+      --surf:     #111425;
+      --surf2:    #181d35;
+      --border:   #232848;
+      --border2:  #2e3560;
+
+      --coral:    #ff6435;       /* primary accent */
+      --coral-dim:#ff643540;
+      --lavender: #a78bfa;       /* named-group colour */
+      --lav-dim:  #a78bfa30;
+      --mint:     #10d48e;       /* success / high match */
+      --mint-dim: #10d48e30;
+      --amber:    #f59e0b;       /* warning / partial match */
+      --amber-dim:#f59e0b30;
+      --red:      #f87171;       /* failure / low match */
+      --red-dim:  #f8717130;
+
+      --text:     #c8cde8;
+      --text-dim: #6872a8;
+      --text-hdr: #eef0ff;
+
+      --mono:  'JetBrains Mono', monospace;
+      --sans:  'Outfit', sans-serif;
+      --r:     6px;
+      --ease:  180ms ease;
+    }
+
+    html { font-size: 14px; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 1.2rem;
+      padding: 1rem 2rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surf);
+      flex-shrink: 0;
+    }
+    .hdr-icon {
+      width: 34px; height: 34px;
+      background: var(--coral);
+      border-radius: 8px;
+      display: grid; place-items: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+    header h1 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--text-hdr);
+      letter-spacing: -0.01em;
+    }
+    .hdr-sub {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--coral);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .hdr-badge {
+      margin-left: auto;
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+    .hdr-badge.ok  { border-color: var(--mint); color: var(--mint); }
+    .hdr-badge.err { border-color: var(--red);  color: var(--red);  }
+
+    /* ── Two-column layout ───────────────────────────────────────────────── */
+    main {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────────────────── */
+    #sidebar {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      background: var(--surf);
+    }
+
+    .sb-section {
+      padding: 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-label {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 0.8rem;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+    .tab-btn {
+      flex: 1;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 0.7rem;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      transition: all var(--ease);
+      margin-bottom: -1px;
+    }
+    .tab-btn:hover    { color: var(--text); }
+    .tab-btn.active   { color: var(--coral); border-bottom-color: var(--coral); }
+    .tab-panel        { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Form elements */
+    label {
+      display: block;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      margin-bottom: 0.3rem;
+    }
+    textarea, input[type="text"] {
+      width: 100%;
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      padding: 0.6rem 0.75rem;
+      outline: none;
+      transition: border-color var(--ease);
+      resize: vertical;
+    }
+    textarea:focus, input[type="text"]:focus { border-color: var(--coral); }
+    textarea { min-height: 180px; line-height: 1.55; }
+
+    .form-group { margin-bottom: 0.75rem; }
+
+    /* Checkbox rows */
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.78rem;
+      color: var(--text);
+      cursor: pointer;
+      margin-bottom: 0.5rem;
+    }
+    .check-row input[type="checkbox"] {
+      accent-color: var(--coral);
+      width: 14px; height: 14px;
+    }
+
+    /* Buttons */
+    .btn {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      padding: 0.55rem 1rem;
+      border-radius: var(--r);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all var(--ease);
+      outline: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .btn-primary {
+      background: var(--coral);
+      color: #0b0d17;
+      border-color: var(--coral);
+      width: 100%;
+      justify-content: center;
+    }
+    .btn-primary:hover  { filter: brightness(1.1); }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--text-dim); background: var(--surf2); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-dim);
+      border-color: transparent;
+      padding: 0.25rem 0.5rem;
+    }
+    .btn-ghost:hover { color: var(--text); background: var(--surf2); }
+    .btn-sm { padding: 0.28rem 0.6rem; font-size: 0.65rem; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; filter: none; }
+
+    /* Drop zone */
+    #drop-zone {
+      border: 2px dashed var(--border2);
+      border-radius: var(--r);
+      padding: 1.75rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--ease);
+      color: var(--text-dim);
+      font-size: 0.78rem;
+      line-height: 1.6;
+    }
+    #drop-zone:hover, #drop-zone.over {
+      border-color: var(--coral);
+      background: var(--coral-dim);
+      color: var(--text);
+    }
+    #drop-zone .dz-icon { font-size: 1.8rem; display: block; margin-bottom: 0.4rem; }
+    #file-input { display: none; }
+
+    /* Spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 12px; height: 12px;
+      border: 2px solid var(--border2);
+      border-top-color: var(--coral);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+
+    /* ── Workspace ─────────────────────────────────────────────────────────── */
+    #workspace {
+      overflow-y: auto;
+      padding: 1.75rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    /* Empty state */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 1rem;
+      color: var(--text-dim);
+      text-align: center;
+      padding: 3rem;
+      min-height: 60vh;
+    }
+    .empty-icon {
+      font-size: 3rem;
+      opacity: 0.4;
+    }
+    .empty-title {
+      font-size: 1rem;
+      color: var(--text);
+      font-weight: 500;
+    }
+    .empty-sub { font-size: 0.78rem; max-width: 360px; line-height: 1.6; }
+
+    /* Stats bar */
+    .stats-bar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.75rem 1.1rem;
+      background: var(--surf);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+    }
+    .stats-bar .stat {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .stat-num { font-size: 1.1rem; font-weight: 600; color: var(--text-hdr); }
+    .stat-lbl { color: var(--text-dim); }
+    .stats-bar .divider { width: 1px; height: 22px; background: var(--border); margin: 0 0.25rem; }
+
+    /* ── Pattern card ──────────────────────────────────────────────────────── */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0);   }
+    }
+    .pattern-card {
+      background: var(--surf);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      overflow: hidden;
+      animation: fadeIn 0.22s ease forwards;
+    }
+
+    /* Card header */
+    .pc-header {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      padding: 0.9rem 1.1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surf2);
+    }
+    .pc-label {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-hdr);
+      letter-spacing: 0.02em;
+    }
+    .pc-header .spacer { flex: 1; }
+
+    /* Pills */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+    .pill-coral  { border-color: var(--coral);    color: var(--coral);    background: var(--coral-dim); }
+    .pill-mint   { border-color: var(--mint);     color: var(--mint);     background: var(--mint-dim);  }
+    .pill-amber  { border-color: var(--amber);    color: var(--amber);    background: var(--amber-dim); }
+    .pill-red    { border-color: var(--red);      color: var(--red);      background: var(--red-dim);   }
+    .pill-lav    { border-color: var(--lavender); color: var(--lavender); background: var(--lav-dim);   }
+
+    /* Card body sections */
+    .pc-section {
+      padding: 0.9rem 1.1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .pc-section:last-child { border-bottom: none; }
+    .pc-section-label {
+      font-family: var(--mono);
+      font-size: 0.58rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 0.55rem;
+    }
+
+    /* Regex block */
+    .regex-block {
+      position: relative;
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: var(--r);
+      padding: 0.75rem 2.8rem 0.75rem 0.85rem;
+    }
+    .regex-block code {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      line-height: 1.7;
+      color: var(--text);
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+    /* Regex syntax highlighting via JS */
+    .rx-group  { color: #f59e0b; }   /* named capture groups */
+    .rx-quant  { color: var(--lavender); }
+    .rx-class  { color: var(--mint); }
+    .rx-anchor { color: var(--coral); }
+    .rx-alt    { color: var(--coral); }
+    .rx-lit    { color: var(--text); }
+
+    .copy-btn {
+      position: absolute;
+      top: 0.4rem;
+      right: 0.4rem;
+    }
+
+    /* Named groups grid */
+    .groups-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .group-pill {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 3px;
+      background: var(--lav-dim);
+      border: 1px solid var(--lavender);
+      color: var(--lavender);
+    }
+
+    /* Caption variants table */
+    .variants-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+    }
+    .variants-table th {
+      text-align: left;
+      color: var(--text-dim);
+      padding: 0.2rem 0.5rem 0.4rem 0;
+      font-weight: 400;
+      font-size: 0.62rem;
+      letter-spacing: 0.08em;
+    }
+    .variants-table td {
+      padding: 0.15rem 0.5rem 0.15rem 0;
+      color: var(--text);
+      vertical-align: top;
+    }
+    .variant-tag {
+      display: inline-block;
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.1rem 0.4rem;
+      margin: 0.1rem 0.2rem 0.1rem 0;
+      color: var(--coral);
+    }
+
+    /* Examples */
+    .example-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+    .example-list li {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 0.35rem 0.65rem;
+      background: var(--bg);
+      border-radius: 4px;
+      border-left: 2px solid var(--border2);
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    /* Failed statements */
+    .failed-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .failed-list li {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 0.3rem 0.65rem;
+      background: var(--red-dim);
+      border-radius: 4px;
+      border-left: 2px solid var(--red);
+      color: var(--red);
+      word-break: break-all;
+    }
+
+    /* Collapsible */
+    .collapsible-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      color: var(--text-dim);
+      padding: 0;
+      transition: color var(--ease);
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      margin-top: 0.4rem;
+    }
+    .collapsible-toggle:hover { color: var(--text); }
+    .collapsible-content { display: none; margin-top: 0.5rem; }
+    .collapsible-content.open { display: block; }
+
+    /* Test area */
+    .test-area {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .test-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: stretch;
+    }
+    .test-row input {
+      flex: 1;
+      min-width: 0;
+      resize: none;
+    }
+    .test-result {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+    }
+    .test-match-ok {
+      background: var(--mint-dim);
+      border: 1px solid var(--mint);
+      border-radius: var(--r);
+      padding: 0.55rem 0.75rem;
+    }
+    .test-match-fail {
+      background: var(--red-dim);
+      border: 1px solid var(--red);
+      border-radius: var(--r);
+      padding: 0.55rem 0.75rem;
+      color: var(--red);
+    }
+    .test-groups-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 0.3rem;
+      margin-top: 0.5rem;
+    }
+    .test-group-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+      padding: 0.3rem 0.5rem;
+      background: var(--surf2);
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    .tg-name  { font-size: 0.6rem; color: var(--lavender); }
+    .tg-value { font-size: 0.72rem; color: var(--text-hdr); }
+
+    /* Export panel */
+    .export-card {
+      background: var(--surf);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 1.1rem;
+    }
+    .export-title {
+      font-weight: 600;
+      font-size: 0.82rem;
+      color: var(--text-hdr);
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .export-tabs { display: flex; gap: 0.4rem; margin-bottom: 0.75rem; }
+    .export-tab {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      background: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all var(--ease);
+    }
+    .export-tab.active { border-color: var(--coral); color: var(--coral); background: var(--coral-dim); }
+    .export-block {
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: var(--r);
+      padding: 0.75rem;
+      position: relative;
+    }
+    .export-block pre {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      line-height: 1.65;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .export-copy {
+      position: absolute;
+      top: 0.4rem;
+      right: 0.4rem;
+    }
+
+    /* Alert */
+    .alert {
+      padding: 0.55rem 0.85rem;
+      border-radius: var(--r);
+      font-size: 0.75rem;
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-start;
+    }
+    .alert-err  { background: var(--red-dim);   border: 1px solid var(--red);   color: var(--red);   }
+    .alert-ok   { background: var(--mint-dim);  border: 1px solid var(--mint);  color: var(--mint);  }
+    .alert-warn { background: var(--amber-dim); border: 1px solid var(--amber); color: var(--amber); }
+
+    /* Misc */
+    .dim    { color: var(--text-dim); }
+    .mono   { font-family: var(--mono); }
+    .small  { font-size: 0.7rem; }
+    .mt-05  { margin-top: 0.25rem; }
+    .mt-1   { margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="hdr-icon">🔬</div>
+  <div>
+    <h1>Holdings Pattern Detector</h1>
+    <div class="hdr-sub">866 $a → Named-Group Regular Expressions</div>
+  </div>
+  {% if has_pymarc %}
+    <span class="hdr-badge ok">pymarc ✓</span>
+  {% else %}
+    <span class="hdr-badge err">pymarc not installed</span>
+  {% endif %}
+</header>
+
+<!-- ── Main ───────────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+  <aside id="sidebar">
+
+    <!-- Tab strip -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="tab-text">Paste Text</button>
+      <button class="tab-btn" data-tab="tab-file">Upload .mrc</button>
+    </div>
+
+    <!-- TEXT TAB -->
+    <div id="tab-text" class="tab-panel active">
+      <div class="sb-section">
+        <div class="section-label">Holdings Statements (one per line)</div>
+        <div class="form-group">
+          <textarea id="stmt-input"
+            placeholder="v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)&#10;Vol. 1, No. 1 (Spring 1990)-Vol. 5, No. 4 (Winter 1994)&#10;v.6(1995)-&#10;1990-1994"></textarea>
+        </div>
+        <div class="form-group small dim" style="font-size:0.68rem; line-height:1.5;">
+          Paste one 866 $a value per line. Multi-range strings like
+          <span class="mono" style="color:var(--coral)">v.1(1990)-v.3(1992), v.5(1994)-</span>
+          can be auto-split below.
+        </div>
+      </div>
+
+      <div class="sb-section">
+        <div class="section-label">Quick Examples</div>
+        <div style="display:flex; flex-wrap:wrap; gap:0.35rem;">
+          <button class="btn btn-ghost btn-sm example-btn"
+            data-val="v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)
+Vol. 1, No. 1 (Spring 1990)-Vol. 5, No. 4 (Winter 1994)
+v.3:no.1(1992:Jan.)-v.8:no.4(1997:Dec.)
+v.6(1995)-
+v.1(1990)-v.10(1999)
+1990-1994">Mixed patterns</button>
+          <button class="btn btn-ghost btn-sm example-btn"
+            data-val="v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)
+Vol.1,no.1(1990:Jan)-Vol.5,no.4(1994:Dec)
+v.1:no.1(1990:January)-v.5:no.4(1994:December)
+volume 1, number 1 (1990:Jan.)-volume 5, number 4 (1994:Dec.)">Caption variants</button>
+          <button class="btn btn-ghost btn-sm example-btn"
+            data-val="v.1(1990)-v.3(1992), v.5(1994)-
+v.10(2000)-v.15(2005), v.17(2007)-
+v.1(1985)-v.4(1988), v.6(1990)-v.8(1992)">Multi-range</button>
+        </div>
+      </div>
+    </div><!-- /tab-text -->
+
+    <!-- FILE TAB -->
+    <div id="tab-file" class="tab-panel">
+      <div class="sb-section">
+        <div class="section-label">Upload MARC Binary File</div>
+        {% if not has_pymarc %}
+        <div class="alert alert-err">pymarc is not installed. File mode unavailable.</div>
+        {% else %}
+        <div id="drop-zone">
+          <span class="dz-icon">📂</span>
+          Drop a .mrc MARC binary file here<br />
+          <span class="small dim">or click to browse</span>
+        </div>
+        <input type="file" id="file-input" accept=".mrc,.marc" />
+        <div id="file-status" class="mt-1 small dim"></div>
+        {% endif %}
+      </div>
+    </div><!-- /tab-file -->
+
+    <!-- Options (shared) -->
+    <div class="sb-section">
+      <div class="section-label">Options</div>
+      <label class="check-row">
+        <input type="checkbox" id="opt-split" checked />
+        Split multi-range statements on top-level commas
+      </label>
+      <label class="check-row">
+        <input type="checkbox" id="opt-dedup" />
+        De-duplicate identical statements before analysis
+      </label>
+    </div>
+
+    <!-- Detect button -->
+    <div class="sb-section">
+      <button class="btn btn-primary" id="btn-detect">
+        <span id="detect-label">⟳ Detect Patterns</span>
+      </button>
+      <div id="detect-error" class="mt-1"></div>
+    </div>
+
+  </aside><!-- /sidebar -->
+
+  <!-- ── Workspace ──────────────────────────────────────────────────────────── -->
+  <section id="workspace">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">🧬</div>
+      <div class="empty-title">No patterns detected yet</div>
+      <div class="empty-sub">
+        Paste holdings statements on the left or upload a .mrc file,
+        then click <strong>Detect Patterns</strong>. The tool will cluster
+        your statements by structure and generate a named-group regex
+        for each pattern it finds.
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let detectedGroups = [];
+let allStatements  = [];
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Example buttons ─────────────────────────────────────────────────────────
+document.querySelectorAll('.example-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById('stmt-input').value = btn.dataset.val;
+    // Switch to text tab if not already
+    document.querySelectorAll('.tab-btn')[0].click();
+  });
+});
+
+// ── File upload (drag-and-drop + click) ─────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+if (dropZone) {
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('over');
+    if (e.dataTransfer.files[0]) uploadMrc(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) uploadMrc(fileInput.files[0]);
+  });
+}
+
+async function uploadMrc(file) {
+  const statusEl = document.getElementById('file-status');
+  dropZone.innerHTML = '<span class="spinner"></span> Reading…';
+  statusEl.textContent = '';
+
+  const form = new FormData();
+  form.append('file', file);
+
+  try {
+    const res  = await fetch('/api/upload-marc', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) {
+      dropZone.innerHTML = `<span class="dz-icon">❌</span>${esc(data.error)}`;
+      return;
+    }
+    allStatements = data.statements;
+    document.getElementById('stmt-input').value = data.statements.join('\n');
+    dropZone.innerHTML = `<span class="dz-icon">✓</span>${esc(file.name)}<br><span class="small dim">${data.records} records · ${data.count} 866 $a values</span>`;
+    statusEl.innerHTML = `<span style="color:var(--mint)">${data.count} statements loaded — click Detect Patterns</span>`;
+    // Switch to text tab to show populated textarea
+    document.querySelectorAll('.tab-btn')[0].click();
+  } catch (err) {
+    dropZone.innerHTML = '<span class="dz-icon">❌</span>Upload failed.';
+  }
+}
+
+// ── Main detect ─────────────────────────────────────────────────────────────
+document.getElementById('btn-detect').addEventListener('click', runDetect);
+
+async function runDetect() {
+  const raw = document.getElementById('stmt-input').value.trim();
+  if (!raw) return;
+
+  const stmts = raw.split('\n').map(s => s.trim()).filter(Boolean);
+  const dedup = document.getElementById('opt-dedup').checked;
+  const finalStmts = dedup ? [...new Set(stmts)] : stmts;
+
+  const btn   = document.getElementById('btn-detect');
+  const label = document.getElementById('detect-label');
+  const errEl = document.getElementById('detect-error');
+
+  btn.disabled = true;
+  label.innerHTML = '<span class="spinner"></span> Analysing…';
+  errEl.innerHTML = '';
+
+  try {
+    const res  = await fetch('/api/detect', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        statements:        finalStmts,
+        split_multi_range: document.getElementById('opt-split').checked,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      errEl.innerHTML = `<div class="alert alert-err">${esc(data.error)}</div>`;
+      return;
+    }
+    detectedGroups = data.groups;
+    allStatements  = finalStmts;
+    renderResults(data);
+  } catch (err) {
+    errEl.innerHTML = `<div class="alert alert-err">Request failed: ${esc(err.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    label.innerHTML = '⟳ Detect Patterns';
+  }
+}
+
+// ── Render results ───────────────────────────────────────────────────────────
+function renderResults(data) {
+  const ws = document.getElementById('workspace');
+  ws.innerHTML = '';
+
+  // Stats bar
+  const statsBar = el('div', 'stats-bar');
+  statsBar.innerHTML = `
+    <div class="stat">
+      <span class="stat-num">${data.total_statements}</span>
+      <span class="stat-lbl">statements</span>
+    </div>
+    <div class="divider"></div>
+    <div class="stat">
+      <span class="stat-num">${data.total_patterns}</span>
+      <span class="stat-lbl">pattern${data.total_patterns !== 1 ? 's' : ''} detected</span>
+    </div>
+    <div class="spacer"></div>
+  `;
+
+  // Coverage indicator
+  const total_matched = data.groups.reduce((s, g) => s + g.matched_count, 0);
+  const coverage = data.total_statements ? Math.round(total_matched / data.total_statements * 100) : 0;
+  const coverPill = document.createElement('span');
+  const coverClass = coverage === 100 ? 'pill-mint' : coverage >= 90 ? 'pill-amber' : 'pill-red';
+  coverPill.className = `pill ${coverClass}`;
+  coverPill.textContent = `${coverage}% overall coverage`;
+  statsBar.querySelector('.spacer').after(coverPill);
+  ws.appendChild(statsBar);
+
+  // Cards
+  data.groups.forEach((group, i) => {
+    const card = buildCard(group, i);
+    ws.appendChild(card);
+  });
+
+  // Export section
+  if (data.total_patterns > 0) {
+    ws.appendChild(buildExportPanel(data.groups));
+  }
+}
+
+// ── Pattern card ─────────────────────────────────────────────────────────────
+function buildCard(group, idx) {
+  const card = el('div', 'pattern-card');
+  card.style.animationDelay = `${idx * 0.04}s`;
+
+  const pct = Math.round(group.match_rate * 100);
+  const matchClass = pct === 100 ? 'pill-mint' : pct >= 80 ? 'pill-amber' : 'pill-red';
+
+  // ── Header ──
+  const hdr = el('div', 'pc-header');
+  hdr.innerHTML = `
+    <span class="pc-label">${esc(group.human_label)}</span>
+    <span class="spacer"></span>
+    <span class="pill">${group.count} stmt${group.count !== 1 ? 's' : ''}</span>
+    <span class="pill ${matchClass}">${pct}% matched</span>
+    ${group.is_open_ended ? '<span class="pill pill-coral">open-ended</span>' : ''}
+  `;
+  card.appendChild(hdr);
+
+  // ── Regex section ──
+  const rxSec = el('div', 'pc-section');
+  rxSec.innerHTML = `<div class="pc-section-label">Generated Regular Expression <span class="dim">(re.IGNORECASE)</span></div>`;
+  const rxBlock = el('div', 'regex-block');
+  const code = document.createElement('code');
+  code.innerHTML = highlightRegex(group.regex);
+  rxBlock.appendChild(code);
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'btn btn-ghost btn-sm copy-btn';
+  copyBtn.textContent = 'Copy';
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(group.regex).then(() => {
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => copyBtn.textContent = 'Copy', 1500);
+    });
+  });
+  rxBlock.appendChild(copyBtn);
+  rxSec.appendChild(rxBlock);
+  card.appendChild(rxSec);
+
+  // ── Named groups ──
+  if (group.named_groups.length) {
+    const ngSec = el('div', 'pc-section');
+    ngSec.innerHTML = `<div class="pc-section-label">Named Capture Groups</div>`;
+    const row = el('div', 'groups-row');
+    group.named_groups.forEach(name => {
+      const p = el('span', 'group-pill');
+      p.textContent = name;
+      row.appendChild(p);
+    });
+    ngSec.appendChild(row);
+    card.appendChild(ngSec);
+  }
+
+  // ── Caption variants ──
+  const capKeys = Object.keys(group.caption_variants || {});
+  const multiVariant = capKeys.filter(k => (group.caption_variants[k] || []).length > 1);
+  if (capKeys.length) {
+    const cvSec = el('div', 'pc-section');
+    cvSec.innerHTML = `<div class="pc-section-label">Caption Variants Observed ${multiVariant.length ? '<span class="pill pill-amber" style="vertical-align:middle">'+multiVariant.length+' mixed</span>' : ''}</div>`;
+    const table = document.createElement('table');
+    table.className = 'variants-table';
+    table.innerHTML = `<tr><th>Level</th><th>Forms seen</th></tr>`;
+    capKeys.forEach(k => {
+      const variants = group.caption_variants[k] || [];
+      const tr = document.createElement('tr');
+      const tdKey = document.createElement('td');
+      tdKey.style.color = 'var(--text-dim)';
+      tdKey.style.fontWeight = '500';
+      tdKey.textContent = k.toUpperCase();
+      const tdVals = document.createElement('td');
+      variants.forEach(v => {
+        const tag = el('span', 'variant-tag');
+        tag.textContent = v;
+        tdVals.appendChild(tag);
+      });
+      tr.appendChild(tdKey);
+      tr.appendChild(tdVals);
+      table.appendChild(tr);
+    });
+    cvSec.appendChild(table);
+    card.appendChild(cvSec);
+  }
+
+  // ── Examples ──
+  if (group.examples.length) {
+    const exSec = el('div', 'pc-section');
+    exSec.innerHTML = `<div class="pc-section-label">Example Statements</div>`;
+    const list = el('ul', 'example-list');
+    group.examples.slice(0, 3).forEach(ex => {
+      const li = document.createElement('li');
+      li.textContent = ex;
+      list.appendChild(li);
+    });
+    exSec.appendChild(list);
+    if (group.count > 3) {
+      const toggle = makeCollapsible(
+        `+ ${group.count - 3} more`,
+        buildFullList(group.examples.slice(3), 'example-list')
+      );
+      exSec.appendChild(toggle);
+    }
+    card.appendChild(exSec);
+  }
+
+  // ── Failed ──
+  if (group.failed.length) {
+    const failSec = el('div', 'pc-section');
+    failSec.innerHTML = `<div class="pc-section-label" style="color:var(--red)">⚠ ${group.failed.length} statement${group.failed.length !== 1 ? 's' : ''} did not match</div>`;
+    const toggle = makeCollapsible(
+      `Show failed statements`,
+      buildFullList(group.failed, 'failed-list')
+    );
+    failSec.appendChild(toggle);
+    card.appendChild(failSec);
+  }
+
+  // ── Test area ──
+  const testSec = el('div', 'pc-section');
+  testSec.innerHTML = `<div class="pc-section-label">Test Regex Against a Statement</div>`;
+  const testArea = el('div', 'test-area');
+  const testRow  = el('div', 'test-row');
+  const testInput = document.createElement('input');
+  testInput.type = 'text';
+  testInput.placeholder = 'Paste a holdings statement to test…';
+  testInput.style.fontFamily = 'var(--mono)';
+  testInput.style.fontSize = '0.72rem';
+
+  const testBtn = document.createElement('button');
+  testBtn.className = 'btn btn-secondary btn-sm';
+  testBtn.textContent = 'Test';
+
+  const resultEl = el('div', 'test-result');
+  resultEl.id = `test-result-${idx}`;
+
+  testBtn.addEventListener('click', () => testRegex(idx, testInput.value, group.regex, resultEl));
+  testInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') testRegex(idx, testInput.value, group.regex, resultEl);
+  });
+
+  testRow.appendChild(testInput);
+  testRow.appendChild(testBtn);
+  testArea.appendChild(testRow);
+  testArea.appendChild(resultEl);
+  testSec.appendChild(testArea);
+  card.appendChild(testSec);
+
+  return card;
+}
+
+// ── Test single regex ────────────────────────────────────────────────────────
+async function testRegex(cardIdx, statement, regexStr, resultEl) {
+  if (!statement.trim()) return;
+  resultEl.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const res  = await fetch('/api/test-regex', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ regex: regexStr, statements: [statement] }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      resultEl.innerHTML = `<div class="test-match-fail">${esc(data.error)}</div>`;
+      return;
+    }
+    const r = data.results[0];
+    if (!r.matched) {
+      resultEl.innerHTML = `<div class="test-match-fail">✗ No match</div>`;
+      return;
+    }
+    const fullTag = r.full_match
+      ? '<span class="pill pill-mint" style="margin-left:0.4rem">full match</span>'
+      : '<span class="pill pill-amber" style="margin-left:0.4rem">partial match</span>';
+    const groups = r.groups || {};
+    const groupKeys = Object.keys(groups).filter(k => groups[k] != null);
+    let groupsHtml = '';
+    if (groupKeys.length) {
+      groupsHtml = `<div class="test-groups-grid">` +
+        groupKeys.map(k => `
+          <div class="test-group-item">
+            <span class="tg-name">${esc(k)}</span>
+            <span class="tg-value">${esc(groups[k] || '—')}</span>
+          </div>`).join('') +
+        `</div>`;
+    }
+    resultEl.innerHTML = `
+      <div class="test-match-ok">
+        <div>✓ Matched${fullTag}</div>
+        ${groupsHtml}
+      </div>`;
+  } catch (err) {
+    resultEl.innerHTML = `<div class="test-match-fail">Error: ${esc(err.message)}</div>`;
+  }
+}
+
+// ── Export panel ─────────────────────────────────────────────────────────────
+function buildExportPanel(groups) {
+  const panel = el('div', 'export-card');
+  panel.innerHTML = `
+    <div class="export-title">⬇ Export Patterns</div>
+    <div class="export-tabs">
+      <button class="export-tab active" data-fmt="python">Python dict</button>
+      <button class="export-tab" data-fmt="json">JSON</button>
+    </div>
+    <div class="export-block">
+      <pre id="export-content"></pre>
+      <button class="btn btn-ghost btn-sm export-copy" id="export-copy-btn">Copy</button>
+    </div>`;
+
+  panel.querySelectorAll('.export-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      panel.querySelectorAll('.export-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderExport(groups, tab.dataset.fmt);
+    });
+  });
+
+  // Render Python by default
+  renderExport(groups, 'python', panel);
+
+  panel.querySelector('#export-copy-btn').addEventListener('click', () => {
+    const content = panel.querySelector('#export-content').textContent;
+    navigator.clipboard.writeText(content).then(() => {
+      const btn = panel.querySelector('#export-copy-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy', 1500);
+    });
+  });
+
+  return panel;
+}
+
+function renderExport(groups, fmt, panelEl) {
+  const panel = panelEl || document.querySelector('.export-card');
+  if (!panel) return;
+  const pre = panel.querySelector('#export-content');
+  if (!pre) return;
+
+  if (fmt === 'python') {
+    const lines = ['import re', '', 'HOLDINGS_PATTERNS = {'];
+    groups.forEach(g => {
+      const label = g.human_label.replace(/'/g, "\\'");
+      lines.push(`    # ${g.count} statement${g.count !== 1 ? 's' : ''} · ${Math.round(g.match_rate*100)}% matched`);
+      lines.push(`    '${label}': re.compile(`);
+      lines.push(`        r'${g.regex.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}',`);
+      lines.push(`        re.IGNORECASE,`);
+      lines.push(`    ),`);
+    });
+    lines.push('}');
+    lines.push('');
+    lines.push('# Named groups per pattern:');
+    groups.forEach(g => {
+      lines.push(`#   ${g.human_label}: ${g.named_groups.join(', ')}`);
+    });
+    pre.textContent = lines.join('\n');
+  } else {
+    const payload = groups.map(g => ({
+      label:        g.human_label,
+      count:        g.count,
+      match_rate:   g.match_rate,
+      regex:        g.regex,
+      named_groups: g.named_groups,
+      is_open_ended: g.is_open_ended,
+    }));
+    pre.textContent = JSON.stringify(payload, null, 2);
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function el(tag, cls) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  return e;
+}
+
+function esc(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function buildFullList(items, cls) {
+  const list = el('ul', cls);
+  items.forEach(item => {
+    const li = document.createElement('li');
+    li.textContent = item;
+    list.appendChild(li);
+  });
+  return list;
+}
+
+function makeCollapsible(label, contentEl) {
+  const wrapper = document.createElement('div');
+  const toggle  = el('button', 'collapsible-toggle');
+  toggle.textContent = `▸ ${label}`;
+  const content = el('div', 'collapsible-content');
+  content.appendChild(contentEl);
+  toggle.addEventListener('click', () => {
+    const open = content.classList.toggle('open');
+    toggle.textContent = (open ? '▾ ' : '▸ ') + label;
+  });
+  wrapper.appendChild(toggle);
+  wrapper.appendChild(content);
+  return wrapper;
+}
+
+/**
+ * Very lightweight regex syntax highlighter.
+ * Highlights named groups, quantifiers, character classes, and alternation.
+ */
+function highlightRegex(pattern) {
+  let result = '';
+  let i = 0;
+  const s = esc(pattern);
+  // Tokenise the HTML-escaped string with simple state machine
+  // Work on raw pattern (not HTML-escaped) then escape each chunk
+  const p = pattern;
+  let out = '';
+  let j = 0;
+  while (j < p.length) {
+    // Named group: (?P<name>...)
+    if (p[j] === '(' && p.slice(j, j+4) === '(?P<') {
+      const end = p.indexOf('>', j + 4);
+      if (end !== -1) {
+        const name = p.slice(j + 4, end);
+        out += `<span class="rx-group">(?P&lt;${esc(name)}&gt;</span>`;
+        j = end + 1;
+        continue;
+      }
+    }
+    // Non-capturing group (?:...)
+    if (p.slice(j, j+3) === '(?:') {
+      out += `<span class="rx-alt">(?:</span>`;
+      j += 3;
+      continue;
+    }
+    // Character classes \d \w \s \b
+    if (p[j] === '\\' && j+1 < p.length && 'dwsWDSb'.includes(p[j+1])) {
+      out += `<span class="rx-class">\\${esc(p[j+1])}</span>`;
+      j += 2;
+      continue;
+    }
+    // Escaped literal
+    if (p[j] === '\\' && j+1 < p.length) {
+      out += `<span class="rx-lit">\\${esc(p[j+1])}</span>`;
+      j += 2;
+      continue;
+    }
+    // Quantifiers
+    if ('*+?'.includes(p[j]) || (p[j] === '{' && /\{\d/.test(p.slice(j)))) {
+      const m = p.slice(j).match(/^[*+?]|^\{\d+(?:,\d*)?\}/);
+      if (m) {
+        out += `<span class="rx-quant">${esc(m[0])}</span>`;
+        j += m[0].length;
+        continue;
+      }
+    }
+    // Alternation pipe
+    if (p[j] === '|') {
+      out += `<span class="rx-alt">|</span>`;
+      j++;
+      continue;
+    }
+    // Anchors
+    if (p[j] === '^' || p[j] === '$') {
+      out += `<span class="rx-anchor">${esc(p[j])}</span>`;
+      j++;
+      continue;
+    }
+    // Closing paren
+    if (p[j] === ')') {
+      out += `<span class="rx-group">)</span>`;
+      j++;
+      continue;
+    }
+    // Default
+    out += esc(p[j]);
+    j++;
+  }
+  return out;
+}
+</script>
+</body>
+</html>

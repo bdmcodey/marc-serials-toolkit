@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MARC Holdings Converter — 866 → 853/863</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,600;1,300&family=Playfair+Display:wght@700&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f0f12;
+      --surface:   #16161c;
+      --surface2:  #1e1e27;
+      --border:    #2a2a38;
+      --accent:    #c8a84b;          /* warm gold  */
+      --accent2:   #5b8dd9;          /* steel blue */
+      --danger:    #d9605b;
+      --success:   #5bd98a;
+      --text:      #d4d4e0;
+      --text-dim:  #7c7c96;
+      --text-hdr:  #f0ede4;
+      --mono:      'IBM Plex Mono', monospace;
+      --sans:      'IBM Plex Sans', sans-serif;
+      --display:   'Playfair Display', serif;
+      --radius:    6px;
+      --transition: 180ms ease;
+    }
+
+    html { font-size: 15px; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Layout ────────────────────────────────────────────────────── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: baseline;
+      gap: 1.5rem;
+    }
+    header h1 {
+      font-family: var(--display);
+      font-size: 1.55rem;
+      color: var(--text-hdr);
+      letter-spacing: -0.01em;
+    }
+    header .subtitle {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    header .badge {
+      margin-left: auto;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 3px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+    header .badge.ok  { border-color: var(--success); color: var(--success); }
+    header .badge.err { border-color: var(--danger);  color: var(--danger);  }
+
+    main {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ───────────────────────────────────────────────────── */
+    #sidebar {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+	  min-height: 0;
+    }
+    .sidebar-section {
+      padding: 1.25rem 1.25rem 0;
+    }
+    .sidebar-section + .sidebar-section {
+      border-top: 1px solid var(--border);
+      margin-top: 1rem;
+      padding-top: 1.25rem;
+    }
+    .section-label {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 0.75rem;
+    }
+
+    /* ── Workspace ─────────────────────────────────────────────────── */
+    #workspace {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 1.75rem 2rem;
+      gap: 2rem;
+	  min-height: 0;
+    }
+
+    /* ── Cards ─────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+    }
+    .card-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-hdr);
+      margin-bottom: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .card-title .tag {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: 3px;
+      background: var(--surface2);
+      color: var(--accent);
+      border: 1px solid var(--border);
+    }
+
+    /* ── Form elements ─────────────────────────────────────────────── */
+    label {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      margin-bottom: 0.3rem;
+      font-weight: 300;
+    }
+    input[type="text"], textarea, select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      padding: 0.55rem 0.75rem;
+      outline: none;
+      transition: border-color var(--transition);
+    }
+    input[type="text"]:focus,
+    textarea:focus,
+    select:focus { border-color: var(--accent2); }
+    textarea { resize: vertical; min-height: 64px; }
+    select option { background: var(--surface2); }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.6rem;
+      margin-bottom: 0.75rem;
+    }
+    .form-row.full { grid-template-columns: 1fr; }
+    .form-group { margin-bottom: 0.75rem; }
+
+    /* ── Buttons ───────────────────────────────────────────────────── */
+    .btn {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      padding: 0.55rem 1.1rem;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all var(--transition);
+      outline: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #0f0f12;
+      border-color: var(--accent);
+    }
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--text-dim); background: var(--surface2); }
+    .btn-danger {
+      background: transparent;
+      color: var(--danger);
+      border-color: var(--danger);
+    }
+    .btn-success {
+      background: transparent;
+      color: var(--success);
+      border-color: var(--success);
+    }
+    .btn-success:hover { background: rgba(91,217,138,0.08); }
+    .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.68rem; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+
+    /* ── Upload zone ───────────────────────────────────────────────── */
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 2rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--transition);
+      color: var(--text-dim);
+      font-size: 0.8rem;
+    }
+    #drop-zone:hover, #drop-zone.dragover {
+      border-color: var(--accent2);
+      background: rgba(91,141,217,0.06);
+      color: var(--text);
+    }
+    #drop-zone .icon {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+    #file-input { display: none; }
+
+    /* ── MARC field display ────────────────────────────────────────── */
+    .field-display {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.6;
+      padding: 0.6rem 0.85rem;
+      border-radius: var(--radius);
+      background: var(--surface2);
+      border-left: 3px solid var(--border);
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+    .field-display.f853 { border-left-color: var(--accent); }
+    .field-display.f863 { border-left-color: var(--accent2); }
+    .field-display.f866 { border-left-color: var(--text-dim); }
+
+    .field-label {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.3rem;
+    }
+    .field-group { margin-bottom: 0.75rem; }
+
+    /* Subfield highlighting */
+    .sf-code  { color: var(--accent); }
+    .sf-value { color: var(--text); }
+    .sf-tag   { color: var(--text-hdr); font-weight: 500; }
+    .sf-ind   { color: var(--text-dim); }
+
+    /* ── Record list ───────────────────────────────────────────────── */
+    .record-item {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background var(--transition);
+    }
+    .record-item:hover { background: var(--surface2); }
+    .record-item.active { background: var(--surface2); border-left: 3px solid var(--accent); }
+    .record-item .rec-title {
+      font-size: 0.8rem;
+      color: var(--text-hdr);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .record-item .rec-meta {
+      font-family: var(--mono);
+      font-size: 0.64rem;
+      color: var(--text-dim);
+      margin-top: 0.2rem;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      margin-left: 0.3rem;
+    }
+    .pill.has-866 { border-color: var(--accent); color: var(--accent); }
+    .pill.converted { border-color: var(--success); color: var(--success); }
+
+    /* ── Parse tree ────────────────────────────────────────────────── */
+    .parse-tree {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      line-height: 1.7;
+    }
+    .parse-tree .range-block { margin-bottom: 0.75rem; }
+    .parse-tree .range-head {
+      color: var(--accent2);
+      font-weight: 500;
+    }
+    .parse-tree .kv { padding-left: 1rem; color: var(--text-dim); }
+    .parse-tree .kv span { color: var(--text); }
+    .parse-tree .open-pill {
+      color: var(--success);
+      font-size: 0.65rem;
+      margin-left: 0.5rem;
+    }
+
+    /* ── Warnings / info ───────────────────────────────────────────── */
+    .alert {
+      padding: 0.6rem 0.9rem;
+      border-radius: var(--radius);
+      font-size: 0.78rem;
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-start;
+    }
+    .alert-warn { background: rgba(201,168,75,0.1); border: 1px solid rgba(201,168,75,0.3); color: var(--accent); }
+    .alert-err  { background: rgba(217,96,91,0.1);  border: 1px solid rgba(217,96,91,0.3);  color: var(--danger);  }
+    .alert-ok   { background: rgba(91,217,138,0.1); border: 1px solid rgba(91,217,138,0.3); color: var(--success); }
+    .alert-info { background: rgba(91,141,217,0.1); border: 1px solid rgba(91,141,217,0.3); color: var(--accent2); }
+
+    /* ── Caption editor ────────────────────────────────────────────── */
+    .caption-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+    }
+    .caption-grid .form-group { margin-bottom: 0; }
+
+    /* ── Tabs ──────────────────────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1.5rem;
+      gap: 0;
+    }
+    .tab-btn {
+      font-family: var(--mono);
+      font-size: 0.73rem;
+      padding: 0.6rem 1.1rem;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all var(--transition);
+      margin-bottom: -1px;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Spinner ───────────────────────────────────────────────────── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+    }
+
+    /* ── Misc ──────────────────────────────────────────────────────── */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
+    .mono { font-family: var(--mono); }
+    .dim { color: var(--text-dim); }
+    .small { font-size: 0.72rem; }
+    .mt-1 { margin-top: 0.5rem; }
+    .mt-2 { margin-top: 1rem; }
+    #records-list { flex: 1; overflow-y: auto; }
+    .empty-state {
+      padding: 2rem 1rem;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      font-style: italic;
+    }
+    .conversion-866-block {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+    .conversion-866-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.65rem 0.9rem;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+    }
+    .conversion-866-header .f866-text {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .conversion-866-body { padding: 0.9rem; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<header>
+  <h1>MARC Holdings Converter</h1>
+  <span class="subtitle">866 Textual → 853 / 863 Structured</span>
+  {% if has_pymarc %}
+    <span class="badge ok">pymarc ✓</span>
+  {% else %}
+    <span class="badge err">pymarc not installed</span>
+  {% endif %}
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Sidebar -->
+  <aside id="sidebar">
+
+    <!-- Tab strip -->
+    <div class="tabs" style="padding: 0 1.25rem; margin-bottom: 0;">
+      <button class="tab-btn active" data-tab="tab-text">Text Mode</button>
+      <button class="tab-btn" data-tab="tab-file">File Mode</button>
+    </div>
+
+    <!-- ── TEXT MODE ── -->
+    <div id="tab-text" class="tab-panel active">
+
+      <div class="sidebar-section">
+        <div class="section-label">866 Holdings Input</div>
+        <div class="form-group">
+          <label>$a — Textual Holdings Statement</label>
+          <textarea id="text-input" rows="4"
+            placeholder="e.g. v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.), v.7(1996)-"></textarea>
+        </div>
+        <details>
+          <summary class="small dim" style="cursor:pointer; margin-bottom:0.6rem;">
+            Caption overrides <span class="dim">(optional)</span>
+          </summary>
+          <div class="caption-grid mt-1">
+            <div class="form-group">
+              <label>Vol. caption ($a)</label>
+              <input type="text" id="cap-vol" value="v." />
+            </div>
+            <div class="form-group">
+              <label>Issue caption ($b)</label>
+              <input type="text" id="cap-issue" value="no." />
+            </div>
+            <div class="form-group">
+              <label>Part caption ($c)</label>
+              <input type="text" id="cap-part" value="pt." />
+            </div>
+            <div class="form-group">
+              <label>Year caption ($i)</label>
+              <input type="text" id="cap-year" value="(year)" />
+            </div>
+            <div class="form-group">
+              <label>Month caption ($j)</label>
+              <input type="text" id="cap-month" value="(month)" />
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="sidebar-section" style="padding-bottom:1.25rem;">
+        <div class="section-label">853 Pattern Options</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Frequency ($w)</label>
+            <select id="opt-freq">
+              {% for code, label in frequency_codes.items() %}
+              <option value="{{ code }}" {% if code == '' %}selected{% endif %}>
+                {% if code %}[{{code}}]{% endif %} {{ label }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Numbering ($v)</label>
+            <select id="opt-continuity">
+              <option value="r" selected>[r] Renumbers per vol.</option>
+              <option value="c">[c] Continuous</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Linking number ($8)</label>
+          <input type="text" id="opt-linking" value="1" style="width:80px;" />
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-parse">
+            <span>Convert</span>
+          </button>
+          <button class="btn btn-secondary btn-sm" id="btn-clear">Clear</button>
+        </div>
+      </div>
+
+    </div><!-- /tab-text -->
+
+    <!-- ── FILE MODE ── -->
+    <div id="tab-file" class="tab-panel">
+      <div class="sidebar-section">
+        <div class="section-label">Upload MARC File</div>
+        {% if not has_pymarc %}
+        <div class="alert alert-err">pymarc is not installed. File mode unavailable.</div>
+        {% else %}
+        <div id="drop-zone">
+          <span class="icon">📂</span>
+          Drop a .mrc MARC binary file here<br />
+          <span class="small dim">or click to browse</span>
+        </div>
+        <input type="file" id="file-input" accept=".mrc,.marc" />
+        {% endif %}
+      </div>
+
+      <div class="sidebar-section" id="batch-options" style="display:none; padding-bottom:1.25rem;">
+        <div class="section-label">Batch Conversion Defaults</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Frequency ($w)</label>
+            <select id="batch-freq">
+              {% for code, label in frequency_codes.items() %}
+              <option value="{{ code }}" {% if code == '' %}selected{% endif %}>
+                {% if code %}[{{code}}]{% endif %} {{ label }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Numbering ($v)</label>
+            <select id="batch-continuity">
+              <option value="r" selected>[r] Renumbers</option>
+              <option value="c">[c] Continuous</option>
+            </select>
+          </div>
+        </div>
+        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; margin-bottom:0.5rem; font-size:0.78rem; color:var(--text);">
+          <input type="checkbox" id="batch-remove866" checked />
+          Remove 866 fields after conversion
+        </label>
+        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; margin-bottom:0.75rem; font-size:0.78rem; color:var(--text);">
+          <input type="checkbox" id="batch-clear853863" />
+          Clear existing 853/863 before conversion
+        </label>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-batch-all">
+            Convert All Records
+          </button>
+          <a href="/api/download-converted" class="btn btn-success" id="btn-download" style="display:none;">
+            ↓ Download .mrc
+          </a>
+        </div>
+        <div id="batch-status" class="mt-2"></div>
+      </div>
+
+    </div><!-- /tab-file -->
+
+  </aside>
+
+  <!-- Workspace -->
+  <section id="workspace">
+
+    <!-- TEXT MODE workspace -->
+    <div id="ws-text" class="tab-panel active">
+
+      <!-- Examples -->
+      <div class="card">
+        <div class="card-title">Example Holdings Strings</div>
+        <div style="display:flex; flex-wrap:wrap; gap:0.4rem;">
+          {% set examples = [
+            "v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)",
+            "v.1(1990)-v.10(1999)",
+            "v.6(1995)-",
+            "v.1:no.1(1990:Spring)-v.3:no.4(1992:Winter), v.5(1994)-",
+            "Vol. 1, No. 1 (Spring 1990)-Vol. 5, No. 4 (Winter 1994)",
+            "1990-1994",
+            "v.1:no.1(1990)-v.2:no.4(1991)",
+          ] %}
+          {% for ex in examples %}
+          <button class="btn btn-secondary btn-sm example-btn" data-val="{{ ex }}">{{ ex }}</button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div id="result-area" style="display:none;">
+
+        <!-- Parsed structure -->
+        <div class="card" id="card-parse">
+          <div class="card-title">Parsed Structure <span class="tag">866 $a</span></div>
+          <div id="parse-display"></div>
+        </div>
+
+        <!-- Generated 853 -->
+        <div class="card" id="card-853">
+          <div class="card-title">Generated Caption & Pattern Field <span class="tag">853</span></div>
+          <div id="field853-display"></div>
+        </div>
+
+        <!-- Generated 863(s) -->
+        <div class="card" id="card-863">
+          <div class="card-title">Generated Enumeration & Chronology Fields <span class="tag">863</span></div>
+          <div id="fields863-display"></div>
+        </div>
+
+        <!-- Warnings -->
+        <div id="warnings-area"></div>
+
+      </div><!-- /result-area -->
+
+    </div><!-- /ws-text -->
+
+    <!-- FILE MODE workspace -->
+    <div id="ws-file" class="tab-panel">
+      <div id="record-detail">
+        <div class="empty-state">Upload a MARC file to browse records →</div>
+      </div>
+    </div>
+
+  </section>
+
+</main>
+
+<!-- ── File mode: record list (injected into sidebar) ──────────────────── -->
+<div id="records-list-container" style="display:none;">
+  <div class="sidebar-section" style="padding-bottom:0; display:flex; align-items:center; justify-content:space-between;">
+    <div class="section-label" style="margin-bottom:0;">Records</div>
+    <span id="record-count" class="dim small mono"></span>
+  </div>
+  <div id="records-list"></div>
+</div>
+
+<script>
+// ── Utilities ────────────────────────────────────────────────────────────
+
+function highlightField(raw) {
+  // Colour-code MARC display strings like "853 ## $8 1 $a v."
+  return raw
+    .replace(/^(\d{3})/,        '<span class="sf-tag">$1</span>')
+    .replace(/\s(##|\d[\d#])/,  ' <span class="sf-ind">$1</span>')
+    .replace(/\$([a-z0-9])/g,   '<span class="sf-code">$$$1</span>')
+    .replace(/<\/span>([^<$]+)/g,'</span><span class="sf-value">$1</span>');
+}
+
+function showAlert(container, msg, type='warn') {
+  container.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────────────
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const target = btn.dataset.tab;
+    document.querySelectorAll('#sidebar .tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('#workspace .tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById(target).classList.add('active');
+    const wsId = target.replace('tab-', 'ws-');
+    document.getElementById(wsId)?.classList.add('active');
+  });
+});
+
+// ── Text mode: parse & convert ───────────────────────────────────────────
+
+document.querySelectorAll('.example-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById('text-input').value = btn.dataset.val;
+    runConvert();
+  });
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  document.getElementById('text-input').value = '';
+  document.getElementById('result-area').style.display = 'none';
+});
+
+document.getElementById('btn-parse').addEventListener('click', runConvert);
+document.getElementById('text-input').addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'Enter') runConvert();
+});
+
+async function runConvert() {
+  const text = document.getElementById('text-input').value.trim();
+  if (!text) return;
+
+  const btn = document.getElementById('btn-parse');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Converting…';
+
+  const body = {
+    text,
+    captions: {
+      vol:   document.getElementById('cap-vol').value,
+      issue: document.getElementById('cap-issue').value,
+      part:  document.getElementById('cap-part').value,
+      year:  document.getElementById('cap-year').value,
+      month: document.getElementById('cap-month').value,
+    },
+    frequency: document.getElementById('opt-freq').value,
+    numbering_continuity: document.getElementById('opt-continuity').value,
+    linking_number: parseInt(document.getElementById('opt-linking').value) || 1,
+  };
+
+  try {
+    const res = await fetch('/api/parse-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    renderTextResult(data);
+  } catch (err) {
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span>Convert</span>';
+  }
+}
+
+function renderTextResult(data) {
+  const area = document.getElementById('result-area');
+  area.style.display = 'block';
+
+  // Parse tree
+  const parseDiv = document.getElementById('parse-display');
+  const ranges = data.parse.ranges;
+  if (!ranges.length) {
+    parseDiv.innerHTML = `<div class="alert alert-err">Could not parse input.</div>`;
+  } else {
+    parseDiv.innerHTML = ranges.map((r, i) => {
+      const endStr = r.end
+        ? `<span class="range-head">end</span>
+           ${kv('vol', r.end.vol)}${kv('issue', r.end.issue)}${kv('year', r.end.year)}${kv('month', r.end.month)}`
+        : '';
+      const openPill = r.open_ended ? `<span class="open-pill">◉ open / current</span>` : '';
+      return `<div class="parse-tree range-block">
+        <div class="range-head">Range ${i+1}${openPill}</div>
+        <div class="kv dim"><em class="sf-code">866 $a</em> <span>${escHtml(r.raw)}</span></div>
+        <div class="range-head mt-1">start</div>
+        ${kv('vol', r.start.vol)}${kv('issue', r.start.issue)}
+        ${kv('year', r.start.year)}${kv('month', r.start.month)}
+        ${r.end ? `<div class="range-head mt-1">end</div>
+        ${kv('vol', r.end.vol)}${kv('issue', r.end.issue)}
+        ${kv('year', r.end.year)}${kv('month', r.end.month)}` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  // 853
+  const f853div = document.getElementById('field853-display');
+  f853div.innerHTML = `
+    <div class="field-label">853 — Captions and Pattern</div>
+    <div class="field-display f853">${highlightField(escHtml(data.preview.field_853))}</div>
+    <div class="small dim mt-1">Subfields: ${data.conversion.field_853.subfields.map(sf => `$${sf.code} = ${sf.value}`).join(' · ')}</div>
+  `;
+
+  // 863s
+  const f863div = document.getElementById('fields863-display');
+  f863div.innerHTML = data.preview.fields_863.map((f, i) => `
+    <div class="field-group">
+      <div class="field-label">863.${i+1} — Enumeration and Chronology</div>
+      <div class="field-display f863">${highlightField(escHtml(f))}</div>
+    </div>
+  `).join('');
+
+  // Warnings
+  const warnDiv = document.getElementById('warnings-area');
+  const allWarns = data.parse.warnings.concat(data.conversion.warnings);
+  if (allWarns.length) {
+    warnDiv.innerHTML = allWarns.map(w => `<div class="alert alert-warn">⚠ ${escHtml(w)}</div>`).join('');
+  } else {
+    warnDiv.innerHTML = `<div class="alert alert-ok">✓ Parsed successfully with no warnings.</div>`;
+  }
+}
+
+function kv(label, val) {
+  if (!val) return '';
+  return `<div class="kv"><em class="sf-code">${label}</em> <span>${escHtml(val)}</span></div>`;
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── File mode: upload & record list ─────────────────────────────────────
+
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+if (dropZone) {
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) uploadMarcFile(file);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) uploadMarcFile(fileInput.files[0]);
+  });
+}
+
+let allRecords = [];
+
+async function uploadMarcFile(file) {
+  const form = new FormData();
+  form.append('file', file);
+
+  dropZone.innerHTML = '<span class="spinner"></span> Reading MARC file…';
+
+  try {
+    const res = await fetch('/api/upload-marc', { method: 'POST', body: form });
+    const data = await res.json();
+	console.log(data);
+    if (data.error) {
+      dropZone.innerHTML = `<span class="icon">❌</span>${data.error}`;
+      return;
+    }
+    allRecords = data.records;
+    renderRecordList(data.records);
+    document.getElementById('batch-options').style.display = 'block';
+    dropZone.innerHTML = `<span class="icon">✓</span>${escHtml(file.name)}<br><span class="small dim">${data.total} records loaded</span>`;
+  } catch(err) {
+    dropZone.innerHTML = `<span class="icon">❌</span>Upload failed.`;
+    console.error(err);
+  }
+}
+
+function renderRecordList(records) {
+  const container = document.getElementById('records-list-container');
+  const list = document.getElementById('records-list');
+  const count = document.getElementById('record-count');
+  container.style.display = 'block';
+  count.textContent = `${records.length} records`;
+
+  // Insert before batch-options
+const fileTab = document.getElementById('tab-file');
+const batchOpts = document.getElementById('batch-options');
+fileTab.insertBefore(container, batchOpts || null);
+
+  list.innerHTML = records.map((rec, i) => {
+    const has866 = rec.fields_866.length > 0;
+    const has853 = rec.has_853;
+    return `<div class="record-item" data-index="${i}" onclick="selectRecord(${i})">
+      <div class="rec-title">${escHtml(rec.title)}
+        ${has866 ? `<span class="pill has-866">866 ×${rec.fields_866.length}</span>` : ''}
+        ${has853 ? `<span class="pill converted">853✓</span>` : ''}
+      </div>
+      <div class="rec-meta">${escHtml(rec.issn || '–')} · ${escHtml(rec.location || 'no location')}</div>
+    </div>`;
+  }).join('');
+}
+
+function selectRecord(idx) {
+  document.querySelectorAll('.record-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.record-item[data-index="${idx}"]`)?.classList.add('active');
+  renderRecordDetail(allRecords[idx], idx);
+}
+
+function renderRecordDetail(rec, idx) {
+  const detail = document.getElementById('record-detail');
+
+  if (!rec.fields_866.length) {
+    detail.innerHTML = `
+      <div class="card">
+        <div class="card-title">${escHtml(rec.title)}</div>
+        <div class="alert alert-info">No 866 fields found in this record.</div>
+      </div>`;
+    return;
+  }
+
+  const blocksHtml = rec.fields_866.map((f866, fi) => `
+    <div class="conversion-866-block" id="block-${idx}-${fi}">
+      <div class="conversion-866-header">
+        <span class="pill has-866">866</span>
+        <span class="f866-text">${escHtml(f866.display)}</span>
+        <button class="btn btn-secondary btn-sm" onclick="previewSingle(${idx},${fi})">Preview</button>
+        <button class="btn btn-primary btn-sm" onclick="applySingle(${idx},${fi})">Apply</button>
+      </div>
+      <div class="conversion-866-body">
+        <div class="field-display f866">${escHtml(f866.a)}</div>
+        <div id="preview-${idx}-${fi}" class="mt-2"></div>
+      </div>
+    </div>
+  `).join('');
+
+  detail.innerHTML = `
+    <div class="card">
+      <div class="card-title">
+        ${escHtml(rec.title)}
+        ${rec.issn ? `<span class="tag">ISSN ${escHtml(rec.issn)}</span>` : ''}
+        ${rec.location ? `<span class="tag">${escHtml(rec.location)}</span>` : ''}
+      </div>
+      ${blocksHtml}
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="applyAllInRecord(${idx})">Apply All in Record</button>
+      </div>
+      <div id="record-status-${idx}" class="mt-2"></div>
+    </div>`;
+}
+
+async function previewSingle(recIdx, fieldIdx) {
+  const rec = allRecords[recIdx];
+  const f866 = rec.fields_866[fieldIdx];
+  const container = document.getElementById(`preview-${recIdx}-${fieldIdx}`);
+  container.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const res = await fetch('/api/parse-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: f866.a,
+        frequency: document.getElementById('batch-freq').value,
+        numbering_continuity: document.getElementById('batch-continuity').value,
+        linking_number: fieldIdx + 1,
+      }),
+    });
+    const data = await res.json();
+    container.innerHTML = `
+      <div class="field-label">853 Preview</div>
+      <div class="field-display f853 small">${highlightField(escHtml(data.preview.field_853))}</div>
+      ${data.preview.fields_863.map(f =>
+        `<div class="field-display f863 small mt-1">${highlightField(escHtml(f))}</div>`
+      ).join('')}
+      ${data.parse.warnings.length ? `<div class="alert alert-warn small mt-1">⚠ ${escHtml(data.parse.warnings[0])}</div>` : ''}
+    `;
+  } catch(err) {
+    container.innerHTML = `<div class="alert alert-err">Error: ${err.message}</div>`;
+  }
+}
+
+async function applySingle(recIdx, fieldIdx) {
+  const rec = allRecords[recIdx];
+  const f866 = rec.fields_866[fieldIdx];
+  const statusDiv = document.getElementById(`record-status-${recIdx}`);
+
+  try {
+    const res = await fetch('/api/convert-record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        record_index: recIdx,
+        conversions: [{
+          text: f866.a,
+          frequency: document.getElementById('batch-freq').value,
+          numbering_continuity: document.getElementById('batch-continuity').value,
+          linking_number: fieldIdx + 1,
+          remove_866: document.getElementById('batch-remove866').checked,
+        }],
+        clear_existing_853_863: document.getElementById('batch-clear853863').checked,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      showAlert(statusDiv, data.error, 'err');
+    } else {
+      statusDiv.innerHTML = `<div class="alert alert-ok">✓ 853 + ${data.previews[0].fields_863.length} 863 field(s) applied. <a href="/api/download-converted" class="btn btn-success btn-sm" style="margin-left:0.5rem;">↓ Download</a></div>`;
+      document.getElementById('btn-download').style.display = 'inline-flex';
+    }
+  } catch(err) {
+    showAlert(statusDiv, err.message, 'err');
+  }
+}
+
+async function applyAllInRecord(recIdx) {
+  const rec = allRecords[recIdx];
+  const statusDiv = document.getElementById(`record-status-${recIdx}`);
+
+  const conversions = rec.fields_866.map((f866, fi) => ({
+    text: f866.a,
+    frequency: document.getElementById('batch-freq').value,
+    numbering_continuity: document.getElementById('batch-continuity').value,
+    linking_number: fi + 1,
+    remove_866: document.getElementById('batch-remove866').checked,
+  }));
+
+  try {
+    const res = await fetch('/api/convert-record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        record_index: recIdx,
+        conversions,
+        clear_existing_853_863: document.getElementById('batch-clear853863').checked,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      showAlert(statusDiv, data.error, 'err');
+    } else {
+      const total863 = data.previews.reduce((sum, p) => sum + p.fields_863.length, 0);
+      statusDiv.innerHTML = `<div class="alert alert-ok">✓ ${data.previews.length} 853 + ${total863} 863 field(s) applied. <a href="/api/download-converted" class="btn btn-success btn-sm" style="margin-left:0.5rem;">↓ Download</a></div>`;
+      document.getElementById('btn-download').style.display = 'inline-flex';
+    }
+  } catch(err) {
+    showAlert(statusDiv, err.message, 'err');
+  }
+}
+
+// ── Batch convert all ────────────────────────────────────────────────────
+
+document.getElementById('btn-batch-all')?.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-batch-all');
+  const statusDiv = document.getElementById('batch-status');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Converting…';
+
+  try {
+    const res = await fetch('/api/batch-convert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        frequency: document.getElementById('batch-freq').value,
+        numbering_continuity: document.getElementById('batch-continuity').value,
+        remove_866: document.getElementById('batch-remove866').checked,
+        clear_existing_853_863: document.getElementById('batch-clear853863').checked,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      showAlert(statusDiv, data.error, 'err');
+    } else {
+      statusDiv.innerHTML = `<div class="alert alert-ok">✓ Converted ${data.records_processed} records.</div>`;
+      document.getElementById('btn-download').style.display = 'inline-flex';
+    }
+  } catch(err) {
+    showAlert(statusDiv, err.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Convert All Records';
+  }
+});
+
+</script>
+</body>
+</html>

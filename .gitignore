@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Secrets / environment
+.env
+*.env
+!.env.example
+
+# Runtime upload scratch dirs
+marc_uploads/
+.marc_uploads/
+uploads/
+
+# Saved pattern JSON produced at runtime
+patterns/*.json
+
+# Real / working MARC data — keep only the synthetic sample in data/
+*.mrc
+*.mrk
+!data/example_holdings.mrc
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
