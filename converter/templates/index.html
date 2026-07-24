@@ -578,7 +578,7 @@
           <button class="btn btn-primary" id="btn-batch-all">
             Convert All Records
           </button>
-          <a href="/api/download-converted" class="btn btn-success" id="btn-download" style="display:none;">
+          <a href="api/download-converted" class="btn btn-success" id="btn-download" style="display:none;">
             ↓ Download .mrc
           </a>
         </div>
@@ -735,7 +735,7 @@ async function runConvert() {
   };
 
   try {
-    const res = await fetch('/api/parse-text', {
+    const res = await fetch('api/parse-text', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -845,7 +845,7 @@ async function uploadMarcFile(file) {
   dropZone.innerHTML = '<span class="spinner"></span> Reading MARC file…';
 
   try {
-    const res = await fetch('/api/upload-marc', { method: 'POST', body: form });
+    const res = await fetch('api/upload-marc', { method: 'POST', body: form });
     const data = await res.json();
 	console.log(data);
     if (data.error) {
@@ -942,7 +942,7 @@ async function previewSingle(recIdx, fieldIdx) {
   container.innerHTML = '<span class="spinner"></span>';
 
   try {
-    const res = await fetch('/api/parse-text', {
+    const res = await fetch('api/parse-text', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -972,7 +972,7 @@ async function applySingle(recIdx, fieldIdx) {
   const statusDiv = document.getElementById(`record-status-${recIdx}`);
 
   try {
-    const res = await fetch('/api/convert-record', {
+    const res = await fetch('api/convert-record', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -991,7 +991,7 @@ async function applySingle(recIdx, fieldIdx) {
     if (data.error) {
       showAlert(statusDiv, data.error, 'err');
     } else {
-      statusDiv.innerHTML = `<div class="alert alert-ok">✓ 853 + ${data.previews[0].fields_863.length} 863 field(s) applied. <a href="/api/download-converted" class="btn btn-success btn-sm" style="margin-left:0.5rem;">↓ Download</a></div>`;
+      statusDiv.innerHTML = `<div class="alert alert-ok">✓ 853 + ${data.previews[0].fields_863.length} 863 field(s) applied. <a href="api/download-converted" class="btn btn-success btn-sm" style="margin-left:0.5rem;">↓ Download</a></div>`;
       document.getElementById('btn-download').style.display = 'inline-flex';
     }
   } catch(err) {
@@ -1012,7 +1012,7 @@ async function applyAllInRecord(recIdx) {
   }));
 
   try {
-    const res = await fetch('/api/convert-record', {
+    const res = await fetch('api/convert-record', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1026,7 +1026,7 @@ async function applyAllInRecord(recIdx) {
       showAlert(statusDiv, data.error, 'err');
     } else {
       const total863 = data.previews.reduce((sum, p) => sum + p.fields_863.length, 0);
-      statusDiv.innerHTML = `<div class="alert alert-ok">✓ ${data.previews.length} 853 + ${total863} 863 field(s) applied. <a href="/api/download-converted" class="btn btn-success btn-sm" style="margin-left:0.5rem;">↓ Download</a></div>`;
+      statusDiv.innerHTML = `<div class="alert alert-ok">✓ ${data.previews.length} 853 + ${total863} 863 field(s) applied. <a href="api/download-converted" class="btn btn-success btn-sm" style="margin-left:0.5rem;">↓ Download</a></div>`;
       document.getElementById('btn-download').style.display = 'inline-flex';
     }
   } catch(err) {
@@ -1043,7 +1043,7 @@ document.getElementById('btn-batch-all')?.addEventListener('click', async () => 
   btn.innerHTML = '<span class="spinner"></span> Converting…';
 
   try {
-    const res = await fetch('/api/batch-convert', {
+    const res = await fetch('api/batch-convert', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

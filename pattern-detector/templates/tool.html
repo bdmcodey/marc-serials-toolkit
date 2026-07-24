@@ -807,7 +807,7 @@ async function uploadMrc(file) {
   form.append('file', file);
 
   try {
-    const res  = await fetch('/api/upload-marc', { method: 'POST', body: form });
+    const res  = await fetch('api/upload-marc', { method: 'POST', body: form });
     const data = await res.json();
     if (data.error) {
       dropZone.innerHTML = `<span class="dz-icon">❌</span>${esc(data.error)}`;
@@ -844,7 +844,7 @@ async function runDetect() {
   errEl.innerHTML = '';
 
   try {
-    const res  = await fetch('/api/detect', {
+    const res  = await fetch('api/detect', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
@@ -1065,7 +1065,7 @@ async function testRegex(cardIdx, statement, regexStr, resultEl) {
   resultEl.innerHTML = '<span class="spinner"></span>';
 
   try {
-    const res  = await fetch('/api/test-regex', {
+    const res  = await fetch('api/test-regex', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ regex: regexStr, statements: [statement] }),

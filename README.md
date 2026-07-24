@@ -8,7 +8,7 @@ exploring different ways (including AI) of doing so at scale.
 It grew out of a real cataloging problem and is the subject of an upcoming
 conference presentation on applying AI to serials-holdings enhancement.
 
-## The three tools
+## The tools
 
 Each tool is self-contained and can be installed and run on its own — you do
 **not** need the others (or an API key) to use any single one.
@@ -17,6 +17,7 @@ Each tool is self-contained and can be installed and run on its own — you do
 |---|---|---|---|
 | **Converter** | [`converter/`](converter/) | Convert an 866 statement — or a whole MARC file — into structured 853 / 863 fields | Flask web app |
 | **Pattern Detector** | [`pattern-detector/`](pattern-detector/) | Scan a collection of 866 statements, cluster them by structure, and generate a named-group regex per pattern | Flask web app |
+| **PNX Lookup** | [`pnx-lookup/`](pnx-lookup/) | Look up a record's full normalized PNX from an Ex Libris Primo catalog by MMS ID — no API key — with a table view and CSV/Excel export | Local web app (headless browser) |
 | **AI Regex Generator** | [`ai-regex/`](ai-regex/) | Use an LLM to generate a parsing regex from sample holdings (an exploratory approach) | CLI / experimental |
 
 The Converter and Pattern Detector are deterministic — no network calls, no
@@ -45,6 +46,9 @@ pip install -r requirements.txt
 python app.py
 ```
 
+**PNX Lookup** — see [`pnx-lookup/README.md`](pnx-lookup/README.md); it needs
+Playwright and a headless browser, and runs locally.
+
 **AI Regex Generator** — see [`ai-regex/README.md`](ai-regex/README.md); it needs
 an `OPENAI_API_KEY`.
 
@@ -52,9 +56,10 @@ an `OPENAI_API_KEY`.
 
 ```
 marc-serials-toolkit/
-├── converter/          Tool A — 866 → 853/863 converter (Flask)
-├── pattern-detector/   Tool B — 866 pattern detector + regex generator (Flask)
-├── ai-regex/           Tool C — LLM-based regex generation (CLI/experimental)
+├── converter/          866 → 853/863 converter (Flask web app)
+├── pattern-detector/   866 pattern detector + regex generator (Flask web app)
+├── pnx-lookup/         Primo PNX record lookup (local web app; needs Playwright)
+├── ai-regex/           LLM-based regex generation (CLI/experimental)
 ├── data/
 │   └── example_holdings.mrc   Small SYNTHETIC sample for demos/tests
 ├── scripts/
