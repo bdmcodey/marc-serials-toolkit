@@ -3,8 +3,8 @@ marc_converter.py
 -----------------
 Converts ParseResult objects (from holdings_parser.py) into pymarc
 Field objects:
-  853 – Captions and Pattern (Basic Bibliographic Unit)
-  863 – Enumeration and Chronology (Basic Bibliographic Unit)
+  853 â€“ Captions and Pattern (Basic Bibliographic Unit)
+  863 â€“ Enumeration and Chronology (Basic Bibliographic Unit)
 
 References:
   MARC 21 Format for Holdings Data
@@ -165,7 +165,7 @@ def _build_853(
     linking_number    : integer used for $8 (matches 863 $8 prefix)
     captions          : override caption strings; keys: vol, issue, part, year, month
     frequency         : 853 $w code (see FREQUENCY_CODES)
-    numbering_continuity : 853 $v – 'r' (renumbers per volume) or 'c' (continuous)
+    numbering_continuity : 853 $v â€“ 'r' (renumbers per volume) or 'c' (continuous)
     """
     caps = {**DEFAULT_CAPTIONS, **(captions or {})}
     levels = parse_result.caption_union()
@@ -212,9 +212,9 @@ def _enum_value(start: Optional[str], end: Optional[str],
                 open_ended: bool) -> Optional[str]:
     """
     Produce the subfield value for an enumeration level:
-      single item → "3"
-      closed range → "3-7"
-      open range  → "3-"
+      single item â†’ "3"
+      closed range â†’ "3-7"
+      open range  â†’ "3-"
     """
     if start is None:
         return None
@@ -309,7 +309,7 @@ def convert_holdings(
     Parameters
     ----------
     parse_result         : output of holdings_parser.parse_866()
-    linking_number       : integer $8 linking number (1, 2, …)
+    linking_number       : integer $8 linking number (1, 2, â€¦)
     captions             : caption overrides (keys: vol, issue, part, year, month)
     frequency            : 853 $w code
     numbering_continuity : 853 $v ('r' or 'c')
@@ -375,4 +375,3 @@ def apply_to_record(
         record.remove_fields("866")
 
     return record
-	
