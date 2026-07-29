@@ -46,9 +46,32 @@ SEASON_MAP: dict[str, str] = {
     "fall": "Fall", "autumn": "Fall", "winter": "Winter",
 }
 
+# MARC 21 coded chronology values used in 863 $j:
+# months 01-12, seasons 21 (Spring) 22 (Summer) 23 (Autumn/Fall) 24 (Winter).
+MARC_CHRON_CODES: dict[str, str] = {
+    "jan": "01", "january": "01",
+    "feb": "02", "february": "02",
+    "mar": "03", "march": "03",
+    "apr": "04", "april": "04",
+    "may": "05",
+    "jun": "06", "june": "06",
+    "jul": "07", "july": "07",
+    "aug": "08", "august": "08",
+    "sep": "09", "sept": "09", "september": "09",
+    "oct": "10", "october": "10",
+    "nov": "11", "november": "11",
+    "dec": "12", "december": "12",
+    "spring": "21",
+    "summer": "22",
+    "fall": "23", "autumn": "23",
+    "winter": "24",
+}
+
+SEASON_CODES = {"21", "22", "23", "24"}
+
 
 def normalise_chron_unit(raw: str) -> Optional[str]:
-    """Normalise a month or season string to MARC-standard form."""
+    """Normalise a month or season string to MARC-standard text form."""
     if not raw:
         return None
     raw = raw.strip().rstrip(".")
@@ -58,6 +81,32 @@ def normalise_chron_unit(raw: str) -> Optional[str]:
     if key in SEASON_MAP:
         return SEASON_MAP[key]
     return raw  # return as-is (e.g. "Spr.", user-supplied)
+
+
+def chron_unit_code(raw: str) -> Optional[str]:
+    """Return the MARC coded chronology value for a month/season, or None."""
+    if not raw:
+        return None
+    return MARC_CHRON_CODES.get(raw.strip().rstrip(".").lower())
+
+
+def chron_unit_value(raw: str) -> Optional[str]:
+    """
+    Convert a month/season to its MARC coded value (01-12 months, 21-24
+    seasons) for use in 863 $j; fall back to normalised text if the token
+    isn't a recognised month or season. Combined units ("Jan/Feb") are
+    encoded part-by-part ("01/02").
+    """
+    if not raw:
+        return None
+    raw = raw.strip()
+    if "/" in raw:
+        parts = [p for p in raw.split("/") if p.strip()]
+        codes = [chron_unit_code(p) for p in parts]
+        if parts and all(c is not None for c in codes):
+            return "/".join(codes)
+    code = chron_unit_code(raw)
+    return code if code is not None else normalise_chron_unit(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +120,7 @@ class EnumChron:
     issue: Optional[str] = None      # issue / number string
     part: Optional[str] = None       # part number string
     year: Optional[str] = None       # four-digit year string
-    month: Optional[str] = None      # month or season (normalised)
+    month: Optional[str] = None      # month/season as MARC code (01-12, 21-24)
     day: Optional[str] = None        # day (uncommon for journals)
 
     def has_enum(self) -> bool:
@@ -210,12 +259,13 @@ _YEAR_START_RE = re.compile(r"^\s*\d{4}\s*(?:$|-)")
 
 def _parse_chron(raw: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Parse a single-valued chronology string.
+    Parse a single-valued chronology string. Months/seasons are returned as
+    MARC coded values (01-12 months, 21-24 seasons) for use in 863 $j.
       '1990'        → ('1990', None)
-      '1990:Mar.'   → ('1990', 'Mar.')
-      'Spring 1990' → ('1990', 'Spring')
-      'Mar. 1990'   → ('1990', 'Mar.')
-      '1990 Spring' → ('1990', 'Spring')
+      '1990:Mar.'   → ('1990', '03')
+      'Spring 1990' → ('1990', '21')
+      'Mar. 1990'   → ('1990', '03')
+      '1990 Spring' → ('1990', '21')
     Returns (year, month_or_season).
     """
     raw = raw.strip()
@@ -223,17 +273,17 @@ def _parse_chron(raw: str) -> Tuple[Optional[str], Optional[str]]:
     # YYYY:Mon. or YYYY:Season
     m = re.match(r"(\d{4})\s*[:]\s*(.+)$", raw)
     if m:
-        return m.group(1), normalise_chron_unit(m.group(2))
+        return m.group(1), chron_unit_value(m.group(2))
 
     # Mon./Season YYYY  (chron before year)
     m = re.match(r"([A-Za-z.]+(?:\s+[A-Za-z.]+)?)\s+(\d{4})$", raw)
     if m:
-        return m.group(2), normalise_chron_unit(m.group(1))
+        return m.group(2), chron_unit_value(m.group(1))
 
     # YYYY Mon./Season  (year then chron)
     m = re.match(r"(\d{4})\s+([A-Za-z.]+(?:\s+[A-Za-z.]+)?)$", raw)
     if m:
-        return m.group(1), normalise_chron_unit(m.group(2))
+        return m.group(1), chron_unit_value(m.group(2))
 
     # Bare four-digit year
     m = re.match(r"^(\d{4})$", raw)
@@ -249,17 +299,18 @@ def _parse_chron_range(
 ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """
     Parse a chronology block that may itself span a range.
-    Returns (start_year, start_month, end_year, end_month).
+    Returns (start_year, start_month, end_year, end_month), with months and
+    seasons as MARC coded values (01-12 months, 21-24 seasons).
 
     Handles:
-      '1974-1976'              → ('1974', None,    '1976', None)
-      '1990:Jan.-1994:Dec.'    → ('1990', 'Jan.',  '1994', 'Dec.')
-      '1981-Fall 1983'         → ('1981', None,    '1983', 'Fall')
-      'April 1992-April 1996'  → ('1992', 'Apr.',  '1996', 'Apr.')
-      'June 1996-1997'         → ('1996', 'Jun.',  '1997', None)
-      'Spring 1990-Winter 1994'→ ('1990', 'Spring','1994', 'Winter')
-      'Summer 1990'            → ('1990', 'Summer', None,  None)
-      '1990:Jan.'              → ('1990', 'Jan.',   None,  None)
+      '1974-1976'              → ('1974', None, '1976', None)
+      '1990:Jan.-1994:Dec.'    → ('1990', '01', '1994', '12')
+      '1981-Fall 1983'         → ('1981', None, '1983', '23')
+      'April 1992-April 1996'  → ('1992', '04', '1996', '04')
+      'June 1996-1997'         → ('1996', '06', '1997', None)
+      'Spring 1990-Winter 1994'→ ('1990', '21', '1994', '24')
+      'Summer 1990'            → ('1990', '22', None, None)
+      '1990:Jan.'              → ('1990', '01', None, None)
     """
     raw = raw.strip()
 
@@ -277,8 +328,8 @@ def _parse_chron_range(
     )
     if m:
         return (
-            m.group(1), normalise_chron_unit(m.group(2).strip()),
-            m.group(3), normalise_chron_unit(m.group(4).strip()) if m.group(4) else None,
+            m.group(1), chron_unit_value(m.group(2).strip()),
+            m.group(3), chron_unit_value(m.group(4).strip()) if m.group(4) else None,
         )
 
     # YYYY-Season/Mon YYYY  (e.g. "1981-Fall 1983")
@@ -287,7 +338,7 @@ def _parse_chron_range(
         raw,
     )
     if m:
-        return m.group(1), None, m.group(3), normalise_chron_unit(m.group(2))
+        return m.group(1), None, m.group(3), chron_unit_value(m.group(2))
 
     # Season/Mon YYYY-Season/Mon YYYY  (e.g. "April 1992-April 1996")
     m = re.match(
@@ -297,8 +348,8 @@ def _parse_chron_range(
     )
     if m:
         return (
-            m.group(2), normalise_chron_unit(m.group(1)),
-            m.group(4), normalise_chron_unit(m.group(3)),
+            m.group(2), chron_unit_value(m.group(1)),
+            m.group(4), chron_unit_value(m.group(3)),
         )
 
     # Season/Mon YYYY-YYYY  (e.g. "June 1996-1997")
@@ -307,7 +358,7 @@ def _parse_chron_range(
         raw,
     )
     if m:
-        return m.group(2), normalise_chron_unit(m.group(1)), m.group(3), None
+        return m.group(2), chron_unit_value(m.group(1)), m.group(3), None
 
     # ── Single-value fallback ────────────────────────────────────────────────
     year, month = _parse_chron(raw)
@@ -596,3 +647,4 @@ def parse_866(text: str) -> ParseResult:
         )
 
     return result
+    

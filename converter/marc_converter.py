@@ -22,7 +22,7 @@ try:
 except ImportError:
     HAS_PYMARC = False
 
-from holdings_parser import ParseResult, HoldingsRange, EnumChron
+from holdings_parser import ParseResult, HoldingsRange, EnumChron, SEASON_CODES
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +60,20 @@ DEFAULT_CAPTIONS = {
     "part":  "pt.",
     "year":  "(year)",
     "month": "(month)",
+    "season": "(season)",
 }
+
+
+def _uses_season_chronology(parse_result: ParseResult) -> bool:
+    """True if any parsed month value is a MARC season code (21-24)."""
+    for r in parse_result.ranges:
+        for ec in (r.start, r.end):
+            if ec is None or not ec.month:
+                continue
+            for token in ec.month.replace("/", "-").split("-"):
+                if token.strip() in SEASON_CODES:
+                    return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +154,7 @@ def _build_853(
     linking_number: int = 1,
     captions: Optional[Dict[str, str]] = None,
     frequency: str = "",
-    numbering_continuity: str = "r",
+    numbering_continuity: str = "",
 ) -> FieldData:
     """
     Build an 853 (Captions and Pattern) field from a ParseResult.
@@ -165,9 +178,10 @@ def _build_853(
         sfs.append(SubfieldData("a", caps["vol"]))
     if levels.get("issue"):
         sfs.append(SubfieldData("b", caps["issue"]))
-        # Units per higher level – placeholder; user can edit
-        sfs.append(SubfieldData("u", "4"))
-        sfs.append(SubfieldData("v", numbering_continuity))
+        # $v (numbering continuity) only when the cataloger supplies it;
+        # $u (units per higher level) is never guessed.
+        if numbering_continuity:
+            sfs.append(SubfieldData("v", numbering_continuity))
     if levels.get("part"):
         sfs.append(SubfieldData("c", caps["part"]))
 
@@ -175,7 +189,8 @@ def _build_853(
     if levels.get("year"):
         sfs.append(SubfieldData("i", caps["year"]))
     if levels.get("month"):
-        sfs.append(SubfieldData("j", caps["month"]))
+        cap = caps["season"] if _uses_season_chronology(parse_result) else caps["month"]
+        sfs.append(SubfieldData("j", cap))
 
     # Frequency
     if frequency:
@@ -252,14 +267,20 @@ def _build_863_for_range(
         if val:
             sfs.append(SubfieldData("c", val))
 
-    # Chronology
+    # Chronology.  In "chron at end only" patterns such as
+    # "v.1:no.1-v.2:no.4(1990-1991)" the single chronology group covers
+    # the whole range, so fall back to the end boundary's values.
     if levels.get("year"):
-        val = _chron_value(s.year, e.year if e else None, oe)
+        start_year = s.year if s.year is not None else (e.year if e else None)
+        end_year = e.year if (e and s.year is not None) else None
+        val = _chron_value(start_year, end_year, oe)
         if val:
             sfs.append(SubfieldData("i", val))
 
     if levels.get("month"):
-        val = _chron_value(s.month, e.month if e else None, oe)
+        start_month = s.month if s.month is not None else (e.month if e else None)
+        end_month = e.month if (e and s.month is not None) else None
+        val = _chron_value(start_month, end_month, oe)
         if val:
             sfs.append(SubfieldData("j", val))
 
@@ -280,7 +301,7 @@ def convert_holdings(
     linking_number: int = 1,
     captions: Optional[Dict[str, str]] = None,
     frequency: str = "",
-    numbering_continuity: str = "r",
+    numbering_continuity: str = "",
 ) -> ConversionResult:
     """
     Convert a ParseResult into 853 + 863 MARC field data.
@@ -354,3 +375,4 @@ def apply_to_record(
         record.remove_fields("866")
 
     return record
+	
