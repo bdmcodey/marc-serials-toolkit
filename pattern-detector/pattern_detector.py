@@ -50,6 +50,22 @@ UNKNOWN     = "UNKNOWN"
 _CAPTION_KINDS = {VOL_CAP, ISS_CAP, PT_CAP}
 _VALUE_KINDS   = {YEAR, MON, SEASON, NUMBER}
 
+# Clusters longer than this (in collapsed tokens) are reported as a finding
+# rather than turned into a regex.
+#
+# Calibrated against two real MARC extracts (52 and 116 statements).  Real
+# statements cost 15–45 regex characters per token — month alternations alone
+# run ~180 characters — so the ceiling is set by /api/test-regex, which refuses
+# any regex over 2,000 characters: above ~45 tokens this module would emit
+# patterns the tool's own Test button rejects.  At 40 the longest generated
+# regex observed was 1,470 characters.
+#
+# Everything flagged at this level was a singleton multi-year run-on
+# ("1977: (46[Jul], 48-51[Sep-Dec])1978: …") — 45 tokens and up.  Nothing that
+# currently produces a working regex is suppressed, which keeps the guard
+# permissive toward pattern shapes not present in those samples.
+MAX_PATTERN_TOKENS = 40
+
 # General month/season patterns used in generated regex output —
 # broad enough to match any standard form, not just the forms observed.
 _MON_RE = (
@@ -113,6 +129,42 @@ def _strip_spaces(tokens: list[Token]) -> list[Token]:
     return [t for t in tokens if t.kind != SPACE]
 
 
+def _collapse_unknown_runs(tokens: list[Token]) -> list[Token]:
+    """
+    Merge each maximal run of UNKNOWN tokens into a single UNKNOWN token.
+
+    The tokenizer's last alternative is (?P<UNKNOWN>.), so free-text noise
+    ("Library has:", "[lacks v.3]") arrives as one token per character.  Left
+    alone that produces one regex fragment per character — bespoke output that
+    only ever matches the record it came from.
+
+    A run is a maximal sequence of UNKNOWN and SPACE tokens that both *starts*
+    and *ends* with UNKNOWN; interior SPACE is absorbed so the merged `raw`
+    spans the original text exactly.  Leading/trailing SPACE stays outside the
+    run and is dropped by _strip_spaces() as before.
+
+    Must be applied before _strip_spaces() — the interior spaces are what make
+    the merged length match the source text.
+    """
+    out: list[Token] = []
+    i, n = 0, len(tokens)
+    while i < n:
+        if tokens[i].kind != UNKNOWN:
+            out.append(tokens[i])
+            i += 1
+            continue
+        # Scan forward over UNKNOWN/SPACE, remembering the last UNKNOWN seen
+        # so the run never ends on absorbed whitespace.
+        j, last = i, i
+        while j < n and tokens[j].kind in (UNKNOWN, SPACE):
+            if tokens[j].kind == UNKNOWN:
+                last = j
+            j += 1
+        out.append(Token(kind=UNKNOWN, raw="".join(t.raw for t in tokens[i:last + 1])))
+        i = last + 1
+    return out
+
+
 def get_signature(text: str) -> str:
     """
     Compute the fuzzy pattern signature for a holdings string.
@@ -121,8 +173,14 @@ def get_signature(text: str) -> str:
     SPACE tokens removed.  Because all caption variants (v., Vol., volume)
     map to VOL_CAP, two statements that differ only in capitalisation or
     abbreviation style will share the same signature and be clustered together.
+
+    Consecutive UNKNOWN tokens are collapsed first, so two statements that
+    differ only in the length of a free-text note ("Library has: v.1(1990)"
+    vs "[lacks] v.1(1990)") also share a signature.
     """
-    return "|".join(t.kind for t in tokenize(text) if t.kind != SPACE)
+    return "|".join(
+        t.kind for t in _collapse_unknown_runs(tokenize(text)) if t.kind != SPACE
+    )
 
 
 # ── Range separator detection ─────────────────────────────────────────────────
@@ -170,6 +228,16 @@ def _alt_or_literal(vals: list[str]) -> str:
     if len(unique) == 1:
         return re.escape(unique[0])
     return "(?:" + "|".join(re.escape(v) for v in unique) + ")"
+
+
+def _unknown_bound(n: int) -> int:
+    """
+    Upper bound for a collapsed UNKNOWN run of `n` characters, rounded up to
+    the next multiple of 8 (minimum 8).  The headroom lets a similar note of
+    slightly different length match too, instead of pinning the pattern to the
+    exact free text observed.
+    """
+    return max(8, -(-n // 8) * 8)
 
 
 def _unique_name(base: str, used: set[str]) -> str:
@@ -349,12 +417,25 @@ def _build_regex(
         if kind == SEP_HYPHEN:
             # Hyphens at this point are internal to a chronology block
             # (depth > 0 when the range_sep was already handled) or part of
-            # a compressed enumeration range (v.1-5).
-            parts.append(r"-")
+            # a compressed enumeration range (v.1-5).  Allow surrounding
+            # whitespace: cataloguers write both "(Nov/Dec 2008-May 2010)"
+            # and "(Winter/Spring 1994 - Spring/Summer 1999)".
+            parts.append(r"\s*-\s*")
             continue
 
         if kind == SEP_COMMA:
             parts.append(r",\s*")
+            continue
+
+        # ── Unrecognised free text — one bounded fragment per run ─────────────
+        if kind == UNKNOWN:
+            # Runs are pre-collapsed, so `vals` holds whole note spans rather
+            # than single characters.  A bounded lazy wildcard generalises to
+            # other notes of similar length; the trailing \s* covers the SPACE
+            # token that _strip_spaces() removed after the run.
+            longest = max((len(v) for v in vals if v), default=1)
+            parts.append(rf".{{1,{_unknown_bound(longest)}}}?")
+            parts.append(r"\s*")
             continue
 
         # ── Fallback: escape whatever is left ─────────────────────────────────
@@ -417,6 +498,8 @@ class PatternGroup:
     failed: list[str]
     caption_variants: dict[str, list[str]]  # e.g. {"vol": ["v.", "Vol."]}
     is_open_ended: bool
+    token_count: int = 0                    # collapsed structural tokens
+    too_complex: bool = False               # over MAX_PATTERN_TOKENS; no regex
 
     def to_dict(self) -> dict:
         return {
@@ -431,6 +514,8 @@ class PatternGroup:
             "failed":           self.failed,
             "caption_variants": self.caption_variants,
             "is_open_ended":    self.is_open_ended,
+            "token_count":      self.token_count,
+            "too_complex":      self.too_complex,
         }
 
 
@@ -461,12 +546,35 @@ def detect_patterns(statements: list[str]) -> list[PatternGroup]:
     groups: list[PatternGroup] = []
 
     for sig, members in clusters.items():
-        all_stripped = [_strip_spaces(tokenize(m)) for m in members]
+        all_stripped = [
+            _strip_spaces(_collapse_unknown_runs(tokenize(m))) for m in members
+        ]
         template     = all_stripped[0]
 
         range_sep_idx = _find_range_sep(template)
         open_ended    = _is_open_ended(template)
         label         = _compact_label(template, range_sep_idx)
+
+        # Guard *before* generating: a cluster this long yields a regex nobody
+        # can read or edit, and is almost always a one-off rather than a real
+        # pattern.  Report it as a finding instead of emitting the regex.
+        if len(template) > MAX_PATTERN_TOKENS:
+            groups.append(PatternGroup(
+                signature        = sig,
+                human_label      = (label or sig)[:80],
+                count            = len(members),
+                examples         = members[:5],
+                regex            = "",
+                named_groups     = [],
+                match_rate       = 0.0,
+                matched          = [],
+                failed           = [],
+                caption_variants = {},
+                is_open_ended    = open_ended,
+                token_count      = len(template),
+                too_complex      = True,
+            ))
+            continue
 
         regex, named_groups, cap_variants = _build_regex(all_stripped)
         match_rate, matched, failed       = _validate(regex, members)
@@ -483,6 +591,7 @@ def detect_patterns(statements: list[str]) -> list[PatternGroup]:
             failed           = failed,
             caption_variants = cap_variants,
             is_open_ended    = open_ended,
+            token_count      = len(template),
         ))
 
     groups.sort(key=lambda g: g.count, reverse=True)

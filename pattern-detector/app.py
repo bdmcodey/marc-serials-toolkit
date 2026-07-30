@@ -202,7 +202,9 @@ def api_test_regex():
     if not regex_str:
         return jsonify({"error": "No regex provided."}), 400
     if len(regex_str) > 2000:
-        return jsonify({"error": "Regex too long."}), 400
+        return jsonify({
+            "error": "Regex exceeds the 2,000-character test limit.",
+        }), 400
     # User-supplied regex runs against user-supplied text, so bound both to
     # limit catastrophic-backtracking (ReDoS) exposure on this public endpoint.
     statements = [str(s)[:500] for s in statements[:2000]]

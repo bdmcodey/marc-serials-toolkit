@@ -896,6 +896,18 @@ function renderResults(data) {
   coverPill.className = `pill ${coverClass}`;
   coverPill.textContent = `${coverage}% overall coverage`;
   statsBar.querySelector('.spacer').after(coverPill);
+
+  // Groups with no regex contribute 0 to coverage — say so, otherwise the
+  // percentage looks unexplained.
+  const unpatterned = data.groups
+    .filter(g => g.too_complex)
+    .reduce((s, g) => s + g.count, 0);
+  if (unpatterned) {
+    const unpatPill = document.createElement('span');
+    unpatPill.className = 'pill pill-amber';
+    unpatPill.textContent = `${unpatterned} statement${unpatterned !== 1 ? 's' : ''} unpatterned`;
+    coverPill.after(unpatPill);
+  }
   ws.appendChild(statsBar);
 
   // Cards
@@ -924,30 +936,49 @@ function buildCard(group, idx) {
     <span class="pc-label">${esc(group.human_label)}</span>
     <span class="spacer"></span>
     <span class="pill">${group.count} stmt${group.count !== 1 ? 's' : ''}</span>
-    <span class="pill ${matchClass}">${pct}% matched</span>
+    ${group.too_complex
+      ? '<span class="pill pill-amber">no pattern</span>'
+      : `<span class="pill ${matchClass}">${pct}% matched</span>`}
     ${group.is_open_ended ? '<span class="pill pill-coral">open-ended</span>' : ''}
   `;
   card.appendChild(hdr);
 
+  // ── Too idiosyncratic to express as a pattern ──
+  if (group.too_complex) {
+    const warnSec = el('div', 'pc-section');
+    const warn = el('div', 'alert alert-warn');
+    warn.innerHTML = `<div>
+      <strong>Too idiosyncratic to express as a pattern.</strong><br />
+      ${group.count} statement${group.count !== 1 ? 's' : ''} affected ·
+      ${group.token_count} structural tokens.
+      These are likely one-off statements rather than shared structure —
+      review them individually, or split them into smaller ranges first.
+    </div>`;
+    warnSec.appendChild(warn);
+    card.appendChild(warnSec);
+  }
+
   // ── Regex section ──
-  const rxSec = el('div', 'pc-section');
-  rxSec.innerHTML = `<div class="pc-section-label">Generated Regular Expression <span class="dim">(re.IGNORECASE)</span></div>`;
-  const rxBlock = el('div', 'regex-block');
-  const code = document.createElement('code');
-  code.innerHTML = highlightRegex(group.regex);
-  rxBlock.appendChild(code);
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'btn btn-ghost btn-sm copy-btn';
-  copyBtn.textContent = 'Copy';
-  copyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(group.regex).then(() => {
-      copyBtn.textContent = 'Copied!';
-      setTimeout(() => copyBtn.textContent = 'Copy', 1500);
+  if (!group.too_complex) {
+    const rxSec = el('div', 'pc-section');
+    rxSec.innerHTML = `<div class="pc-section-label">Generated Regular Expression <span class="dim">(re.IGNORECASE)</span></div>`;
+    const rxBlock = el('div', 'regex-block');
+    const code = document.createElement('code');
+    code.innerHTML = highlightRegex(group.regex);
+    rxBlock.appendChild(code);
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn btn-ghost btn-sm copy-btn';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(group.regex).then(() => {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => copyBtn.textContent = 'Copy', 1500);
+      });
     });
-  });
-  rxBlock.appendChild(copyBtn);
-  rxSec.appendChild(rxBlock);
-  card.appendChild(rxSec);
+    rxBlock.appendChild(copyBtn);
+    rxSec.appendChild(rxBlock);
+    card.appendChild(rxSec);
+  }
 
   // ── Named groups ──
   if (group.named_groups.length) {
@@ -1027,6 +1058,8 @@ function buildCard(group, idx) {
   }
 
   // ── Test area ──
+  if (group.too_complex) return card;   // nothing to test without a regex
+
   const testSec = el('div', 'pc-section');
   testSec.innerHTML = `<div class="pc-section-label">Test Regex Against a Statement</div>`;
   const testArea = el('div', 'test-area');
@@ -1147,6 +1180,15 @@ function renderExport(groups, fmt, panelEl) {
   if (!panel) return;
   const pre = panel.querySelector('#export-content');
   if (!pre) return;
+
+  // Groups with no regex must never reach an export — re.compile(r'') would
+  // silently match everything.
+  groups = groups.filter(g => !g.too_complex);
+  if (!groups.length) {
+    pre.textContent = '# No exportable patterns — every group was too '
+                    + 'idiosyncratic to express as a regex.';
+    return;
+  }
 
   if (fmt === 'python') {
     const lines = ['import re', '', 'HOLDINGS_PATTERNS = {'];
