@@ -15,6 +15,12 @@ Supported 866 $a patterns (case-insensitive):
   v.1-5(1990-1994)                    â† compressed range format
   v.1:no.1-v.2:no.4(1990-1991)       â† chron at end only
   Multiple ranges: "v.1(1990)-v.3(1992), v.5(1994)-"
+
+Also supports a second, chronology-first "block" grammar found in older and
+locally-maintained records, dispatched separately by _looks_like_block():
+  1993: (1 [Feb])
+  2019: (1-6 [Feb-Nov])2020: (7-12 [Jan-Dec])
+  1949: 1 (1-6 [Apr-Sep])
 """
 
 from __future__ import annotations
@@ -154,6 +160,7 @@ class ParseResult:
     raw: str = ""
     warnings: List[str] = field(default_factory=list)
     success: bool = True
+    needs_review: bool = False   # values were found but could not be placed
 
     def caption_union(self) -> dict:
         """Union of caption levels across all ranges."""
@@ -480,6 +487,165 @@ def _smart_split_range(text: str) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# Block ("chronology-first") format
+# ---------------------------------------------------------------------------
+#
+# A second holdings grammar, common in older and locally-maintained records:
+#
+#     1993: (1 [Feb])
+#     2019: (1-6 [Feb-Nov])2020: (7-12 [Jan-Dec])2021: (13-15 [Feb-Jun])
+#     1949: 1 (1-6 [Apr-Sep])
+#     N2002: ([Mar], [Jul], [Aug])2005: ([Aug])
+#
+# Year comes first, then an optional volume, then a parenthesised body of
+# comma-separated "issue [chronology]" items.  Blocks repeat with no separator
+# between them, and each item becomes its own 863.
+#
+# This is a different grammar from _ENUM_CHRON_RE above, not a looser version
+# of it, so it gets its own parser and is dispatched by _looks_like_block().
+
+_BLOCK_RE = re.compile(
+    r"""
+    (?P<marker>[NM])?\s*                 # unexplained local marker
+    (?P<year>\d{4}|\?)\s*:?\s*           # year, or '?' for unknown
+    (?:v(?:ol(?:ume)?)?\.?\s*)?          # optional volume caption
+    (?P<vol>\d+)?\s*                     # volume number, outside the parens
+    \(\s*(?P<body>[^()]*(?:\([^()]*\)[^()]*)*)\)
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# One item inside a block body: "1-4 [Jan 5-Jan 26]", "[Aug]", "12"
+_BLOCK_ITEM_RE = re.compile(
+    r"(?P<iss>\d+[a-z]?(?:\s*-\s*\d+[a-z]?)?)?\s*"
+    r"(?:\[(?P<chron>[^\]]*)\])?",
+    re.IGNORECASE,
+)
+
+# Split a block body on commas that are not inside a [...] chronology group
+_BLOCK_BODY_SPLIT_RE = re.compile(r",(?![^\[]*\])")
+
+# A statement is in block format when it opens with "YEAR:" or "?:"
+_BLOCK_SNIFF_RE = re.compile(r"^\s*[NM]?\s*(?:\d{4}|\?)\s*:", re.IGNORECASE)
+
+# Curly-brace cataloguer notes: "{Memorial Issue}", "{2nd printing}"
+_BRACE_NOTE_RE = re.compile(r"\{([^}]*)\}?")
+
+
+def _looks_like_block(text: str) -> bool:
+    """True when `text` uses the chronology-first block grammar."""
+    return bool(_BLOCK_SNIFF_RE.match(text))
+
+
+def _bracket_chron_unit(raw: str) -> Optional[str]:
+    """
+    MARC chronology code for one side of a bracketed group.
+
+    'Jun 1'    -> '06'      (trailing day dropped)
+    'Jul/Aug'  -> '07/08'   (combined issue, via _chron_unit_value)
+    'summer'   -> '22'
+    'Sum'      -> 'Sum'     (unrecognised: preserved, not dropped)
+    """
+    raw = raw.strip()
+    if not raw:
+        return None
+    m = re.match(r"([A-Za-z]+(?:\s*/\s*[A-Za-z]+)*)", raw)
+    if not m:
+        return None
+    return _chron_unit_value(re.sub(r"\s*", "", m.group(1)))
+
+
+def _parse_bracket_chron(raw: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Parse a bracketed chronology group into (start, end) codes.
+
+    '[Feb]'            -> ('02', None)
+    '[Feb-Nov]'        -> ('02', '11')
+    '[Jan 5-Jan 26]'   -> ('01', '01')
+    '[Jul/Aug]'        -> ('07/08', None)
+    """
+    raw = raw.strip()
+    if not raw:
+        return None, None
+    if "-" in raw:
+        left, right = (p.strip() for p in raw.split("-", 1))
+        return _bracket_chron_unit(left), _bracket_chron_unit(right)
+    return _bracket_chron_unit(raw), None
+
+
+def _parse_block_format(text: str) -> ParseResult:
+    """
+    Parse the chronology-first block grammar into HoldingsRange objects.
+
+    Role assignment is positional and therefore determinate: a number *before*
+    the parentheses is the volume, numbers *inside* are issues.  Statements
+    whose numbers sit in neither position are left unconverted and flagged for
+    review rather than guessed at.
+    """
+    result = ParseResult(raw=text)
+
+    for note in _BRACE_NOTE_RE.findall(text):
+        if note.strip():
+            result.warnings.append(f"Cataloguer note preserved, not encoded: '{note.strip()}'.")
+
+    markers = sorted({m.group("marker").upper()
+                      for m in _BLOCK_RE.finditer(text) if m.group("marker")})
+    if markers:
+        result.warnings.append(
+            f"Unexplained marker(s) {', '.join(markers)} found before the year — "
+            "parsed around them; meaning not encoded."
+        )
+
+    for blk in _BLOCK_RE.finditer(text):
+        year = blk.group("year")
+        year = None if year == "?" else year
+        vol = blk.group("vol")
+        body = blk.group("body") or ""
+
+        items = [i for i in _BLOCK_BODY_SPLIT_RE.split(body) if i.strip()]
+        if not items:
+            items = [""]          # "(...)" with nothing usable inside
+
+        for item in items:
+            im = _BLOCK_ITEM_RE.match(item.strip())
+            if not im:
+                continue
+            issue = (im.group("iss") or "").strip() or None
+            c_start, c_end = _parse_bracket_chron(im.group("chron") or "")
+
+            if not any([vol, issue, year, c_start]):
+                continue
+
+            start = EnumChron(vol=vol, issue=issue, year=year, month=c_start)
+            end = EnumChron(month=c_end) if c_end and c_end != c_start else None
+            result.ranges.append(
+                HoldingsRange(start=start, end=end, raw=item.strip() or body.strip())
+            )
+
+    if result.ranges:
+        return result
+
+    # ── Degenerate forms: "?: 2", "?: 16" — a value with no positional
+    # evidence for whether it is a volume or an issue.  Extract it so it is
+    # visible, but do not convert it.
+    m = re.match(r"^\s*[NM]?\s*(?:(?P<year>\d{4})|\?)\s*:\s*(?P<num>\d+)\s*$", text)
+    if m:
+        result.needs_review = True
+        result.success = False
+        result.warnings.append(
+            f"Found the number '{m.group('num')}' but nothing indicates whether it is "
+            "a volume or an issue — left unconverted for review."
+        )
+        return result
+
+    result.success = False
+    result.warnings.append(
+        "Looks like a year-first holdings statement but no usable block was found."
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -505,6 +671,11 @@ def parse_866(text: str) -> ParseResult:
         result.warnings.append("Empty holdings string.")
         return result
 
+    # Chronology-first records use a different grammar entirely; dispatch
+    # before the enumeration-first path rather than trying to widen it.
+    if _looks_like_block(text):
+        return _parse_block_format(text)
+
     segments = _split_ranges(text)
     for seg in segments:
         hr = _parse_one_range(seg)
@@ -516,10 +687,45 @@ def parse_866(text: str) -> ParseResult:
         result.ranges.append(hr)
 
     if not result.ranges:
+        return _parse_degenerate(text)
+
+    return result
+
+
+def _parse_degenerate(text: str) -> ParseResult:
+    """
+    Last resort for single-value statements that neither grammar accepts:
+    "2016?", "? 106", "?: 16".
+
+    A year alone is usable holdings data.  A bare number is not — nothing says
+    which level it belongs to — so it is surfaced for review, never guessed.
+    """
+    result = ParseResult(raw=text)
+
+    m = re.match(r"^\s*(?P<year>\d{4})\s*\?\s*$", text)
+    if m:
+        result.ranges.append(HoldingsRange(
+            start=EnumChron(year=m.group("year")), raw=text.strip()
+        ))
+        result.warnings.append(
+            f"Year '{m.group('year')}' recorded as uncertain ('?') in the source; "
+            "the qualifier is not encoded."
+        )
+        return result
+
+    m = re.match(r"^\s*\??\s*(?P<num>\d+)\s*$", text)
+    if m:
+        result.needs_review = True
         result.success = False
         result.warnings.append(
-            "No recognisable holdings ranges found. "
-            "Please check the input format."
+            f"Found the number '{m.group('num')}' but nothing indicates whether it is "
+            "a volume, an issue or a year — left unconverted for review."
         )
+        return result
 
+    result.success = False
+    result.warnings.append(
+        "No recognisable holdings ranges found. "
+        "Please check the input format."
+    )
     return result

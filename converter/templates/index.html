@@ -516,6 +516,13 @@
           </div>
         </div>
         <div class="form-group">
+          <label>Caption convention</label>
+          <select id="opt-convention">
+            <option value="standard" selected>MARC 21 standard — $a v. $b no. $i (year) $j (month)</option>
+            <option value="house">House style — $a (year), chronology as text</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label>Linking number ($8)</label>
           <input type="text" id="opt-linking" value="1" style="width:80px;" />
         </div>
@@ -565,6 +572,13 @@
               <option value="c">[c] Continuous</option>
             </select>
           </div>
+        </div>
+        <div class="form-group">
+          <label>Caption convention</label>
+          <select id="batch-convention">
+            <option value="standard" selected>MARC 21 standard — $a v. $b no. $i (year) $j (month)</option>
+            <option value="house">House style — $a (year), chronology as text</option>
+          </select>
         </div>
         <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; margin-bottom:0.5rem; font-size:0.78rem; color:var(--text);">
           <input type="checkbox" id="batch-remove866" checked />
@@ -731,6 +745,7 @@ async function runConvert() {
     },
     frequency: document.getElementById('opt-freq').value,
     numbering_continuity: document.getElementById('opt-continuity').value,
+    convention: document.getElementById('opt-convention').value,
     linking_number: parseInt(document.getElementById('opt-linking').value) || 1,
   };
 
@@ -779,13 +794,23 @@ function renderTextResult(data) {
     }).join('');
   }
 
-  // 853
+  // 853 — absent when conforming to the record's existing one, or when the
+  // statement was held back for review
   const f853div = document.getElementById('field853-display');
-  f853div.innerHTML = `
-    <div class="field-label">853 — Captions and Pattern</div>
-    <div class="field-display f853">${highlightField(escHtml(data.preview.field_853))}</div>
-    <div class="small dim mt-1">Subfields: ${data.conversion.field_853.subfields.map(sf => `$${sf.code} = ${sf.value}`).join(' · ')}</div>
-  `;
+  if (data.conversion.field_853) {
+    f853div.innerHTML = `
+      <div class="field-label">853 — Captions and Pattern</div>
+      <div class="field-display f853">${highlightField(escHtml(data.preview.field_853))}</div>
+      <div class="small dim mt-1">Subfields: ${data.conversion.field_853.subfields.map(sf => `$${sf.code} = ${sf.value}`).join(' · ')}</div>
+    `;
+  } else if (data.conversion.conformed) {
+    f853div.innerHTML = `
+      <div class="field-label">853 — Captions and Pattern</div>
+      <div class="alert alert-ok">✓ Conformed to the 853 already on this record — no new 853 added.</div>
+    `;
+  } else {
+    f853div.innerHTML = '';
+  }
 
   // 863s
   const f863div = document.getElementById('fields863-display');
@@ -796,11 +821,19 @@ function renderTextResult(data) {
     </div>
   `).join('');
 
-  // Warnings
+  // Warnings, and statements deliberately held back rather than guessed at
   const warnDiv = document.getElementById('warnings-area');
-  const allWarns = data.parse.warnings.concat(data.conversion.warnings);
-  if (allWarns.length) {
-    warnDiv.innerHTML = allWarns.map(w => `<div class="alert alert-warn">⚠ ${escHtml(w)}</div>`).join('');
+  // convert_holdings() carries the parse warnings forward, so the two lists
+  // overlap — dedupe rather than showing each one twice.
+  const allWarns = [...new Set(data.parse.warnings.concat(data.conversion.warnings))];
+  const review = data.conversion.needs_review
+    ? `<div class="alert alert-warn">⚠ <strong>Held for review — nothing converted.</strong>
+         The values here can be read, but not which level they belong to, so no
+         853/863 was generated rather than guess.</div>`
+    : '';
+  if (review || allWarns.length) {
+    warnDiv.innerHTML = review +
+      allWarns.map(w => `<div class="alert alert-warn">⚠ ${escHtml(w)}</div>`).join('');
   } else {
     warnDiv.innerHTML = `<div class="alert alert-ok">✓ Parsed successfully with no warnings.</div>`;
   }
@@ -949,13 +982,19 @@ async function previewSingle(recIdx, fieldIdx) {
         text: f866.a,
         frequency: document.getElementById('batch-freq').value,
         numbering_continuity: document.getElementById('batch-continuity').value,
+        convention: document.getElementById('batch-convention').value,
         linking_number: fieldIdx + 1,
       }),
     });
     const data = await res.json();
+    const head = data.conversion.needs_review
+      ? `<div class="alert alert-warn small">⚠ Held for review — not converted.</div>`
+      : data.conversion.conformed
+        ? `<div class="field-label">863 Preview <span class="dim">(conforms to existing 853)</span></div>`
+        : `<div class="field-label">853 Preview</div>
+           <div class="field-display f853 small">${highlightField(escHtml(data.preview.field_853))}</div>`;
     container.innerHTML = `
-      <div class="field-label">853 Preview</div>
-      <div class="field-display f853 small">${highlightField(escHtml(data.preview.field_853))}</div>
+      ${head}
       ${data.preview.fields_863.map(f =>
         `<div class="field-display f863 small mt-1">${highlightField(escHtml(f))}</div>`
       ).join('')}
@@ -981,10 +1020,12 @@ async function applySingle(recIdx, fieldIdx) {
           text: f866.a,
           frequency: document.getElementById('batch-freq').value,
           numbering_continuity: document.getElementById('batch-continuity').value,
+          convention: document.getElementById('batch-convention').value,
           linking_number: fieldIdx + 1,
           remove_866: document.getElementById('batch-remove866').checked,
         }],
         clear_existing_853_863: document.getElementById('batch-clear853863').checked,
+        convention: document.getElementById('batch-convention').value,
       }),
     });
     const data = await res.json();
@@ -1007,6 +1048,7 @@ async function applyAllInRecord(recIdx) {
     text: f866.a,
     frequency: document.getElementById('batch-freq').value,
     numbering_continuity: document.getElementById('batch-continuity').value,
+    convention: document.getElementById('batch-convention').value,
     linking_number: fi + 1,
     remove_866: document.getElementById('batch-remove866').checked,
   }));
@@ -1019,6 +1061,7 @@ async function applyAllInRecord(recIdx) {
         record_index: recIdx,
         conversions,
         clear_existing_853_863: document.getElementById('batch-clear853863').checked,
+        convention: document.getElementById('batch-convention').value,
       }),
     });
     const data = await res.json();
@@ -1049,6 +1092,7 @@ document.getElementById('btn-batch-all')?.addEventListener('click', async () => 
       body: JSON.stringify({
         frequency: document.getElementById('batch-freq').value,
         numbering_continuity: document.getElementById('batch-continuity').value,
+        convention: document.getElementById('batch-convention').value,
         remove_866: document.getElementById('batch-remove866').checked,
         clear_existing_853_863: document.getElementById('batch-clear853863').checked,
       }),

@@ -13,6 +13,7 @@ References:
 
 from __future__ import annotations
 
+import re
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 
@@ -22,7 +23,8 @@ try:
 except ImportError:
     HAS_PYMARC = False
 
-from holdings_parser import ParseResult, HoldingsRange, EnumChron, SEASON_CODES
+from holdings_parser import (ParseResult, HoldingsRange, EnumChron,
+                             SEASON_CODES, MARC_CHRON_CODES)
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +64,107 @@ DEFAULT_CAPTIONS = {
     "month": "(month)",
     "season": "(season)",
 }
+
+# ---------------------------------------------------------------------------
+# Subfield conventions
+# ---------------------------------------------------------------------------
+#
+# STANDARD follows MARC 21: $a-$f carry enumeration, $i-$m carry chronology,
+# and chronology values are the numeric codes (01-12, 21-24).
+#
+# HOUSE reproduces the local practice found in existing records, where the year
+# occupies $a (an enumeration subfield), enumeration is pushed down to $b/$c,
+# and chronology values are written as text ("Mar") rather than codes.  Those
+# records are internally inconsistent about the chronology subfield -- 50 use
+# $i, one uses $c -- so HOUSE follows the majority and uses $i.
+
+CONVENTION_STANDARD = "standard"
+CONVENTION_HOUSE    = "house"
+
+_SUBFIELD_MAPS: Dict[str, Dict[str, str]] = {
+    CONVENTION_STANDARD: {"vol": "a", "issue": "b", "part": "c",
+                          "year": "i", "month": "j"},
+    CONVENTION_HOUSE:    {"year": "a", "vol": "b", "issue": "c",
+                          "part": "d", "month": "i"},
+}
+
+# 853 indicators per convention (existing local records use "2"/"0")
+_INDICATORS = {
+    CONVENTION_STANDARD: ("3", "1"),
+    CONVENTION_HOUSE:    ("2", "0"),
+}
+
+# Reverse of MARC_CHRON_CODES for writing chronology as text in HOUSE mode.
+_CODE_TO_TEXT: Dict[str, str] = {
+    "01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr", "05": "May",
+    "06": "Jun", "07": "Jul", "08": "Aug", "09": "Sep", "10": "Oct",
+    "11": "Nov", "12": "Dec",
+    "21": "Spring", "22": "Summer", "23": "Fall", "24": "Winter",
+}
+
+
+def _chron_text(value: Optional[str]) -> Optional[str]:
+    """Render a chronology value as text ('03' -> 'Mar'), preserving ranges."""
+    if value is None:
+        return None
+    out = []
+    for tok in re.split(r"([-/])", value):
+        out.append(_CODE_TO_TEXT.get(tok, tok) if tok not in "-/" else tok)
+    return "".join(out)
+
+
+def caption_slot(caption: str) -> Optional[str]:
+    """
+    Map an 853 caption string to the semantic level it labels.
+
+    "(year)" -> "year",  "(season)"/"(month)" -> "month",
+    "v."     -> "vol",   "no."                -> "issue",  "pt." -> "part"
+    """
+    c = (caption or "").strip().lower()
+    if not c:
+        return None
+    if "year" in c:
+        return "year"
+    if "season" in c or "month" in c or "chron" in c:
+        return "month"
+    if re.match(r"^\(?v(ol(ume)?)?\.?\)?$", c):
+        return "vol"
+    if re.match(r"^\(?(nos?|nr|num(ber)?s?|iss(ue)?s?)\.?\)?$", c):
+        return "issue"
+    if re.match(r"^\(?(pt|part)s?\.?\)?$", c):
+        return "part"
+    return None
+
+
+def _existing_link(existing_853) -> Optional[str]:
+    """The $8 linking number carried by an existing 853, if it has one."""
+    if existing_853 is None:
+        return None
+    for sf in getattr(existing_853, "subfields", []):
+        if getattr(sf, "code", None) == "8" and getattr(sf, "value", None):
+            return sf.value.strip()
+    return None
+
+
+def read_853_slots(existing_853) -> Dict[str, str]:
+    """
+    Read an existing 853 into {semantic level: subfield code}.
+
+    Accepts a pymarc Field or any object exposing .subfields with .code/.value.
+    Returns {} when nothing recognisable is declared.
+    """
+    slots: Dict[str, str] = {}
+    if existing_853 is None:
+        return slots
+    for sf in getattr(existing_853, "subfields", []):
+        code = getattr(sf, "code", None)
+        value = getattr(sf, "value", None)
+        if code is None or code == "8":
+            continue
+        level = caption_slot(value)
+        if level and level not in slots:
+            slots[level] = code
+    return slots
 
 
 def _uses_season_chronology(parse_result: ParseResult) -> bool:
@@ -128,20 +231,24 @@ class FieldData:
 @dataclass
 class ConversionResult:
     """Output of convert_holdings()."""
-    field_853: FieldData
+    field_853: Optional[FieldData]        # None when conforming to an existing 853
     fields_863: List[FieldData]
-    linking_number: int          # the $8 linking number used
+    linking_number: int                   # the $8 linking number used
     warnings: List[str] = field(default_factory=list)
+    conformed: bool = False               # reused the record's existing 853
+    needs_review: bool = False            # values found but deliberately not converted
 
     def all_fields(self) -> List[FieldData]:
-        return [self.field_853] + self.fields_863
+        return ([self.field_853] if self.field_853 else []) + self.fields_863
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "field_853": self.field_853.to_dict(),
+            "field_853": self.field_853.to_dict() if self.field_853 else None,
             "fields_863": [f.to_dict() for f in self.fields_863],
             "linking_number": self.linking_number,
             "warnings": self.warnings,
+            "conformed": self.conformed,
+            "needs_review": self.needs_review,
         }
 
 
@@ -155,6 +262,7 @@ def _build_853(
     captions: Optional[Dict[str, str]] = None,
     frequency: str = "",
     numbering_continuity: str = "",
+    convention: str = CONVENTION_STANDARD,
 ) -> FieldData:
     """
     Build an 853 (Captions and Pattern) field from a ParseResult.
@@ -169,28 +277,33 @@ def _build_853(
     """
     caps = {**DEFAULT_CAPTIONS, **(captions or {})}
     levels = parse_result.caption_union()
+    smap = _SUBFIELD_MAPS.get(convention, _SUBFIELD_MAPS[CONVENTION_STANDARD])
+    ind1, ind2 = _INDICATORS.get(convention, _INDICATORS[CONVENTION_STANDARD])
 
     sfs: List[SubfieldData] = []
     sfs.append(SubfieldData("8", str(linking_number)))
 
-    # Enumeration captions
+    # Emit captions in subfield order so the field reads correctly under
+    # either convention (HOUSE puts the year first, in $a).
+    planned: List[tuple] = []
     if levels.get("vol"):
-        sfs.append(SubfieldData("a", caps["vol"]))
+        planned.append((smap["vol"], caps["vol"], "vol"))
     if levels.get("issue"):
-        sfs.append(SubfieldData("b", caps["issue"]))
-        # $v (numbering continuity) only when the cataloger supplies it;
-        # $u (units per higher level) is never guessed.
-        if numbering_continuity:
-            sfs.append(SubfieldData("v", numbering_continuity))
+        planned.append((smap["issue"], caps["issue"], "issue"))
     if levels.get("part"):
-        sfs.append(SubfieldData("c", caps["part"]))
-
-    # Chronology captions
+        planned.append((smap["part"], caps["part"], "part"))
     if levels.get("year"):
-        sfs.append(SubfieldData("i", caps["year"]))
+        planned.append((smap["year"], caps["year"], "year"))
     if levels.get("month"):
         cap = caps["season"] if _uses_season_chronology(parse_result) else caps["month"]
-        sfs.append(SubfieldData("j", cap))
+        planned.append((smap["month"], cap, "month"))
+
+    for code, value, level in sorted(planned, key=lambda p: p[0]):
+        sfs.append(SubfieldData(code, value))
+        # $v (numbering continuity) only when the cataloger supplies it;
+        # $u (units per higher level) is never guessed.
+        if level == "issue" and numbering_continuity:
+            sfs.append(SubfieldData("v", numbering_continuity))
 
     # Frequency
     if frequency:
@@ -198,8 +311,8 @@ def _build_853(
 
     return FieldData(
         tag="853",
-        indicator1="3",  # 3 = holds compressed captions/patterns
-        indicator2="1",  # 1 = not compressed
+        indicator1=ind1,
+        indicator2=ind2,
         subfields=sfs,
     )
 
@@ -242,8 +355,17 @@ def _build_863_for_range(
     linking_number: int,
     sequence: int,
     levels: dict,
+    smap: Optional[Dict[str, str]] = None,
+    chron_as_text: bool = False,
 ) -> FieldData:
-    """Build a single 863 field for one HoldingsRange."""
+    """
+    Build a single 863 field for one HoldingsRange.
+
+    `smap` maps semantic levels to subfield codes, so the 863 lands in the same
+    subfields the governing 853 declares.  `chron_as_text` writes chronology as
+    text ("Mar") instead of MARC codes ("03").
+    """
+    smap = smap or _SUBFIELD_MAPS[CONVENTION_STANDARD]
     s = hr.start
     e = hr.end  # may be None (open-ended)
     oe = hr.open_ended
@@ -251,21 +373,23 @@ def _build_863_for_range(
     sfs: List[SubfieldData] = []
     sfs.append(SubfieldData("8", f"{linking_number}.{sequence}"))
 
+    planned: List[tuple] = []
+
     # Enumeration
     if levels.get("vol"):
         val = _enum_value(s.vol, e.vol if e else None, oe)
         if val:
-            sfs.append(SubfieldData("a", val))
+            planned.append((smap["vol"], val))
 
     if levels.get("issue"):
         val = _enum_value(s.issue, e.issue if e else None, oe)
         if val:
-            sfs.append(SubfieldData("b", val))
+            planned.append((smap["issue"], val))
 
     if levels.get("part"):
         val = _enum_value(s.part, e.part if e else None, oe)
         if val:
-            sfs.append(SubfieldData("c", val))
+            planned.append((smap["part"], val))
 
     # Chronology.  In "chron at end only" patterns such as
     # "v.1:no.1-v.2:no.4(1990-1991)" the single chronology group covers
@@ -275,14 +399,17 @@ def _build_863_for_range(
         end_year = e.year if (e and s.year is not None) else None
         val = _chron_value(start_year, end_year, oe)
         if val:
-            sfs.append(SubfieldData("i", val))
+            planned.append((smap["year"], val))
 
     if levels.get("month"):
         start_month = s.month if s.month is not None else (e.month if e else None)
         end_month = e.month if (e and s.month is not None) else None
         val = _chron_value(start_month, end_month, oe)
         if val:
-            sfs.append(SubfieldData("j", val))
+            planned.append((smap["month"], _chron_text(val) if chron_as_text else val))
+
+    for code, value in sorted(planned, key=lambda p: p[0]):
+        sfs.append(SubfieldData(code, value))
 
     return FieldData(
         tag="863",
@@ -302,6 +429,9 @@ def convert_holdings(
     captions: Optional[Dict[str, str]] = None,
     frequency: str = "",
     numbering_continuity: str = "",
+    existing_853=None,
+    convention: str = CONVENTION_STANDARD,
+    chron_as_text: bool = False,
 ) -> ConversionResult:
     """
     Convert a ParseResult into 853 + 863 MARC field data.
@@ -309,17 +439,71 @@ def convert_holdings(
     Parameters
     ----------
     parse_result         : output of holdings_parser.parse_866()
-    linking_number       : integer $8 linking number (1, 2, â€¦)
+    linking_number       : integer $8 linking number (1, 2, ...)
     captions             : caption overrides (keys: vol, issue, part, year, month)
     frequency            : 853 $w code
     numbering_continuity : 853 $v ('r' or 'c')
+    existing_853         : the record's current 853, if it has one.  When it
+                           declares a slot for every level found in the data,
+                           only 863s are produced and field_853 is None so the
+                           caller does not add a second, conflicting 853.
+    convention           : CONVENTION_STANDARD or CONVENTION_HOUSE - which
+                           subfields a *regenerated* 853 uses
+    chron_as_text        : write chronology as text ("Mar") rather than MARC
+                           codes ("03"), matching local practice
 
     Returns
     -------
-    ConversionResult with field_853 and fields_863 lists
+    ConversionResult; field_853 is None when conforming to an existing 853 or
+    when the statement was withheld for review.
     """
     warnings = list(parse_result.warnings)
     levels = parse_result.caption_union()
+
+    # Nothing was parsed, or the parser deliberately withheld a value because
+    # its level could not be determined.  Emit no fields.
+    if parse_result.needs_review or not parse_result.ranges:
+        return ConversionResult(
+            field_853=None,
+            fields_863=[],
+            linking_number=linking_number,
+            warnings=warnings,
+            needs_review=parse_result.needs_review,
+        )
+
+    # ── Conform to the record's own 853 when it covers every level found ──
+    declared = read_853_slots(existing_853)
+    needed = {lvl for lvl in ("vol", "issue", "part", "year", "month")
+              if levels.get(lvl)}
+
+    if declared and needed <= set(declared):
+        # The 863s belong to the existing 853, so they must carry *its* $8 —
+        # not this statement's position in the record.
+        link = _existing_link(existing_853) or linking_number
+        fields_863 = [
+            _build_863_for_range(hr, link, seq, levels,
+                                 smap=declared, chron_as_text=chron_as_text)
+            for seq, hr in enumerate(parse_result.ranges, start=1)
+        ]
+        return ConversionResult(
+            field_853=None,           # the existing one governs; do not add another
+            fields_863=fields_863,
+            linking_number=link,
+            warnings=warnings,
+            conformed=True,
+        )
+
+    if declared:
+        missing = sorted(needed - set(declared))
+        warnings.append(
+            "The existing 853 declares no level for "
+            f"{', '.join(missing)} but the 866 contains "
+            f"{'them' if len(missing) > 1 else 'one'} — "
+            "regenerated a complete 853 from the data."
+        )
+
+    # ── Regenerate a complete 853 in the requested convention ──
+    smap = _SUBFIELD_MAPS.get(convention, _SUBFIELD_MAPS[CONVENTION_STANDARD])
 
     field_853 = _build_853(
         parse_result,
@@ -327,11 +511,13 @@ def convert_holdings(
         captions=captions,
         frequency=frequency,
         numbering_continuity=numbering_continuity,
+        convention=convention,
     )
 
     fields_863: List[FieldData] = []
     for seq, hr in enumerate(parse_result.ranges, start=1):
-        f863 = _build_863_for_range(hr, linking_number, seq, levels)
+        f863 = _build_863_for_range(hr, linking_number, seq, levels,
+                                    smap=smap, chron_as_text=chron_as_text)
         fields_863.append(f863)
 
     return ConversionResult(

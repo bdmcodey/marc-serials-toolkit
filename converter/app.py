@@ -39,7 +39,37 @@ except ImportError:
     HAS_PYMARC = False
 
 from holdings_parser import parse_866
-from marc_converter import convert_holdings, ConversionResult, FREQUENCY_CODES
+from marc_converter import (convert_holdings, ConversionResult, FREQUENCY_CODES,
+                            CONVENTION_STANDARD, CONVENTION_HOUSE)
+
+
+def _add_853(record, field_data) -> None:
+    """
+    Add a regenerated 853, replacing any existing one with the same $8.
+
+    A regenerated 853 supersedes the field it was built from — leaving both in
+    place would give the record two patterns sharing one linking number, so the
+    863s would be ambiguous.
+    """
+    link = next((sf.value for sf in field_data.subfields if sf.code == "8"), None)
+    if link is not None:
+        for old in list(record.get_fields("853")):
+            if (old.get("8") or "").strip() == str(link).strip():
+                record.remove_field(old)
+    record.add_field(field_data.to_pymarc())
+
+
+def _convention_opts(data: dict) -> dict:
+    """
+    Read the caption-convention choice from a request body.
+
+    'house' reproduces the local practice in existing records (year in $a,
+    chronology as text); 'standard' follows MARC 21.
+    """
+    conv = (data.get("convention") or CONVENTION_STANDARD).strip().lower()
+    if conv not in (CONVENTION_STANDARD, CONVENTION_HOUSE):
+        conv = CONVENTION_STANDARD
+    return {"convention": conv, "chron_as_text": conv == CONVENTION_HOUSE}
 
 # ---------------------------------------------------------------------------
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -167,7 +197,9 @@ def _records_to_bytes(records: list) -> bytes:
     writer = MARCWriter(buf)
     for rec in records:
         writer.write(rec)
-    writer.close()
+    # close_fh defaults to True, which closes the BytesIO and makes the
+    # getvalue() below raise "I/O operation on closed file".
+    writer.close(close_fh=False)
     return buf.getvalue()
 
 
@@ -217,11 +249,13 @@ def api_parse_text():
         captions=captions or None,
         frequency=frequency,
         numbering_continuity=continuity,
+        **_convention_opts(data),
     )
 
     return jsonify({
         "parse": {
             "success": parse_result.success,
+            "needs_review": parse_result.needs_review,
             "warnings": parse_result.warnings,
             "ranges": [
                 {
@@ -247,7 +281,7 @@ def api_parse_text():
         },
         "conversion": conversion.to_dict(),
         "preview": {
-            "field_853": conversion.field_853.display(),
+            "field_853": conversion.field_853.display() if conversion.field_853 else None,
             "fields_863": [f.display() for f in conversion.fields_863],
         },
     })
@@ -322,13 +356,20 @@ def api_convert_record():
 
         target = all_records[record_index]
 
+        # Capture the record's own 853 before any clearing: when it already
+        # describes the data we conform to it instead of adding a second one.
+        # Clearing is an explicit request to start over, so drop it in that case.
+        existing_853 = next(iter(target.get_fields("853")), None)
+
         if data.get("clear_existing_853_863"):
             target.remove_fields("853", "863")
+            existing_853 = None
 
         remove_866 = any(c.get("remove_866", True) for c in conversions_input)
         if remove_866:
             target.remove_fields("866")
 
+        conv_opts = _convention_opts(data)
         previews = []
         for conv_spec in conversions_input:
             text = conv_spec.get("text", "")
@@ -341,16 +382,21 @@ def api_convert_record():
                 captions=conv_spec.get("captions") or None,
                 frequency=conv_spec.get("frequency", ""),
                 numbering_continuity=conv_spec.get("numbering_continuity", "r"),
+                existing_853=existing_853,
+                **conv_opts,
             )
 
-            target.add_field(conversion.field_853.to_pymarc())
+            if conversion.field_853:
+                _add_853(target, conversion.field_853)
             for f863 in conversion.fields_863:
                 target.add_field(f863.to_pymarc())
 
             previews.append({
-                "field_853": conversion.field_853.display(),
+                "field_853": conversion.field_853.display() if conversion.field_853 else None,
                 "fields_863": [f.display() for f in conversion.fields_863],
                 "warnings": conversion.warnings,
+                "conformed": conversion.conformed,
+                "needs_review": conversion.needs_review,
             })
 
         # Save the full updated file back to disk
@@ -380,17 +426,24 @@ def api_batch_convert():
     remove_866 = data.get("remove_866", True)
     clear_existing = data.get("clear_existing_853_863", False)
 
+    conv_opts = _convention_opts(data)
+
     try:
         summary = []
+        review_total = 0
         for rec_idx, record in enumerate(all_records):
+            # Read the record's own 853 before clearing (see api_convert_record).
+            existing_853 = next(iter(record.get_fields("853")), None)
             if clear_existing:
                 record.remove_fields("853", "863")
+                existing_853 = None
 
             fields_866 = record.get_fields("866")
             if not fields_866:
                 continue
 
             rec_warnings = []
+            converted = conformed = review = 0
             for link_num, f866 in enumerate(fields_866, start=1):
                 text = f866["a"] or ""
                 if not text:
@@ -401,18 +454,32 @@ def api_batch_convert():
                     linking_number=link_num,
                     frequency=frequency,
                     numbering_continuity=continuity,
+                    existing_853=existing_853,
+                    **conv_opts,
                 )
-                record.add_field(conversion.field_853.to_pymarc())
+                if conversion.needs_review or not conversion.fields_863:
+                    review += 1
+                    rec_warnings.extend(conversion.warnings)
+                    continue
+                if conversion.field_853:
+                    _add_853(record, conversion.field_853)
                 for f863 in conversion.fields_863:
                     record.add_field(f863.to_pymarc())
+                converted += 1
+                conformed += 1 if conversion.conformed else 0
                 rec_warnings.extend(conversion.warnings)
 
-            if remove_866:
+            # Only strip the source 866s that were actually converted; a
+            # statement held back for review must keep its original data.
+            if remove_866 and review == 0:
                 record.remove_fields("866")
 
+            review_total += review
             summary.append({
                 "index": rec_idx,
-                "converted_fields": len(fields_866),
+                "converted_fields": converted,
+                "conformed_fields": conformed,
+                "needs_review": review,
                 "warnings": rec_warnings,
             })
 
@@ -422,6 +489,7 @@ def api_batch_convert():
         return jsonify({
             "success": True,
             "records_processed": len(summary),
+            "needs_review": review_total,
             "summary": summary,
         })
 
