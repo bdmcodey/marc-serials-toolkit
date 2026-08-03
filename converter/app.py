@@ -39,8 +39,10 @@ except ImportError:
     HAS_PYMARC = False
 
 from holdings_parser import parse_866
-from marc_converter import (convert_holdings, ConversionResult, FREQUENCY_CODES,
-                            CONVENTION_STANDARD, CONVENTION_HOUSE)
+from marc_converter import (convert_holdings, convert_record, ConversionResult,
+                            FREQUENCY_CODES, CONVENTION_STANDARD, CONVENTION_HOUSE,
+                            CONVENTION_LEVELS, convention_presets,
+                            resolve_convention)
 
 
 def _add_853(record, field_data) -> None:
@@ -59,17 +61,66 @@ def _add_853(record, field_data) -> None:
     record.add_field(field_data.to_pymarc())
 
 
-def _convention_opts(data: dict) -> dict:
-    """
-    Read the caption-convention choice from a request body.
+def _previews_from(rc, rejections=()) -> list:
+    """One preview entry per statement, in 866 field order."""
+    return [
+        {
+            "field_853": c.field_853.display() if c.field_853 else None,
+            "fields_863": [f.display() for f in c.fields_863],
+            "warnings": c.warnings + list(rejections),
+            "conformed": c.conformed,
+            "needs_review": c.needs_review,
+        }
+        for c in rc.results
+    ]
 
-    'house' reproduces the local practice in existing records (year in $a,
-    chronology as text); 'standard' follows MARC 21.
+
+def _apply_record_conversion(record, rc) -> None:
+    """
+    Write a RecordConversion onto a pymarc record.
+
+    863s already sitting under a link number we are about to write are dropped
+    first: they describe the same holdings from an earlier run, so replacing
+    them keeps re-conversion idempotent instead of accumulating duplicates.
+    """
+    links = set(rc.links_written)
+    for old in list(record.get_fields("863")):
+        if (old.get("8") or "").split(".")[0].strip() in links:
+            record.remove_field(old)
+    for f853 in rc.fields_853:
+        _add_853(record, f853)          # replaces any 853 sharing its $8
+    for f863 in rc.fields_863:
+        record.add_field(f863.to_pymarc())
+
+
+def _convention_opts(data: dict) -> tuple:
+    """
+    Build a caption-convention spec from a request body.
+
+    The named preset ('standard' follows MARC 21; 'house' reproduces the local
+    practice of year in $a with chronology as text) is only a starting point --
+    per-level subfields, indicators and the chronology format may all be
+    overridden.  Returns (kwargs for convert_holdings, rejection messages).
     """
     conv = (data.get("convention") or CONVENTION_STANDARD).strip().lower()
-    if conv not in (CONVENTION_STANDARD, CONVENTION_HOUSE):
-        conv = CONVENTION_STANDARD
-    return {"convention": conv, "chron_as_text": conv == CONVENTION_HOUSE}
+
+    subfields = data.get("subfields")
+    if not isinstance(subfields, dict):
+        subfields = None
+
+    indicators = data.get("indicators")
+    if not (isinstance(indicators, (list, tuple)) and len(indicators) == 2):
+        indicators = None
+
+    chron = data.get("chronology")
+    chron_as_text = None
+    if isinstance(chron, str) and chron.strip().lower() in ("text", "code"):
+        chron_as_text = chron.strip().lower() == "text"
+
+    spec, rejections = resolve_convention(
+        conv, subfields=subfields, indicators=indicators, chron_as_text=chron_as_text
+    )
+    return {"convention_spec": spec}, rejections
 
 # ---------------------------------------------------------------------------
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -226,12 +277,20 @@ def _load_all_records() -> Optional[list]:
 def index():
     return render_template("index.html",
                            has_pymarc=HAS_PYMARC,
-                           frequency_codes=FREQUENCY_CODES)
+                           frequency_codes=FREQUENCY_CODES,
+                           convention_levels=CONVENTION_LEVELS,
+                           convention_presets=convention_presets())
 
 
 @app.route("/api/parse-text", methods=["POST"])
 def api_parse_text():
-    """Parse a single 866 $a text string and return structured data + preview."""
+    """
+    Parse a single 866 $a text string and return structured data + preview.
+
+    This previews one statement in isolation, so its $8 is always 1.1.  Applied
+    numbering is decided per record by convert_record(), which shares an 853
+    across statements with the same publication pattern.
+    """
     data = request.get_json(force=True)
     text = data.get("text", "").strip()
     if not text:
@@ -242,6 +301,7 @@ def api_parse_text():
     continuity = data.get("numbering_continuity", "r")
     linking = int(data.get("linking_number", 1))
 
+    conv_opts, rejections = _convention_opts(data)
     parse_result = parse_866(text)
     conversion = convert_holdings(
         parse_result,
@@ -249,8 +309,9 @@ def api_parse_text():
         captions=captions or None,
         frequency=frequency,
         numbering_continuity=continuity,
-        **_convention_opts(data),
+        **conv_opts,
     )
+    conversion.warnings.extend(rejections)
 
     return jsonify({
         "parse": {
@@ -356,54 +417,93 @@ def api_convert_record():
 
         target = all_records[record_index]
 
-        # Capture the record's own 853 before any clearing: when it already
-        # describes the data we conform to it instead of adding a second one.
-        # Clearing is an explicit request to start over, so drop it in that case.
-        existing_853 = next(iter(target.get_fields("853")), None)
+        # Capture the record's own 853s before any clearing: when one already
+        # describes the data we conform to it instead of adding a second.
+        # Clearing is an explicit request to start over, so drop them then.
+        existing_853s = list(target.get_fields("853"))
 
         if data.get("clear_existing_853_863"):
             target.remove_fields("853", "863")
-            existing_853 = None
+            existing_853s = []
 
         remove_866 = any(c.get("remove_866", True) for c in conversions_input)
         if remove_866:
             target.remove_fields("866")
 
-        conv_opts = _convention_opts(data)
-        previews = []
-        for conv_spec in conversions_input:
-            text = conv_spec.get("text", "")
-            if not text:
-                continue
-            parse_result = parse_866(text)
-            conversion = convert_holdings(
-                parse_result,
-                linking_number=int(conv_spec.get("linking_number", 1)),
-                captions=conv_spec.get("captions") or None,
-                frequency=conv_spec.get("frequency", ""),
-                numbering_continuity=conv_spec.get("numbering_continuity", "r"),
-                existing_853=existing_853,
-                **conv_opts,
-            )
+        conv_opts, rejections = _convention_opts(data)
+        specs = [c for c in conversions_input if c.get("text")]
 
-            if conversion.field_853:
-                _add_853(target, conversion.field_853)
-            for f863 in conversion.fields_863:
-                target.add_field(f863.to_pymarc())
+        # Linking numbers are a record-level decision, so the whole record is
+        # converted at once; any per-conversion linking_number is advisory.
+        first = specs[0] if specs else {}
+        rc = convert_record(
+            [parse_866(c["text"]) for c in specs],
+            existing_853s=existing_853s,
+            captions=first.get("captions") or None,
+            frequency=first.get("frequency", ""),
+            numbering_continuity=first.get("numbering_continuity", "r"),
+            **conv_opts,
+        )
+        _apply_record_conversion(target, rc)
 
-            previews.append({
-                "field_853": conversion.field_853.display() if conversion.field_853 else None,
-                "fields_863": [f.display() for f in conversion.fields_863],
-                "warnings": conversion.warnings,
-                "conformed": conversion.conformed,
-                "needs_review": conversion.needs_review,
-            })
+        previews = _previews_from(rc, rejections)
 
         # Save the full updated file back to disk
         updated_bytes = _records_to_bytes(all_records)
         _save_file("marc_file_converted", updated_bytes)
 
         return jsonify({"success": True, "previews": previews})
+
+    except Exception as exc:
+        app.logger.exception("Request failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/preview-record", methods=["POST"])
+def api_preview_record():
+    """
+    Preview the conversion of one whole record without writing anything.
+
+    Linking numbers are a record-level property, so a per-statement preview
+    cannot show them correctly -- it has no idea which siblings share its
+    publication pattern.  This converts the entire record and returns one
+    preview per 866, in field order, so the caller can render any single block
+    with the $8 it would actually receive.
+
+    POST JSON: {"record_index": 0, "convention": ..., "captions": {...}, ...}
+    """
+    if not HAS_PYMARC:
+        return jsonify({"error": "pymarc is not installed on the server."}), 500
+
+    data = request.get_json(force=True)
+    all_records = _load_all_records()
+    if all_records is None:
+        return jsonify({"error": "No MARC file found. Please upload a file first."}), 400
+
+    record_index = int(data.get("record_index", 0))
+    if record_index >= len(all_records):
+        return jsonify({"error": "Record index out of range."}), 400
+
+    try:
+        record = all_records[record_index]
+        conv_opts, rejections = _convention_opts(data)
+
+        texts = [(f["a"] or "") for f in record.get_fields("866")]
+        rc = convert_record(
+            [parse_866(t) for t in texts if t],
+            existing_853s=list(record.get_fields("853")),
+            captions=data.get("captions") or None,
+            frequency=data.get("frequency", ""),
+            numbering_continuity=data.get("numbering_continuity", "r"),
+            **conv_opts,
+        )
+        # Deliberately no _apply_record_conversion and no _save_file: preview
+        # must leave the uploaded file untouched.
+        return jsonify({
+            "success": True,
+            "record_index": record_index,
+            "previews": _previews_from(rc, rejections),
+        })
 
     except Exception as exc:
         app.logger.exception("Request failed")
@@ -426,48 +526,36 @@ def api_batch_convert():
     remove_866 = data.get("remove_866", True)
     clear_existing = data.get("clear_existing_853_863", False)
 
-    conv_opts = _convention_opts(data)
+    conv_opts, rejections = _convention_opts(data)
+    captions = data.get("captions") or None
 
     try:
         summary = []
         review_total = 0
         for rec_idx, record in enumerate(all_records):
-            # Read the record's own 853 before clearing (see api_convert_record).
-            existing_853 = next(iter(record.get_fields("853")), None)
+            # Read the record's own 853s before clearing (see api_convert_record).
+            existing_853s = list(record.get_fields("853"))
             if clear_existing:
                 record.remove_fields("853", "863")
-                existing_853 = None
+                existing_853s = []
 
             fields_866 = record.get_fields("866")
             if not fields_866:
                 continue
 
-            rec_warnings = []
-            converted = conformed = review = 0
-            for link_num, f866 in enumerate(fields_866, start=1):
-                text = f866["a"] or ""
-                if not text:
-                    continue
-                parse_result = parse_866(text)
-                conversion = convert_holdings(
-                    parse_result,
-                    linking_number=link_num,
-                    frequency=frequency,
-                    numbering_continuity=continuity,
-                    existing_853=existing_853,
-                    **conv_opts,
-                )
-                if conversion.needs_review or not conversion.fields_863:
-                    review += 1
-                    rec_warnings.extend(conversion.warnings)
-                    continue
-                if conversion.field_853:
-                    _add_853(record, conversion.field_853)
-                for f863 in conversion.fields_863:
-                    record.add_field(f863.to_pymarc())
-                converted += 1
-                conformed += 1 if conversion.conformed else 0
-                rec_warnings.extend(conversion.warnings)
+            texts = [f["a"] or "" for f in fields_866]
+            rc = convert_record(
+                [parse_866(t) for t in texts if t],
+                existing_853s=existing_853s,
+                captions=captions,
+                frequency=frequency,
+                numbering_continuity=continuity,
+                **conv_opts,
+            )
+            _apply_record_conversion(record, rc)
+
+            rec_warnings = rc.warnings
+            converted, conformed, review = rc.converted, rc.conformed, rc.needs_review
 
             # Only strip the source 866s that were actually converted; a
             # statement held back for review must keep its original data.
@@ -490,6 +578,7 @@ def api_batch_convert():
             "success": True,
             "records_processed": len(summary),
             "needs_review": review_total,
+            "rejections": rejections,
             "summary": summary,
         })
 

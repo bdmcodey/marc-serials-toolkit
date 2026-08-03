@@ -1,2 +1,4 @@
-flask>=3.0
-pymarc>=5.1
+flask>=3.0,<4.0
+# Upper bound is deliberate: this code depends on 5.x MARCReader behaviour
+# (iterated directly, not used as a context manager). Verified against 5.2.3.
+pymarc>=5.2.3,<6.0

@@ -3,8 +3,8 @@ marc_converter.py
 -----------------
 Converts ParseResult objects (from holdings_parser.py) into pymarc
 Field objects:
-  853 â€“ Captions and Pattern (Basic Bibliographic Unit)
-  863 â€“ Enumeration and Chronology (Basic Bibliographic Unit)
+  853 – Captions and Pattern (Basic Bibliographic Unit)
+  863 – Enumeration and Chronology (Basic Bibliographic Unit)
 
 References:
   MARC 21 Format for Holdings Data
@@ -93,6 +93,93 @@ _INDICATORS = {
     CONVENTION_STANDARD: ("3", "1"),
     CONVENTION_HOUSE:    ("2", "0"),
 }
+
+# The levels a convention can place, in the order they are offered to the user.
+CONVENTION_LEVELS = ("vol", "issue", "part", "year", "month")
+
+# 853 carries enumeration captions in $a-$h and chronology captions in $i-$m.
+# Everything a convention must not touch -- $8 (linking), $u (units per level),
+# $v (numbering continuity), $w (frequency), $x/$y/$z -- falls outside a-m, so
+# one allowlist covers the whole rule.
+_ALLOWED_SUBFIELDS = frozenset("abcdefghijklm")
+
+
+def convention_presets() -> Dict[str, Dict[str, Any]]:
+    """
+    The named presets, in the shape the UI populates its fields from.
+
+    Exposed so the template renders from this single source of truth instead of
+    duplicating the maps in JavaScript.
+    """
+    return {
+        name: {
+            "subfields": dict(_SUBFIELD_MAPS[name]),
+            "indicators": list(_INDICATORS[name]),
+            "chron_as_text": name == CONVENTION_HOUSE,
+        }
+        for name in (CONVENTION_STANDARD, CONVENTION_HOUSE)
+    }
+
+
+def resolve_convention(
+    name: str = CONVENTION_STANDARD,
+    subfields: Optional[Dict[str, str]] = None,
+    indicators=None,
+    chron_as_text: Optional[bool] = None,
+) -> tuple:
+    """
+    Merge user overrides onto a named preset.
+
+    Returns (spec, rejections) where spec is
+    {"subfields": {...}, "indicators": (i1, i2), "chron_as_text": bool}.
+
+    Anything invalid falls back to the preset value and is described in
+    `rejections`; a bad subfield code would otherwise corrupt every record it
+    touched, silently and identically.
+    """
+    name = (name or CONVENTION_STANDARD).strip().lower()
+    if name not in _SUBFIELD_MAPS:
+        name = CONVENTION_STANDARD
+
+    smap = dict(_SUBFIELD_MAPS[name])
+    rejections: List[str] = []
+
+    for level, code in (subfields or {}).items():
+        if level not in smap:
+            rejections.append(f"Unknown level '{level}' ignored.")
+            continue
+        code = (str(code or "")).strip().lower()
+        if code == smap[level]:
+            continue
+        if len(code) != 1 or code not in _ALLOWED_SUBFIELDS:
+            rejections.append(
+                f"'{code}' is not a usable caption subfield for {level} "
+                f"(853 captions live in $a-$m) - kept ${smap[level]}."
+            )
+            continue
+        clash = next((l for l, c in smap.items() if c == code and l != level), None)
+        if clash:
+            rejections.append(
+                f"${code} is already used by {clash}, so {level} kept "
+                f"${smap[level]} - two levels cannot share a subfield."
+            )
+            continue
+        smap[level] = code
+
+    ind = _INDICATORS[name]
+    if indicators is not None:
+        try:
+            i1, i2 = (str(x)[:1] if str(x).strip() else " " for x in list(indicators)[:2])
+            ind = (i1, i2)
+        except (TypeError, ValueError):
+            rejections.append(
+                f"Indicators {indicators!r} unreadable - kept {_INDICATORS[name]}."
+            )
+
+    text = (name == CONVENTION_HOUSE) if chron_as_text is None else bool(chron_as_text)
+
+    return {"subfields": smap, "indicators": ind, "chron_as_text": text}, rejections
+
 
 # Reverse of MARC_CHRON_CODES for writing chronology as text in HOUSE mode.
 _CODE_TO_TEXT: Dict[str, str] = {
@@ -263,6 +350,7 @@ def _build_853(
     frequency: str = "",
     numbering_continuity: str = "",
     convention: str = CONVENTION_STANDARD,
+    convention_spec: Optional[Dict[str, Any]] = None,
 ) -> FieldData:
     """
     Build an 853 (Captions and Pattern) field from a ParseResult.
@@ -273,12 +361,14 @@ def _build_853(
     linking_number    : integer used for $8 (matches 863 $8 prefix)
     captions          : override caption strings; keys: vol, issue, part, year, month
     frequency         : 853 $w code (see FREQUENCY_CODES)
-    numbering_continuity : 853 $v â€“ 'r' (renumbers per volume) or 'c' (continuous)
+    numbering_continuity : 853 $v – 'r' (renumbers per volume) or 'c' (continuous)
     """
     caps = {**DEFAULT_CAPTIONS, **(captions or {})}
     levels = parse_result.caption_union()
-    smap = _SUBFIELD_MAPS.get(convention, _SUBFIELD_MAPS[CONVENTION_STANDARD])
-    ind1, ind2 = _INDICATORS.get(convention, _INDICATORS[CONVENTION_STANDARD])
+    if convention_spec is None:
+        convention_spec, _ = resolve_convention(convention)
+    smap = convention_spec["subfields"]
+    ind1, ind2 = convention_spec["indicators"]
 
     sfs: List[SubfieldData] = []
     sfs.append(SubfieldData("8", str(linking_number)))
@@ -325,9 +415,9 @@ def _enum_value(start: Optional[str], end: Optional[str],
                 open_ended: bool) -> Optional[str]:
     """
     Produce the subfield value for an enumeration level:
-      single item â†’ "3"
-      closed range â†’ "3-7"
-      open range  â†’ "3-"
+      single item → "3"
+      closed range → "3-7"
+      open range  → "3-"
     """
     if start is None:
         return None
@@ -432,6 +522,7 @@ def convert_holdings(
     existing_853=None,
     convention: str = CONVENTION_STANDARD,
     chron_as_text: bool = False,
+    convention_spec: Optional[Dict[str, Any]] = None,
 ) -> ConversionResult:
     """
     Convert a ParseResult into 853 + 863 MARC field data.
@@ -447,10 +538,15 @@ def convert_holdings(
                            declares a slot for every level found in the data,
                            only 863s are produced and field_853 is None so the
                            caller does not add a second, conflicting 853.
-    convention           : CONVENTION_STANDARD or CONVENTION_HOUSE - which
-                           subfields a *regenerated* 853 uses
+    convention           : CONVENTION_STANDARD or CONVENTION_HOUSE - the preset
+                           a *regenerated* 853 starts from
     chron_as_text        : write chronology as text ("Mar") rather than MARC
                            codes ("03"), matching local practice
+    convention_spec      : a fully-resolved spec from resolve_convention(),
+                           letting the cataloger define the convention rather
+                           than inherit a preset.  Overrides the two arguments
+                           above.  Ignored when conforming to an existing 853,
+                           whose own declared subfields always win.
 
     Returns
     -------
@@ -459,6 +555,14 @@ def convert_holdings(
     """
     warnings = list(parse_result.warnings)
     levels = parse_result.caption_union()
+
+    # A caller may pass a fully-resolved spec (from the UI) or just a preset
+    # name; resolving here keeps every existing call site working unchanged.
+    if convention_spec is None:
+        convention_spec, _ = resolve_convention(
+            convention, chron_as_text=chron_as_text
+        )
+    chron_as_text = convention_spec["chron_as_text"]
 
     # Nothing was parsed, or the parser deliberately withheld a value because
     # its level could not be determined.  Emit no fields.
@@ -503,7 +607,7 @@ def convert_holdings(
         )
 
     # ── Regenerate a complete 853 in the requested convention ──
-    smap = _SUBFIELD_MAPS.get(convention, _SUBFIELD_MAPS[CONVENTION_STANDARD])
+    smap = convention_spec["subfields"]
 
     field_853 = _build_853(
         parse_result,
@@ -511,7 +615,7 @@ def convert_holdings(
         captions=captions,
         frequency=frequency,
         numbering_continuity=numbering_continuity,
-        convention=convention,
+        convention_spec=convention_spec,
     )
 
     fields_863: List[FieldData] = []
@@ -526,6 +630,149 @@ def convert_holdings(
         linking_number=linking_number,
         warnings=warnings,
     )
+
+
+@dataclass
+class RecordConversion:
+    """Output of convert_record() -- everything one record needs written."""
+    fields_853: List[FieldData] = field(default_factory=list)
+    fields_863: List[FieldData] = field(default_factory=list)
+    links_written: List[str] = field(default_factory=list)
+    results: List[ConversionResult] = field(default_factory=list)  # per statement
+
+    @property
+    def needs_review(self) -> int:
+        return sum(1 for r in self.results if r.needs_review)
+
+    @property
+    def converted(self) -> int:
+        return sum(1 for r in self.results if r.fields_863)
+
+    @property
+    def conformed(self) -> int:
+        return sum(1 for r in self.results if r.conformed)
+
+    @property
+    def warnings(self) -> List[str]:
+        seen, out = set(), []
+        for r in self.results:
+            for w in r.warnings:
+                if w not in seen:
+                    seen.add(w)
+                    out.append(w)
+        return out
+
+
+def _set_subfield(field_data: FieldData, code: str, value: str) -> None:
+    """Overwrite a subfield's value in place (used to stamp the final $8)."""
+    for sf in field_data.subfields:
+        if sf.code == code:
+            sf.value = value
+            return
+
+
+def _pattern_key(field_853: FieldData) -> tuple:
+    """
+    The publication pattern an 853 expresses, ignoring its linking number.
+
+    Two statements belong under the same 853 exactly when this matches.
+    """
+    return tuple((sf.code, sf.value) for sf in field_853.subfields if sf.code != "8")
+
+
+def convert_record(
+    parse_results: List[ParseResult],
+    existing_853s: Optional[List] = None,
+    captions: Optional[Dict[str, str]] = None,
+    frequency: str = "",
+    numbering_continuity: str = "",
+    convention_spec: Optional[Dict[str, Any]] = None,
+) -> RecordConversion:
+    """
+    Convert every 866 statement on one record, sharing 853s across statements
+    that express the same publication pattern.
+
+    MARC 21 treats the 853 as a caption *pattern*: a gap in holdings is another
+    863 under the same 853, not a new one.  Numbering therefore cannot be
+    decided per statement -- convert_holdings() cannot see its siblings -- so
+    this function assigns every $8 once the whole record is known.
+
+    Statements whose 853 is identical share a linking number and receive
+    consecutive 863 sequence numbers.  Statements conforming to an 853 already
+    on the record adopt its $8.  Any link number written to is reported in
+    `links_written` so the caller can drop superseded 863s.
+    """
+    existing = list(existing_853s or [])
+    out = RecordConversion()
+
+    # (link or pattern key) -> [(ConversionResult), ...], in first-appearance order
+    groups: "dict[Any, List[ConversionResult]]" = {}
+    conformed_links: Dict[Any, str] = {}
+
+    for pr in parse_results:
+        # Pick the existing 853 this statement could conform to, if any.
+        best = None
+        for cand in existing:
+            probe = convert_holdings(
+                pr, existing_853=cand, captions=captions, frequency=frequency,
+                numbering_continuity=numbering_continuity,
+                convention_spec=convention_spec,
+            )
+            if probe.conformed:
+                best = probe
+                break
+
+        cr = best or convert_holdings(
+            pr, captions=captions, frequency=frequency,
+            numbering_continuity=numbering_continuity,
+            convention_spec=convention_spec,
+        )
+        out.results.append(cr)
+
+        if cr.needs_review or not cr.fields_863:
+            continue
+
+        if cr.conformed:
+            key = ("link", str(cr.linking_number))
+            conformed_links[key] = str(cr.linking_number)
+        else:
+            key = ("pattern", _pattern_key(cr.field_853))
+        groups.setdefault(key, []).append(cr)
+
+    # Allocate link numbers, stepping around any a conformed group already owns.
+    taken = set(conformed_links.values())
+    assigned: Dict[Any, str] = dict(conformed_links)
+    nxt = 1
+    for key in groups:
+        if key in assigned:
+            continue
+        while str(nxt) in taken:
+            nxt += 1
+        assigned[key] = str(nxt)
+        taken.add(str(nxt))
+        nxt += 1
+
+    # Stamp $8 and let 863 sequence numbers run across the whole group.
+    for key, members in groups.items():
+        link = assigned[key]
+        out.links_written.append(link)
+        seq = 1
+        for cr in members:
+            for f863 in cr.fields_863:
+                _set_subfield(f863, "8", f"{link}.{seq}")
+                out.fields_863.append(f863)
+                seq += 1
+            cr.linking_number = link
+            # Stamp every member's 853 so per-statement previews show the link
+            # actually written, even though only one field reaches the record.
+            if cr.field_853 is not None:
+                _set_subfield(cr.field_853, "8", link)
+        # One 853 per group; conformed groups already have one on the record.
+        head = members[0]
+        if head.field_853 is not None:
+            out.fields_853.append(head.field_853)
+
+    return out
 
 
 def apply_to_record(

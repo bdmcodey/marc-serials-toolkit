@@ -1,2 +1,6 @@
-flask>=3.0
-pymarc>=5.1
+flask>=3.0,<4.0
+# Upper bound is deliberate. This code depends on 5.x behaviour that is not
+# guaranteed across a major bump: MARCWriter.close(close_fh=False) to keep the
+# BytesIO open, and MARCReader being iterated directly rather than used as a
+# context manager. Verified against 5.2.3.
+pymarc>=5.2.3,<6.0

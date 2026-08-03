@@ -9,11 +9,11 @@ Supported 866 $a patterns (case-insensitive):
   v.1(1990)-v.5(1994)
   v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)
   v.1:no.1(1990:Spring)-v.5:no.4(1994:Winter)
-  v.6(1995)-                          â† open-ended / current
+  v.6(1995)-                          ← open-ended / current
   Vol. 1, No. 1 (Spring 1990)-...
-  1990-1994                           â† year-only holdings
-  v.1-5(1990-1994)                    â† compressed range format
-  v.1:no.1-v.2:no.4(1990-1991)       â† chron at end only
+  1990-1994                           ← year-only holdings
+  v.1-5(1990-1994)                    ← compressed range format
+  v.1:no.1-v.2:no.4(1990-1991)       ← chron at end only
   Multiple ranges: "v.1(1990)-v.3(1992), v.5(1994)-"
 
 Also supports a second, chronology-first "block" grammar found in older and
@@ -128,10 +128,10 @@ class EnumChron:
 
 @dataclass
 class HoldingsRange:
-    """A single holdings range (startâ€“end, or startâ€“ if open)."""
+    """A single holdings range (start–end, or start– if open)."""
     start: EnumChron = field(default_factory=EnumChron)
     end: Optional[EnumChron] = None   # None means open-ended
-    open_ended: bool = False          # True  â‡’ still being received
+    open_ended: bool = False          # True  ⇒ still being received
     raw: str = ""                     # original text for this range
 
     def caption_levels(self) -> dict:
@@ -178,12 +178,12 @@ class ParseResult:
 #   v.1:no.2(1990:Mar.)  or  Vol.1,No.2(Spring 1990)  or  1990
 #
 # Group names used below:
-#   vol_cap   â€“ caption word for volume   (v, vol, volume)
-#   vol_num   â€“ volume number
-#   iss_cap   â€“ caption word for issue    (no, n, nr, num, number, issue, iss, pt, part)
-#   iss_num   â€“ issue number
-#   chron_raw â€“ everything inside ( )
-#   year_only â€“ bare year with no parens
+#   vol_cap   – caption word for volume   (v, vol, volume)
+#   vol_num   – volume number
+#   iss_cap   – caption word for issue    (no, n, nr, num, number, issue, iss, pt, part)
+#   iss_num   – issue number
+#   chron_raw – everything inside ( )
+#   year_only – bare year with no parens
 
 _ENUM_CHRON_RE = re.compile(
     r"""
@@ -217,7 +217,7 @@ _ENUM_CHRON_RE = re.compile(
 _YEAR_ONLY_RE = re.compile(r"^\s*(\d{4})\s*$")
 
 # Matches the start of a new range: a volume-level caption at the beginning
-# e.g. "v.", "vol.", "volume" â€“ but NOT "no.", "n.", "pt." etc.
+# e.g. "v.", "vol.", "volume" – but NOT "no.", "n.", "pt." etc.
 _VOL_START_RE = re.compile(
     r"^\s*(?:v(?:ol(?:ume)?)?)\s*[.\s]", re.IGNORECASE
 )
@@ -681,7 +681,7 @@ def parse_866(text: str) -> ParseResult:
         hr = _parse_one_range(seg)
         if not hr.start.has_enum() and not hr.start.has_chron():
             result.warnings.append(
-                f"Could not parse segment: '{seg}' â€” it will be skipped."
+                f"Could not parse segment: '{seg}' — it will be skipped."
             )
             continue
         result.ranges.append(hr)

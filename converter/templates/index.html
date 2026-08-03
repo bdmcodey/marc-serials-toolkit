@@ -353,6 +353,30 @@
     }
     .caption-grid .form-group { margin-bottom: 0; }
 
+    /* Per-level subfield + caption editor */
+    .conv-grid {
+      display: grid;
+      grid-template-columns: 3.6rem 2.2rem 1fr;
+      gap: 0.3rem;
+      align-items: center;
+    }
+    .conv-head {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+    .conv-level {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+    .conv-grid input { padding: 0.35rem 0.45rem; font-size: 0.75rem; }
+    .conv-sf { text-align: center; }
+    /* A subfield the user has put somewhere MARC does not expect */
+    .conv-sf.invalid { border-color: var(--danger); color: var(--danger); }
+
     /* ── Tabs ──────────────────────────────────────────────────────── */
     .tabs {
       display: flex;
@@ -467,28 +491,32 @@
         </div>
         <details>
           <summary class="small dim" style="cursor:pointer; margin-bottom:0.6rem;">
-            Caption overrides <span class="dim">(optional)</span>
+            Caption &amp; subfield overrides <span class="dim">(optional)</span>
           </summary>
-          <div class="caption-grid mt-1">
+          <div class="conv-grid mt-1" id="conv-grid-single">
+            <div class="conv-head">Level</div>
+            <div class="conv-head">$</div>
+            <div class="conv-head">Caption</div>
+            {% for level in convention_levels %}
+            <div class="conv-level">{{ level }}</div>
+            <input type="text" class="conv-sf" id="sf-{{ level }}" maxlength="1" />
+            <input type="text" id="cap-{{ level }}" />
+            {% endfor %}
+          </div>
+          <div class="form-row mt-1">
             <div class="form-group">
-              <label>Vol. caption ($a)</label>
-              <input type="text" id="cap-vol" value="v." />
+              <label>853 indicators</label>
+              <div style="display:flex; gap:0.3rem;">
+                <input type="text" id="opt-ind1" maxlength="1" style="width:50%;" />
+                <input type="text" id="opt-ind2" maxlength="1" style="width:50%;" />
+              </div>
             </div>
             <div class="form-group">
-              <label>Issue caption ($b)</label>
-              <input type="text" id="cap-issue" value="no." />
-            </div>
-            <div class="form-group">
-              <label>Part caption ($c)</label>
-              <input type="text" id="cap-part" value="pt." />
-            </div>
-            <div class="form-group">
-              <label>Year caption ($i)</label>
-              <input type="text" id="cap-year" value="(year)" />
-            </div>
-            <div class="form-group">
-              <label>Month caption ($j)</label>
-              <input type="text" id="cap-month" value="(month)" />
+              <label>Chronology</label>
+              <select id="opt-chronology">
+                <option value="code">Codes — 03</option>
+                <option value="text">Text — Mar</option>
+              </select>
             </div>
           </div>
         </details>
@@ -580,6 +608,37 @@
             <option value="house">House style — $a (year), chronology as text</option>
           </select>
         </div>
+        <details style="margin-bottom:0.75rem;">
+          <summary class="small dim" style="cursor:pointer; margin-bottom:0.6rem;">
+            Caption &amp; subfield overrides <span class="dim">(optional)</span>
+          </summary>
+          <div class="conv-grid mt-1" id="conv-grid-batch">
+            <div class="conv-head">Level</div>
+            <div class="conv-head">$</div>
+            <div class="conv-head">Caption</div>
+            {% for level in convention_levels %}
+            <div class="conv-level">{{ level }}</div>
+            <input type="text" class="conv-sf" id="bsf-{{ level }}" maxlength="1" />
+            <input type="text" id="bcap-{{ level }}" />
+            {% endfor %}
+          </div>
+          <div class="form-row mt-1">
+            <div class="form-group">
+              <label>853 indicators</label>
+              <div style="display:flex; gap:0.3rem;">
+                <input type="text" id="batch-ind1" maxlength="1" style="width:50%;" />
+                <input type="text" id="batch-ind2" maxlength="1" style="width:50%;" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Chronology</label>
+              <select id="batch-chronology">
+                <option value="code">Codes — 03</option>
+                <option value="text">Text — Mar</option>
+              </select>
+            </div>
+          </div>
+        </details>
         <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; margin-bottom:0.5rem; font-size:0.78rem; color:var(--text);">
           <input type="checkbox" id="batch-remove866" checked />
           Remove 866 fields after conversion
@@ -677,6 +736,82 @@
 </div>
 
 <script>
+// ── Caption convention ───────────────────────────────────────────────────
+// Presets come from marc_converter.py so the maps live in exactly one place.
+
+const CONVENTION_PRESETS = {{ convention_presets | tojson }};
+const CONVENTION_LEVELS  = {{ convention_levels | tojson }};
+const DEFAULT_CAPTIONS   = {
+  vol: 'v.', issue: 'no.', part: 'pt.', year: '(year)', month: '(month)'
+};
+// 853 carries captions in $a-$m; everything else is reserved for other data.
+const ALLOWED_SUBFIELDS = 'abcdefghijklm';
+
+/**
+ * Seed a convention editor from a named preset.  The preset is a starting
+ * point, not a lock — every field stays editable afterwards.
+ * `p` is the id prefix: '' for the single-record panel, 'b' for batch.
+ */
+function applyPreset(name, p) {
+  const preset = CONVENTION_PRESETS[name] || CONVENTION_PRESETS.standard;
+  CONVENTION_LEVELS.forEach(level => {
+    const sf  = document.getElementById(`${p}sf-${level}`);
+    const cap = document.getElementById(`${p}cap-${level}`);
+    if (sf)  sf.value  = preset.subfields[level] || '';
+    if (cap) cap.value = DEFAULT_CAPTIONS[level] || '';
+  });
+  const i1 = document.getElementById(p ? 'batch-ind1' : 'opt-ind1');
+  const i2 = document.getElementById(p ? 'batch-ind2' : 'opt-ind2');
+  if (i1) i1.value = preset.indicators[0];
+  if (i2) i2.value = preset.indicators[1];
+  const ch = document.getElementById(p ? 'batch-chronology' : 'opt-chronology');
+  if (ch) ch.value = preset.chron_as_text ? 'text' : 'code';
+  markInvalidSubfields(p);
+}
+
+/** Flag subfields MARC will not accept, or that two levels are fighting over. */
+function markInvalidSubfields(p) {
+  const seen = {};
+  CONVENTION_LEVELS.forEach(level => {
+    const el = document.getElementById(`${p}sf-${level}`);
+    if (!el) return;
+    const v = (el.value || '').trim().toLowerCase();
+    const bad = v && (v.length !== 1 || !ALLOWED_SUBFIELDS.includes(v) || seen[v]);
+    el.classList.toggle('invalid', !!bad);
+    if (v) seen[v] = true;
+  });
+}
+
+/** Collect the editor into the shape the API expects. */
+function conventionPayload(p) {
+  const subfields = {}, captions = {};
+  CONVENTION_LEVELS.forEach(level => {
+    const sf  = document.getElementById(`${p}sf-${level}`);
+    const cap = document.getElementById(`${p}cap-${level}`);
+    if (sf && sf.value.trim())  subfields[level] = sf.value.trim().toLowerCase();
+    if (cap && cap.value.trim()) captions[level] = cap.value.trim();
+  });
+  const sel = document.getElementById(p ? 'batch-convention' : 'opt-convention');
+  const i1  = document.getElementById(p ? 'batch-ind1' : 'opt-ind1');
+  const i2  = document.getElementById(p ? 'batch-ind2' : 'opt-ind2');
+  const ch  = document.getElementById(p ? 'batch-chronology' : 'opt-chronology');
+  return {
+    convention: sel ? sel.value : 'standard',
+    subfields,
+    captions,
+    indicators: [i1 ? i1.value : '', i2 ? i2.value : ''],
+    chronology: ch ? ch.value : 'code',
+  };
+}
+
+['', 'b'].forEach(p => {
+  const sel = document.getElementById(p ? 'batch-convention' : 'opt-convention');
+  if (sel) sel.addEventListener('change', () => applyPreset(sel.value, p));
+  const grid = document.getElementById(p ? 'conv-grid-batch' : 'conv-grid-single');
+  if (grid) grid.addEventListener('input', () => markInvalidSubfields(p));
+  applyPreset(sel ? sel.value : 'standard', p);
+});
+
 // ── Utilities ────────────────────────────────────────────────────────────
 
 function highlightField(raw) {
@@ -736,16 +871,9 @@ async function runConvert() {
 
   const body = {
     text,
-    captions: {
-      vol:   document.getElementById('cap-vol').value,
-      issue: document.getElementById('cap-issue').value,
-      part:  document.getElementById('cap-part').value,
-      year:  document.getElementById('cap-year').value,
-      month: document.getElementById('cap-month').value,
-    },
+    ...conventionPayload(''),
     frequency: document.getElementById('opt-freq').value,
     numbering_continuity: document.getElementById('opt-continuity').value,
-    convention: document.getElementById('opt-convention').value,
     linking_number: parseInt(document.getElementById('opt-linking').value) || 1,
   };
 
@@ -944,7 +1072,8 @@ function renderRecordDetail(rec, idx) {
         <span class="pill has-866">866</span>
         <span class="f866-text">${escHtml(f866.display)}</span>
         <button class="btn btn-secondary btn-sm" onclick="previewSingle(${idx},${fi})">Preview</button>
-        <button class="btn btn-primary btn-sm" onclick="applySingle(${idx},${fi})">Apply</button>
+        <button class="btn btn-primary btn-sm" onclick="applyAllInRecord(${idx})"
+                title="Linking numbers are shared across a record, so conversion applies to every 866 here">Convert record</button>
       </div>
       <div class="conversion-866-body">
         <div class="field-display f866">${escHtml(f866.a)}</div>
@@ -968,87 +1097,74 @@ function renderRecordDetail(rec, idx) {
     </div>`;
 }
 
+/**
+ * Preview one 866 block.
+ *
+ * Linking numbers depend on the other statements in the record, so this asks
+ * the server to convert the whole record and then renders every block that is
+ * already on screen -- otherwise two blocks sharing an 853 could show
+ * inconsistent $8 values.
+ */
 async function previewSingle(recIdx, fieldIdx) {
-  const rec = allRecords[recIdx];
-  const f866 = rec.fields_866[fieldIdx];
   const container = document.getElementById(`preview-${recIdx}-${fieldIdx}`);
   container.innerHTML = '<span class="spinner"></span>';
 
   try {
-    const res = await fetch('api/parse-text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: f866.a,
-        frequency: document.getElementById('batch-freq').value,
-        numbering_continuity: document.getElementById('batch-continuity').value,
-        convention: document.getElementById('batch-convention').value,
-        linking_number: fieldIdx + 1,
-      }),
-    });
-    const data = await res.json();
-    const head = data.conversion.needs_review
-      ? `<div class="alert alert-warn small">⚠ Held for review — not converted.</div>`
-      : data.conversion.conformed
-        ? `<div class="field-label">863 Preview <span class="dim">(conforms to existing 853)</span></div>`
-        : `<div class="field-label">853 Preview</div>
-           <div class="field-display f853 small">${highlightField(escHtml(data.preview.field_853))}</div>`;
-    container.innerHTML = `
-      ${head}
-      ${data.preview.fields_863.map(f =>
-        `<div class="field-display f863 small mt-1">${highlightField(escHtml(f))}</div>`
-      ).join('')}
-      ${data.parse.warnings.length ? `<div class="alert alert-warn small mt-1">⚠ ${escHtml(data.parse.warnings[0])}</div>` : ''}
-    `;
-  } catch(err) {
-    container.innerHTML = `<div class="alert alert-err">Error: ${err.message}</div>`;
-  }
-}
-
-async function applySingle(recIdx, fieldIdx) {
-  const rec = allRecords[recIdx];
-  const f866 = rec.fields_866[fieldIdx];
-  const statusDiv = document.getElementById(`record-status-${recIdx}`);
-
-  try {
-    const res = await fetch('api/convert-record', {
+    const res = await fetch('api/preview-record', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         record_index: recIdx,
-        conversions: [{
-          text: f866.a,
-          frequency: document.getElementById('batch-freq').value,
-          numbering_continuity: document.getElementById('batch-continuity').value,
-          convention: document.getElementById('batch-convention').value,
-          linking_number: fieldIdx + 1,
-          remove_866: document.getElementById('batch-remove866').checked,
-        }],
-        clear_existing_853_863: document.getElementById('batch-clear853863').checked,
-        convention: document.getElementById('batch-convention').value,
+        ...conventionPayload('b'),
+        frequency: document.getElementById('batch-freq').value,
+        numbering_continuity: document.getElementById('batch-continuity').value,
       }),
     });
     const data = await res.json();
     if (data.error) {
-      showAlert(statusDiv, data.error, 'err');
-    } else {
-      statusDiv.innerHTML = `<div class="alert alert-ok">✓ 853 + ${data.previews[0].fields_863.length} 863 field(s) applied. <a href="api/download-converted" class="btn btn-success btn-sm" style="margin-left:0.5rem;">↓ Download</a></div>`;
-      document.getElementById('btn-download').style.display = 'inline-flex';
+      container.innerHTML = `<div class="alert alert-err">${escHtml(data.error)}</div>`;
+      return;
     }
+    data.previews.forEach((pv, i) => {
+      const el = document.getElementById(`preview-${recIdx}-${i}`);
+      // Only refresh blocks the user has already asked to see.
+      if (el && (i === fieldIdx || el.innerHTML.trim())) {
+        el.innerHTML = renderPreview(pv);
+      }
+    });
   } catch(err) {
-    showAlert(statusDiv, err.message, 'err');
+    container.innerHTML = `<div class="alert alert-err">Error: ${escHtml(err.message)}</div>`;
   }
 }
 
+function renderPreview(pv) {
+  const head = pv.needs_review
+    ? `<div class="alert alert-warn small">⚠ Held for review — not converted.</div>`
+    : pv.conformed
+      ? `<div class="field-label">863 Preview <span class="dim">(conforms to existing 853)</span></div>`
+      : `<div class="field-label">853 Preview</div>
+         <div class="field-display f853 small">${highlightField(escHtml(pv.field_853))}</div>`;
+  return `
+    ${head}
+    ${pv.fields_863.map(f =>
+      `<div class="field-display f863 small mt-1">${highlightField(escHtml(f))}</div>`
+    ).join('')}
+    ${pv.warnings.length ? `<div class="alert alert-warn small mt-1">⚠ ${escHtml(pv.warnings[0])}</div>` : ''}
+  `;
+}
+
+// Conversion is always record-level: 853 linking numbers are shared across a
+// record's 866s, so applying one statement at a time cannot produce correct $8
+// values. Every convert button routes here.
 async function applyAllInRecord(recIdx) {
   const rec = allRecords[recIdx];
   const statusDiv = document.getElementById(`record-status-${recIdx}`);
 
   const conversions = rec.fields_866.map((f866, fi) => ({
     text: f866.a,
+    captions: conventionPayload('b').captions,
     frequency: document.getElementById('batch-freq').value,
     numbering_continuity: document.getElementById('batch-continuity').value,
-    convention: document.getElementById('batch-convention').value,
     linking_number: fi + 1,
     remove_866: document.getElementById('batch-remove866').checked,
   }));
@@ -1061,15 +1177,19 @@ async function applyAllInRecord(recIdx) {
         record_index: recIdx,
         conversions,
         clear_existing_853_863: document.getElementById('batch-clear853863').checked,
-        convention: document.getElementById('batch-convention').value,
+        ...conventionPayload('b'),
       }),
     });
     const data = await res.json();
     if (data.error) {
       showAlert(statusDiv, data.error, 'err');
     } else {
+      // Statements sharing a publication pattern share one 853, so count
+      // distinct patterns rather than statements.
       const total863 = data.previews.reduce((sum, p) => sum + p.fields_863.length, 0);
-      statusDiv.innerHTML = `<div class="alert alert-ok">✓ ${data.previews.length} 853 + ${total863} 863 field(s) applied. <a href="api/download-converted" class="btn btn-success btn-sm" style="margin-left:0.5rem;">↓ Download</a></div>`;
+      const n853 = new Set(data.previews.filter(p => p.field_853).map(p => p.field_853)).size;
+      const review = data.previews.filter(p => p.needs_review).length;
+      statusDiv.innerHTML = `<div class="alert alert-ok">✓ ${n853} 853 + ${total863} 863 field(s) applied${review ? `, ${review} held for review` : ''}. <a href="api/download-converted" class="btn btn-success btn-sm" style="margin-left:0.5rem;">↓ Download</a></div>`;
       document.getElementById('btn-download').style.display = 'inline-flex';
     }
   } catch(err) {
@@ -1090,9 +1210,9 @@ document.getElementById('btn-batch-all')?.addEventListener('click', async () => 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        ...conventionPayload('b'),
         frequency: document.getElementById('batch-freq').value,
         numbering_continuity: document.getElementById('batch-continuity').value,
-        convention: document.getElementById('batch-convention').value,
         remove_866: document.getElementById('batch-remove866').checked,
         clear_existing_853_863: document.getElementById('batch-clear853863').checked,
       }),
