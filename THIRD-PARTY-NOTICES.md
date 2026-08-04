@@ -1,6 +1,28 @@
+# Third-Party Notices
+
+This project incorporates or derives from third-party material. The applicable
+notices are reproduced below.
+
+---
+
+## inmagic-project (`extract.py`)
+
+**Author:** Phani Chaitanya Pendyala
+**Source:** <https://github.com/chaitupendyala/inmagic-project>
+**License:** MIT
+
+Portions of this project derive from `extract.py` in the above repository.
+The derivation appears in:
+
+- `ai-regex/test_enum_update.py` — retains structure, identifiers, and the
+  month/season chronology code mapping from the original script.
+- `converter/holdings_parser.py` — the `MARC_CHRON_CODES` table is a port of
+  the original's `marc_853_encoding` mapping.
+
+```
 MIT License
 
-Copyright (c) 2026 Matthew Codey
+Copyright (c) 2023 Phani Chaitanya Pendyala
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +41,4 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```

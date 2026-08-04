@@ -1,3 +1,8 @@
+# Derived from extract.py by Phani Chaitanya Pendyala, published at
+# https://github.com/chaitupendyala/inmagic-project under the MIT License.
+# This file retains structure, identifiers, and the month/season chronology
+# code mapping from that script. See THIRD-PARTY-NOTICES.md.
+
 from pymarc import MARCReader, Field, Subfield, Indicators
 from tkinter.filedialog import askopenfilename
 import re

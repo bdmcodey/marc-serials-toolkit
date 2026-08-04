@@ -64,7 +64,8 @@ marc-serials-toolkit/
 │   └── example_holdings.mrc   Small SYNTHETIC sample for demos/tests
 ├── scripts/
 │   └── create_example_mrc.py  Regenerates the synthetic sample
-├── LICENSE             MIT
+├── NOTICE.md           Licensing status — no license currently granted
+├── THIRD-PARTY-NOTICES.md  Attribution for derived third-party code
 └── .gitignore
 ```
 
@@ -89,4 +90,12 @@ data — with dozens of caption styles — is what these tools are for. See
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+**No license is granted at this time.** This repository is published for
+reference only while institutional intellectual property rights are under
+review; default copyright applies. The intent is to release under
+`AGPL-3.0-or-later` once that review concludes. See [NOTICE.md](NOTICE.md) for
+the full statement, including the status of the MIT license carried by earlier
+commits.
+
+Portions of this project derive from third-party code — see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
