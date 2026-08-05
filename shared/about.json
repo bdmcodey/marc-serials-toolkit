@@ -1,0 +1,142 @@
+{
+  "name": "MARC Serials Toolkit",
+  "version": "0.5.0",
+  "released": "2026-08-04",
+  "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
+  "description": "Two tools for MARC serials holdings. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
+  "licensing": "No license is granted at this time; the repository is published for reference only while institutional intellectual property rights are reviewed. See NOTICE.md.",
+  "attribution": "Portions derive from extract.py by Phani Chaitanya Pendyala (MIT). See THIRD-PARTY-NOTICES.md.",
+  "contact": "Matthew Codey, codey@usc.edu",
+
+  "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
+
+  "changelog": [
+    {
+      "version": "0.5.0",
+      "date": "2026-08-04",
+      "summary": "Corrected how 853s are numbered, and made previews appear on their own.",
+      "changes": [
+        {
+          "tool": "Converter",
+          "text": "A single 853 is now shared by every holdings statement that follows the same publication pattern, numbered $8 1.1, 1.2, 1.3 and so on. Previously each statement produced its own 853, so one record could end up with four identical patterns under four different linking numbers. A gap in your holdings no longer starts a new pattern — only an actual change in how the serial is published does."
+        },
+        {
+          "tool": "Converter",
+          "text": "The 853/863 preview now appears as soon as you select a record. There is no longer a Preview button to press, and the 853 is shown once at the top of each group rather than repeated beside every statement."
+        },
+        {
+          "tool": "Converter",
+          "text": "Each source 866 is shown side by side with the 863 it produced, so you can check them against each other directly."
+        },
+        {
+          "tool": "Converter",
+          "text": "Conversion settings moved into their own window, opened with the Conversion settings button. They previously sat in the sidebar, where they overlapped the record list when expanded."
+        },
+        {
+          "tool": "Converter",
+          "text": "Converting from a record's own button now converts every statement in that record. Doing them one at a time could silently discard the previous one."
+        },
+        {
+          "tool": "Pattern detector",
+          "text": "Expanding \"+ N more\" under Example Statements now shows every statement in the group. It previously showed only two, however many the link promised."
+        },
+        {
+          "tool": "Pattern detector",
+          "text": "Fixed a display fault where pattern cards collapsed to a few pixels and their contents were invisible."
+        },
+        {
+          "tool": "Both",
+          "text": "The record list and results panel now scroll on their own instead of stretching the whole page."
+        }
+      ]
+    },
+    {
+      "version": "0.4.0",
+      "date": "2026-08-04",
+      "summary": "Rebuilt both interfaces for readability.",
+      "changes": [
+        {
+          "tool": "Both",
+          "text": "Text is substantially larger throughout. The smallest text on screen went from around 8 pixels to 14, and body text to 18."
+        },
+        {
+          "tool": "Both",
+          "text": "Added an A / A+ / A++ control in the top corner that enlarges everything, and a light/dark theme switch. Both remember your choice on the next visit."
+        },
+        {
+          "tool": "Both",
+          "text": "The tools now respect whatever text size you have set in your own browser instead of overriding it. If you had already made text larger, these tools were previously shrinking it back down."
+        },
+        {
+          "tool": "Both",
+          "text": "Colours were adjusted so labels and borders meet accessibility contrast guidance, buttons and boxes are large enough to click comfortably, and the layout reflows rather than clipping when text is enlarged."
+        },
+        {
+          "tool": "Toolkit",
+          "text": "The MIT license was withdrawn pending a review of institutional intellectual property rights, and attribution to the original author was made complete."
+        }
+      ]
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-08-03",
+      "summary": "The converter learned a second holdings format and stopped guessing.",
+      "changes": [
+        {
+          "tool": "Converter",
+          "text": "Year-first holdings such as \"1993: (1 [Feb])\" and \"2019: (1-6 [Feb-Nov])2020: (7-12 [Jan-Dec])\" are now understood. On one test file the share of statements the converter could read went from 6% to 94%; previously almost none of that format could be converted at all."
+        },
+        {
+          "tool": "Converter",
+          "text": "When a record already has an 853 that describes its holdings, the converter now adds 863s under it rather than creating a second, competing 853."
+        },
+        {
+          "tool": "Converter",
+          "text": "Statements where it cannot tell what a number means — whether it is a volume or an issue — are held for review and left unconverted, rather than being guessed at. They are listed with the reason."
+        },
+        {
+          "tool": "Converter",
+          "text": "Running a conversion twice on the same file no longer duplicates fields."
+        },
+        {
+          "tool": "Converter",
+          "text": "You can now choose which subfields the captions use, and whether chronology is written as MARC codes (03) or as text (Mar)."
+        }
+      ]
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-07-30",
+      "summary": "Pattern detector made usable on messy holdings.",
+      "changes": [
+        {
+          "tool": "Pattern detector",
+          "text": "Groups too irregular to express as a single pattern are now reported as a finding — \"too idiosyncratic to express as a pattern, N statements affected\" — instead of producing an unusable expression or an error about length."
+        },
+        {
+          "tool": "Pattern detector",
+          "text": "Free text inside a holdings statement, such as \"Library has:\" or \"[lacks v.3]\", is now handled as a single unit. Generated expressions are shorter and match related statements rather than only the exact one they came from."
+        },
+        {
+          "tool": "Pattern detector",
+          "text": "Fixed a fault where any group containing free text reported 0% matched, because the generated expression could not match the statement it was built from."
+        }
+      ]
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-07-24",
+      "summary": "First working version.",
+      "changes": [
+        {
+          "tool": "Converter",
+          "text": "Converts 866 textual holdings into 853/863 fields, from pasted text or an uploaded MARC file, with month and season written as MARC chronology codes."
+        },
+        {
+          "tool": "Pattern detector",
+          "text": "Groups 866 statements by structure and generates a named-group regular expression for each pattern found."
+        }
+      ]
+    }
+  ]
+}

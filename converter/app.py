@@ -16,6 +16,7 @@ Requirements:
 from __future__ import annotations
 
 import io
+import json
 import os
 import tempfile
 import time
@@ -301,6 +302,23 @@ def _load_all_records() -> Optional[list]:
 # Routes
 # ---------------------------------------------------------------------------
 
+def _load_about() -> dict:
+    """
+    Version and changelog, shared with the pattern detector.
+
+    Read per request rather than cached at import, so editing the file and
+    reloading the page is enough to see the change. Never fatal: a missing or
+    malformed file degrades to no badge rather than a broken page.
+    """
+    path = os.path.join(_BASE_DIR, os.pardir, "shared", "about.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        app.logger.warning("Could not read shared/about.json", exc_info=True)
+        return {}
+
+
 @app.route("/ui.css")
 def ui_css():
     """
@@ -319,7 +337,8 @@ def index():
                            has_pymarc=HAS_PYMARC,
                            frequency_codes=FREQUENCY_CODES,
                            convention_levels=CONVENTION_LEVELS,
-                           convention_presets=convention_presets())
+                           convention_presets=convention_presets(),
+                           about=_load_about())
 
 
 @app.route("/api/parse-text", methods=["POST"])

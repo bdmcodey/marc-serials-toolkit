@@ -15,6 +15,7 @@ Then open http://localhost:5001
 from __future__ import annotations
 
 import io
+import json
 import os
 import re
 
@@ -45,6 +46,23 @@ app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # 25 MB
 # Routes
 # ---------------------------------------------------------------------------
 
+def _load_about() -> dict:
+    """
+    Version and changelog, shared with the converter.
+
+    Read per request rather than cached at import, so editing the file and
+    reloading the page is enough to see the change. Never fatal: a missing or
+    malformed file degrades to no badge rather than a broken page.
+    """
+    path = os.path.join(_BASE_DIR, os.pardir, "shared", "about.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        app.logger.warning("Could not read shared/about.json", exc_info=True)
+        return {}
+
+
 @app.route("/ui.css")
 def ui_css():
     """
@@ -59,7 +77,8 @@ def ui_css():
 
 @app.route("/")
 def index():
-    return render_template("tool.html", has_pymarc=HAS_PYMARC)
+    return render_template("tool.html", has_pymarc=HAS_PYMARC,
+                           about=_load_about())
 
 
 # ---------------------------------------------------------------------------

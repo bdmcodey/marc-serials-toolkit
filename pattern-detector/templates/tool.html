@@ -403,6 +403,57 @@ v.1(1985)-v.4(1988), v.6(1990)-v.8(1992)">Multi-range</button>
 
 </main>
 
+{% if about.version %}
+<footer class="app-footer">
+  <button type="button" class="version-badge" id="btn-about"
+          aria-haspopup="dialog" title="Version, changes and licensing">
+    v{{ about.version }}
+  </button>
+</footer>
+
+<dialog id="about-dialog" aria-labelledby="about-dialog-title">
+  <div class="dialog-title" id="about-dialog-title">
+    {{ about.name }} <span class="dim">v{{ about.version }}</span>
+  </div>
+
+  {% if about.status %}
+  <div class="about-section">
+    <div class="about-status">{{ about.status }}</div>
+  </div>
+  {% endif %}
+
+  {% if about.description %}
+  <div class="about-section"><p>{{ about.description }}</p></div>
+  {% endif %}
+
+  <div class="about-section small dim">
+    {% if about.licensing %}<p>{{ about.licensing }}</p>{% endif %}
+    {% if about.attribution %}<p>{{ about.attribution }}</p>{% endif %}
+    {% if about.contact %}<p>Questions: {{ about.contact }}</p>{% endif %}
+  </div>
+
+  <h2>What has changed</h2>
+  {% for rel in about.changelog %}
+  <div class="release">
+    <div class="release-head">
+      <span class="release-version">v{{ rel.version }}</span>
+      <span class="release-date">{{ rel.date }}</span>
+    </div>
+    {% if rel.summary %}<div class="release-summary">{{ rel.summary }}</div>{% endif %}
+    <ul class="release-changes">
+      {% for c in rel.changes %}
+      <li><span class="change-tool">{{ c.tool }}</span><span>{{ c.text }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+
+  <div class="dialog-actions">
+    <button type="button" class="btn btn-primary" id="btn-about-done">Done</button>
+  </div>
+</dialog>
+{% endif %}
+
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 let detectedGroups = [];
@@ -1016,6 +1067,18 @@ function highlightRegex(pattern) {
     (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
   themeBtn.addEventListener('click', () =>
     applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+})();
+// ── About / changelog dialog ──────────────────────────────────────────────
+// The badge in the footer opens it. <dialog> handles focus trapping and Esc.
+(function () {
+  const dlg = document.getElementById('about-dialog');
+  const open = document.getElementById('btn-about');
+  const done = document.getElementById('btn-about-done');
+  if (!dlg || !open) return;
+  open.addEventListener('click', () => dlg.showModal());
+  done && done.addEventListener('click', () => dlg.close());
+  dlg.addEventListener('close', () => open.focus());
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
 })();
 </script>
 </body>

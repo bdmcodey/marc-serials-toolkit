@@ -468,6 +468,78 @@ dialog[open] { display: block; }
   gap: var(--sp-2);
 }
 
+/* ── Footer and about dialog ─────────────────────────────────────────────── */
+
+.app-footer {
+  /* flex: none is load-bearing. In the bounded column below, a shrinkable
+     footer would be squashed the same way the pattern cards once were. */
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  padding: var(--sp-1) var(--sp-4);
+  border-top: 2px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.version-badge {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  padding: var(--sp-1) var(--sp-2);
+  min-height: var(--control-min);
+  cursor: pointer;
+}
+.version-badge:hover { color: var(--text); border-color: var(--border); }
+
+/* Changelog inside the about dialog */
+.about-section { margin-bottom: var(--sp-4); }
+.about-section p { margin-bottom: var(--sp-2); }
+.about-status {
+  border-left: 4px solid var(--warn);
+  background: var(--warn-soft);
+  padding: var(--sp-3);
+  border-radius: var(--radius);
+}
+.release {
+  border-top: 2px solid var(--border-soft);
+  padding-top: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+.release-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+}
+.release-version { font-size: var(--fs-md); font-weight: 700; color: var(--text); }
+.release-date { font-size: var(--fs-xs); color: var(--text-muted); }
+.release-summary { color: var(--text-muted); margin-bottom: var(--sp-3); }
+.release-changes { list-style: none; display: flex; flex-direction: column; gap: var(--sp-3); }
+.release-changes li { display: flex; gap: var(--sp-3); align-items: flex-start; }
+.change-tool {
+  flex: none;
+  min-width: 8.5rem;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 2px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: var(--sp-1) var(--sp-2);
+  text-align: center;
+}
+@media (max-width: 40rem) {
+  .release-changes li { flex-direction: column; gap: var(--sp-1); }
+  .change-tool { min-width: 0; align-self: flex-start; }
+}
+
 /* ── Layout ──────────────────────────────────────────────────────────────── */
 
 /* Sidebars are sized in rem so they grow with the text rather than clipping it,
