@@ -18,7 +18,8 @@ import io
 import os
 import re
 
-from flask import Flask, render_template, request, jsonify
+from flask import (Flask, render_template, request, jsonify,
+                   send_from_directory)
 
 from pattern_detector import detect_patterns, split_multi_range
 
@@ -43,6 +44,18 @@ app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # 25 MB
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+@app.route("/ui.css")
+def ui_css():
+    """
+    Serve the stylesheet shared with the converter.
+
+    Templates link to it relatively, so it resolves both locally and behind
+    nginx, whose trailing-slash proxy_pass strips the /patterns prefix.
+    """
+    return send_from_directory(os.path.join(_BASE_DIR, os.pardir, "shared"),
+                               "ui.css", mimetype="text/css")
+
 
 @app.route("/")
 def index():

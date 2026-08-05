@@ -4,467 +4,300 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MARC Holdings Converter — 866 → 853/863</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,600;1,300&family=Playfair+Display:wght@700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="ui.css" />
+  <script>
+    // Apply the saved theme and text size before first paint, so the page
+    // never flashes in the wrong one.
+    (function () {
+      try {
+        var t = localStorage.getItem('mst-theme');
+        if (t) document.documentElement.setAttribute('data-theme', t);
+        var s = localStorage.getItem('mst-scale');
+        if (s) document.documentElement.style.setProperty('--ui-scale', s);
+      } catch (e) {}
+    })();
+  </script>
   <style>
-    /* ── Base ─────────────────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* ── Holdings converter — app-specific ───────────────────────────────── */
 
-    :root {
-      --bg:        #0f0f12;
-      --surface:   #16161c;
-      --surface2:  #1e1e27;
-      --border:    #2a2a38;
-      --accent:    #c8a84b;          /* warm gold  */
-      --accent2:   #5b8dd9;          /* steel blue */
-      --danger:    #d9605b;
-      --success:   #5bd98a;
-      --text:      #d4d4e0;
-      --text-dim:  #7c7c96;
-      --text-hdr:  #f0ede4;
-      --mono:      'IBM Plex Mono', monospace;
-      --sans:      'IBM Plex Sans', sans-serif;
-      --display:   'Playfair Display', serif;
-      --radius:    6px;
-      --transition: 180ms ease;
+    /* Amber accent, verified 6.51:1 on white and 10.66:1 on the dark ground. */
+    :root { --accent: #8a5000; --accent-soft: #f9efe2; }
+    :root[data-theme="dark"] { --accent: #e8bd58; --accent-soft: #2a2418; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --accent: #e8bd58; --accent-soft: #2a2418; }
     }
 
-    html { font-size: 15px; }
-    body {
-      font-family: var(--sans);
-      background: var(--bg);
+    header h1 { font-size: var(--fs-xl); }
+    .subtitle { font-size: var(--fs-sm); color: var(--text-muted); }
+    .badge {
+      font-size: var(--fs-xs); font-weight: 600;
+      padding: var(--sp-1) var(--sp-2);
+      border-radius: var(--radius);
+      border: 2px solid var(--border);
       color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
     }
+    .badge.ok  { border-color: var(--ok);     background: var(--ok-soft); }
+    .badge.err { border-color: var(--danger); background: var(--danger-soft); }
 
-    /* ── Layout ────────────────────────────────────────────────────── */
-    header {
-      border-bottom: 1px solid var(--border);
-      padding: 1.25rem 2rem;
-      display: flex;
-      align-items: baseline;
-      gap: 1.5rem;
-    }
-    header h1 {
-      font-family: var(--display);
-      font-size: 1.55rem;
-      color: var(--text-hdr);
-      letter-spacing: -0.01em;
-    }
-    header .subtitle {
-      font-family: var(--mono);
-      font-size: 0.72rem;
-      color: var(--accent);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    header .badge {
-      margin-left: auto;
-      font-family: var(--mono);
-      font-size: 0.68rem;
-      padding: 0.25rem 0.6rem;
-      border-radius: 3px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--text-dim);
-    }
-    header .badge.ok  { border-color: var(--success); color: var(--success); }
-    header .badge.err { border-color: var(--danger);  color: var(--danger);  }
-
-    main {
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      flex: 1;
-      overflow: hidden;
-    }
-
-    /* ── Sidebar ───────────────────────────────────────────────────── */
     #sidebar {
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
+      border-right: 2px solid var(--border-soft);
+      display: flex; flex-direction: column;
       overflow-y: auto;
-	  min-height: 0;
+      background: var(--surface);
+      min-height: 0;
     }
-    .sidebar-section {
-      padding: 1.25rem 1.25rem 0;
+
+    /* The container is shown by JS with an inline display:flex, so its
+       direction must be set here rather than relying on the shorthand. */
+    #records-list-container { flex-direction: column; }
+
+    /* Two-pane widths: the record list is the only part of the sidebar that
+       scrolls, so the drop zone above and the batch buttons below stay put
+       however many records the file holds. #tab-file.active outranks the
+       shared .tab-panel.active display:block. */
+    @media (min-width: 60rem) {
+      #sidebar { overflow: hidden; }
+      #tab-text { overflow-y: auto; min-height: 0; flex: 1; }
+      #tab-file.active {
+        display: flex; flex-direction: column;
+        min-height: 0; flex: 1;
+      }
+      /* overflow:hidden is load-bearing: without it a child that refuses to
+         shrink paints outside this box and over the following sibling. */
+      #records-list-container { min-height: 0; flex: 1 1 0; overflow: hidden; }
+      /* No min-height here -- a hard floor is what made the list overflow its
+         container instead of yielding. It scrolls, so it can shrink freely. */
+      #records-list { overflow-y: auto; flex: 1 1 0; }
+      #batch-actions { flex: none; border-top: 2px solid var(--border-soft); }
     }
+
+    .sidebar-section { padding: var(--sp-4) var(--sp-4) 0; }
     .sidebar-section + .sidebar-section {
-      border-top: 1px solid var(--border);
-      margin-top: 1rem;
-      padding-top: 1.25rem;
-    }
-    .section-label {
-      font-family: var(--mono);
-      font-size: 0.65rem;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      margin-bottom: 0.75rem;
+      border-top: 2px solid var(--border-soft);
+      margin-top: var(--sp-4);
+      padding-top: var(--sp-4);
     }
 
-    /* ── Workspace ─────────────────────────────────────────────────── */
     #workspace {
-      display: flex;
-      flex-direction: column;
+      display: flex; flex-direction: column;
       overflow-y: auto;
-      padding: 1.75rem 2rem;
-      gap: 2rem;
-	  min-height: 0;
+      padding: var(--sp-5);
+      gap: var(--sp-5);
+      min-height: 0;
     }
 
-    /* ── Cards ─────────────────────────────────────────────────────── */
     .card {
       background: var(--surface);
-      border: 1px solid var(--border);
+      border: 2px solid var(--border-soft);
       border-radius: var(--radius);
-      padding: 1.25rem;
+      padding: var(--sp-4);
     }
     .card-title {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--text-hdr);
-      margin-bottom: 0.9rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
+      font-size: var(--fs-lg); font-weight: 700; color: var(--text);
+      margin-bottom: var(--sp-3);
+      display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
     }
     .card-title .tag {
-      font-family: var(--mono);
-      font-size: 0.68rem;
-      padding: 0.1rem 0.45rem;
-      border-radius: 3px;
-      background: var(--surface2);
-      color: var(--accent);
-      border: 1px solid var(--border);
-    }
-
-    /* ── Form elements ─────────────────────────────────────────────── */
-    label {
-      display: block;
-      font-size: 0.72rem;
-      color: var(--text-dim);
-      margin-bottom: 0.3rem;
-      font-weight: 300;
-    }
-    input[type="text"], textarea, select {
-      width: 100%;
-      background: var(--surface2);
-      border: 1px solid var(--border);
+      font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 600;
+      padding: var(--sp-1) var(--sp-2);
       border-radius: var(--radius);
+      background: var(--surface-2);
       color: var(--text);
-      font-family: var(--mono);
-      font-size: 0.82rem;
-      padding: 0.55rem 0.75rem;
-      outline: none;
-      transition: border-color var(--transition);
+      border: 2px solid var(--border);
     }
-    input[type="text"]:focus,
-    textarea:focus,
-    select:focus { border-color: var(--accent2); }
-    textarea { resize: vertical; min-height: 64px; }
-    select option { background: var(--surface2); }
 
-    .form-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.6rem;
-      margin-bottom: 0.75rem;
-    }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
     .form-row.full { grid-template-columns: 1fr; }
-    .form-group { margin-bottom: 0.75rem; }
+    @media (max-width: 40rem) { .form-row { grid-template-columns: 1fr; } }
 
-    /* ── Buttons ───────────────────────────────────────────────────── */
-    .btn {
-      font-family: var(--mono);
-      font-size: 0.75rem;
-      font-weight: 500;
-      letter-spacing: 0.04em;
-      padding: 0.55rem 1.1rem;
-      border-radius: var(--radius);
-      border: 1px solid transparent;
-      cursor: pointer;
-      transition: all var(--transition);
-      outline: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    .btn-primary {
-      background: var(--accent);
-      color: #0f0f12;
-      border-color: var(--accent);
-    }
-    .btn-primary:hover { filter: brightness(1.1); }
-    .btn-secondary {
-      background: transparent;
-      color: var(--text);
-      border-color: var(--border);
-    }
-    .btn-secondary:hover { border-color: var(--text-dim); background: var(--surface2); }
-    .btn-danger {
-      background: transparent;
-      color: var(--danger);
-      border-color: var(--danger);
-    }
-    .btn-success {
-      background: transparent;
-      color: var(--success);
-      border-color: var(--success);
-    }
-    .btn-success:hover { background: rgba(91,217,138,0.08); }
-    .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.68rem; }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
-
-    /* ── Upload zone ───────────────────────────────────────────────── */
-    #drop-zone {
-      border: 2px dashed var(--border);
-      border-radius: var(--radius);
-      padding: 2rem 1rem;
-      text-align: center;
-      cursor: pointer;
-      transition: all var(--transition);
-      color: var(--text-dim);
-      font-size: 0.8rem;
-    }
-    #drop-zone:hover, #drop-zone.dragover {
-      border-color: var(--accent2);
-      background: rgba(91,141,217,0.06);
-      color: var(--text);
-    }
-    #drop-zone .icon {
-      font-size: 2rem;
-      margin-bottom: 0.5rem;
-      display: block;
-    }
-    #file-input { display: none; }
-
-    /* ── MARC field display ────────────────────────────────────────── */
-    .field-display {
-      font-family: var(--mono);
-      font-size: 0.78rem;
-      line-height: 1.6;
-      padding: 0.6rem 0.85rem;
-      border-radius: var(--radius);
-      background: var(--surface2);
-      border-left: 3px solid var(--border);
-      word-break: break-all;
-      white-space: pre-wrap;
-    }
-    .field-display.f853 { border-left-color: var(--accent); }
-    .field-display.f863 { border-left-color: var(--accent2); }
-    .field-display.f866 { border-left-color: var(--text-dim); }
-
-    .field-label {
-      font-family: var(--mono);
-      font-size: 0.65rem;
-      color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      margin-bottom: 0.3rem;
-    }
-    .field-group { margin-bottom: 0.75rem; }
-
-    /* Subfield highlighting */
-    .sf-code  { color: var(--accent); }
-    .sf-value { color: var(--text); }
-    .sf-tag   { color: var(--text-hdr); font-weight: 500; }
-    .sf-ind   { color: var(--text-dim); }
-
-    /* ── Record list ───────────────────────────────────────────────── */
-    .record-item {
-      padding: 0.75rem 1rem;
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      transition: background var(--transition);
-    }
-    .record-item:hover { background: var(--surface2); }
-    .record-item.active { background: var(--surface2); border-left: 3px solid var(--accent); }
-    .record-item .rec-title {
-      font-size: 0.8rem;
-      color: var(--text-hdr);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .record-item .rec-meta {
-      font-family: var(--mono);
-      font-size: 0.64rem;
-      color: var(--text-dim);
-      margin-top: 0.2rem;
-    }
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      font-family: var(--mono);
-      font-size: 0.6rem;
-      padding: 0.1rem 0.4rem;
-      border-radius: 3px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--text-dim);
-      margin-left: 0.3rem;
-    }
-    .pill.has-866 { border-color: var(--accent); color: var(--accent); }
-    .pill.converted { border-color: var(--success); color: var(--success); }
-
-    /* ── Parse tree ────────────────────────────────────────────────── */
-    .parse-tree {
-      font-family: var(--mono);
-      font-size: 0.74rem;
-      line-height: 1.7;
-    }
-    .parse-tree .range-block { margin-bottom: 0.75rem; }
-    .parse-tree .range-head {
-      color: var(--accent2);
-      font-weight: 500;
-    }
-    .parse-tree .kv { padding-left: 1rem; color: var(--text-dim); }
-    .parse-tree .kv span { color: var(--text); }
-    .parse-tree .open-pill {
-      color: var(--success);
-      font-size: 0.65rem;
-      margin-left: 0.5rem;
-    }
-
-    /* ── Warnings / info ───────────────────────────────────────────── */
-    .alert {
-      padding: 0.6rem 0.9rem;
-      border-radius: var(--radius);
-      font-size: 0.78rem;
-      display: flex;
-      gap: 0.5rem;
-      align-items: flex-start;
-    }
-    .alert-warn { background: rgba(201,168,75,0.1); border: 1px solid rgba(201,168,75,0.3); color: var(--accent); }
-    .alert-err  { background: rgba(217,96,91,0.1);  border: 1px solid rgba(217,96,91,0.3);  color: var(--danger);  }
-    .alert-ok   { background: rgba(91,217,138,0.1); border: 1px solid rgba(91,217,138,0.3); color: var(--success); }
-    .alert-info { background: rgba(91,141,217,0.1); border: 1px solid rgba(91,141,217,0.3); color: var(--accent2); }
-
-    /* ── Caption editor ────────────────────────────────────────────── */
-    .caption-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 0.5rem;
-    }
+    .caption-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-3); }
     .caption-grid .form-group { margin-bottom: 0; }
 
     /* Per-level subfield + caption editor */
     .conv-grid {
       display: grid;
-      grid-template-columns: 3.6rem 2.2rem 1fr;
-      gap: 0.3rem;
+      grid-template-columns: minmax(4rem, auto) minmax(3rem, auto) 1fr;
+      gap: var(--sp-2);
       align-items: center;
     }
-    .conv-head {
-      font-family: var(--mono);
-      font-size: 0.6rem;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--text-dim);
-    }
-    .conv-level {
-      font-family: var(--mono);
-      font-size: 0.72rem;
-      color: var(--text-dim);
-    }
-    .conv-grid input { padding: 0.35rem 0.45rem; font-size: 0.75rem; }
-    .conv-sf { text-align: center; }
-    /* A subfield the user has put somewhere MARC does not expect */
-    .conv-sf.invalid { border-color: var(--danger); color: var(--danger); }
+    .conv-head  { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
+    .conv-level { font-size: var(--fs-sm); color: var(--text); }
+    .conv-sf    { text-align: center; }
+    /* A subfield MARC will not accept, or one two levels are fighting over. */
+    .conv-sf.invalid { border-color: var(--danger); background: var(--danger-soft); }
 
-    /* ── Tabs ──────────────────────────────────────────────────────── */
-    .tabs {
-      display: flex;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 1.5rem;
-      gap: 0;
-    }
-    .tab-btn {
-      font-family: var(--mono);
-      font-size: 0.73rem;
-      padding: 0.6rem 1.1rem;
-      background: none;
-      border: none;
-      border-bottom: 2px solid transparent;
-      color: var(--text-dim);
-      cursor: pointer;
-      transition: all var(--transition);
-      margin-bottom: -1px;
-    }
-    .tab-btn:hover { color: var(--text); }
-    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
-
-    /* ── Spinner ───────────────────────────────────────────────────── */
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .spinner {
-      width: 14px; height: 14px;
-      border: 2px solid var(--border);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      display: inline-block;
-      vertical-align: middle;
-    }
-
-    /* ── Misc ──────────────────────────────────────────────────────── */
-    .divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
-    .mono { font-family: var(--mono); }
-    .dim { color: var(--text-dim); }
-    .small { font-size: 0.72rem; }
-    .mt-1 { margin-top: 0.5rem; }
-    .mt-2 { margin-top: 1rem; }
-    #records-list { flex: 1; overflow-y: auto; }
-    .empty-state {
-      padding: 2rem 1rem;
-      text-align: center;
-      color: var(--text-dim);
-      font-size: 0.8rem;
-      font-style: italic;
-    }
-    .conversion-866-block {
-      border: 1px solid var(--border);
+    #drop-zone {
+      border: 3px dashed var(--border);
       border-radius: var(--radius);
-      margin-bottom: 1rem;
+      padding: var(--sp-6) var(--sp-4);
+      text-align: center; cursor: pointer;
+      color: var(--text-muted);
+      font-size: var(--fs-md);
+      background: var(--bg);
+    }
+    #drop-zone:hover, #drop-zone.dragover {
+      border-color: var(--accent); background: var(--accent-soft); color: var(--text);
+    }
+    #drop-zone .icon { font-size: var(--fs-2xl); display: block; margin-bottom: var(--sp-2); }
+    /* After a file is loaded the zone becomes a compact status line, giving its
+       space back to the record list. Still a full click target for re-upload. */
+    #drop-zone.loaded {
+      padding: var(--sp-3);
+      font-size: var(--fs-sm);
+      min-height: var(--control-min);
+      display: flex; align-items: center; justify-content: center;
+      gap: var(--sp-2);
+      border-style: solid;
+      border-color: var(--ok);
+      background: var(--ok-soft);
+      color: var(--text);
+      text-align: left;
+    }
+    #drop-zone.loaded .icon { font-size: var(--fs-md); display: inline; margin: 0; }
+    #file-input { display: none; }
+
+    /* Record list */
+    .record-item {
+      padding: var(--sp-3);
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
+      margin-bottom: var(--sp-2);
+      cursor: pointer;
+      background: var(--bg);
+      min-height: var(--control-min);
+    }
+    .record-item:hover  { border-color: var(--border); background: var(--surface-2); }
+    .record-item.active { border-color: var(--accent); background: var(--accent-soft); }
+    .record-item.converted { border-left: 6px solid var(--ok); }
+    .rec-title { font-weight: 600; font-size: var(--fs-sm); color: var(--text); }
+    .rec-meta  { font-size: var(--fs-xs); color: var(--text-muted); margin-top: var(--sp-1); }
+    .pill.has-866 { border-color: var(--ok); background: var(--ok-soft); }
+
+    /* MARC field displays */
+    .field-group  { margin-bottom: var(--sp-3); }
+    .field-label  { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); margin-bottom: var(--sp-1); }
+    .field-display {
+      font-family: var(--font-mono);
+      font-size: var(--fs-sm);
+      line-height: 1.7;
+      padding: var(--sp-3);
+      border-radius: var(--radius);
+      background: var(--bg);
+      border: 2px solid var(--border-soft);
+      border-left-width: 6px;
+      word-break: break-word;
+      color: var(--text);
+    }
+    .field-display.f866 { border-left-color: var(--text-muted); }
+    .field-display.f853 { border-left-color: var(--accent); }
+    .field-display.f863 { border-left-color: var(--focus); }
+
+    /* Subfield syntax colours; all >=4.5:1 on the field background. */
+    .sf-tag   { color: var(--accent); font-weight: 700; }
+    .sf-ind   { color: var(--text-muted); font-weight: 600; }
+    .sf-code  { color: var(--focus);  font-weight: 700; }
+    .sf-value { color: var(--text); }
+
+    /* Per-866 conversion blocks */
+    .conversion-866-block {
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
+      margin-bottom: var(--sp-3);
       overflow: hidden;
     }
     .conversion-866-header {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.65rem 0.9rem;
-      background: var(--surface2);
-      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: var(--sp-2);
+      padding: var(--sp-3);
+      background: var(--surface-2);
+      border-bottom: 2px solid var(--border-soft);
     }
     .conversion-866-header .f866-text {
-      font-family: var(--mono);
-      font-size: 0.75rem;
-      color: var(--text);
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      flex: 1; min-width: 12rem;
+      font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text);
+      word-break: break-word;
     }
-    .conversion-866-body { padding: 0.9rem; }
+    .conversion-866-body { padding: var(--sp-3); }
+
+    /* One block per publication pattern: the 853 once at the top, then each
+       source 866 beside the 863 it produces. */
+    .pattern-group {
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
+      margin-bottom: var(--sp-4);
+      overflow: hidden;
+    }
+    .pg-header {
+      padding: var(--sp-3);
+      background: var(--surface-2);
+      border-bottom: 2px solid var(--border-soft);
+    }
+    .pg-header-meta {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-2);
+    }
+    .pg-title { font-size: var(--fs-sm); font-weight: 700; color: var(--text); }
+
+    .pair-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--sp-3);
+      padding: var(--sp-3);
+      border-bottom: 2px solid var(--border-soft);
+    }
+    .pair-row:last-child { border-bottom: none; }
+    /* Stack rather than squeeze the MARC strings once space is tight, which is
+       also what happens at the largest text size. */
+    @media (max-width: 60rem) { .pair-row { grid-template-columns: 1fr; } }
+    .pair-col-label {
+      font-size: var(--fs-xs); font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: var(--sp-1);
+    }
+    .pair-row .field-display + .field-display { margin-top: var(--sp-2); }
+
+    /* Parse tree */
+    .parse-tree { font-family: var(--font-mono); font-size: var(--fs-sm); }
+    .range-block {
+      border-left: 4px solid var(--border);
+      padding-left: var(--sp-3);
+      margin-bottom: var(--sp-3);
+    }
+    .range-head { font-weight: 700; color: var(--text); margin-bottom: var(--sp-1); }
+    .kv { color: var(--text-muted); }
+    .kv strong { color: var(--text); font-weight: 600; }
+    .open-pill { border-color: var(--warn); background: var(--warn-soft); }
   </style>
 </head>
 <body>
+<a class="skip-link" href="#workspace">Skip to workspace</a>
 
 <!-- ── Header ──────────────────────────────────────────────────────────── -->
 <header>
-  <h1>MARC Holdings Converter</h1>
-  <span class="subtitle">866 Textual → 853 / 863 Structured</span>
+  <div>
+    <h1>MARC Holdings Converter</h1>
+    <div class="subtitle">866 textual holdings to 853 / 863 structured fields</div>
+  </div>
   {% if has_pymarc %}
-    <span class="badge ok">pymarc ✓</span>
+    <span class="badge ok">pymarc installed</span>
   {% else %}
     <span class="badge err">pymarc not installed</span>
   {% endif %}
+    <div class="ui-controls">
+      <fieldset>
+        <legend>Text size</legend>
+        <button type="button" class="ui-size-btn s1" data-scale="1" aria-pressed="true"
+                title="Normal text size">A</button>
+        <button type="button" class="ui-size-btn s2" data-scale="1.15" aria-pressed="false"
+                title="Larger text">A</button>
+        <button type="button" class="ui-size-btn s3" data-scale="1.3" aria-pressed="false"
+                title="Largest text">A</button>
+      </fieldset>
+      <button type="button" class="ui-theme-btn" id="theme-toggle" aria-pressed="false">
+        <span aria-hidden="true">◐</span> <span class="theme-label">Dark</span>
+      </button>
+    </div>
 </header>
 
 <!-- ── Main ────────────────────────────────────────────────────────────── -->
@@ -552,7 +385,7 @@
         </div>
         <div class="form-group">
           <label>Linking number ($8)</label>
-          <input type="text" id="opt-linking" value="1" style="width:80px;" />
+          <input type="text" id="opt-linking" value="1" style="width:6rem;" />
         </div>
         <div class="btn-row">
           <button class="btn btn-primary" id="btn-parse">
@@ -580,8 +413,10 @@
         {% endif %}
       </div>
 
-      <div class="sidebar-section" id="batch-options" style="display:none; padding-bottom:1.25rem;">
-        <div class="section-label">Batch Conversion Defaults</div>
+      <!-- In a dialog rather than the sidebar: these are set-once defaults, and
+           sharing the column with the record list made them overlap it. -->
+      <dialog id="batch-options" aria-labelledby="batch-options-title">
+        <div class="dialog-title" id="batch-options-title">Conversion settings</div>
         <div class="form-row">
           <div class="form-group">
             <label>Frequency ($w)</label>
@@ -639,15 +474,26 @@
             </div>
           </div>
         </details>
-        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; margin-bottom:0.5rem; font-size:0.78rem; color:var(--text);">
+        <label class="check-row">
           <input type="checkbox" id="batch-remove866" checked />
           Remove 866 fields after conversion
         </label>
-        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; margin-bottom:0.75rem; font-size:0.78rem; color:var(--text);">
+        <label class="check-row">
           <input type="checkbox" id="batch-clear853863" />
           Clear existing 853/863 before conversion
         </label>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-primary" id="btn-settings-done">Done</button>
+        </div>
+      </dialog>
+
+      <!-- Kept outside #batch-options so the buttons stay pinned to the bottom
+           of the sidebar while the options above scroll. -->
+      <div class="sidebar-section" id="batch-actions" style="display:none;">
         <div class="btn-row">
+          <button class="btn btn-secondary" id="btn-open-settings">
+            ⚙ Conversion settings
+          </button>
           <button class="btn btn-primary" id="btn-batch-all">
             Convert All Records
           </button>
@@ -824,7 +670,10 @@ function highlightField(raw) {
 }
 
 function showAlert(container, msg, type='warn') {
-  container.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+  // Status containers live inside panels that may not be rendered yet; a
+  // missing one should never take down the caller.
+  if (!container) return;
+  container.innerHTML = `<div class="alert alert-${type}">${escHtml(msg)}</div>`;
 }
 
 // ── Tabs ─────────────────────────────────────────────────────────────────
@@ -1015,8 +864,13 @@ async function uploadMarcFile(file) {
     }
     allRecords = data.records;
     renderRecordList(data.records);
-    document.getElementById('batch-options').style.display = 'block';
-    dropZone.innerHTML = `<span class="icon">✓</span>${escHtml(file.name)}<br><span class="small dim">${data.total} records loaded</span>`;
+    // Note: never set display on #batch-options -- it is a <dialog>, and an
+    // inline display would render it in the flow and break showModal().
+    document.getElementById('batch-actions').style.display = 'block';
+    // Shrink the drop target once it has done its job: the record list is what
+    // matters from here, and the zone was taking ~300px of the sidebar.
+    dropZone.classList.add('loaded');
+    dropZone.innerHTML = `<span class="icon">✓</span> ${escHtml(file.name)} — ${data.total} records`;
   } catch(err) {
     dropZone.innerHTML = `<span class="icon">❌</span>Upload failed.`;
     console.error(err);
@@ -1027,7 +881,10 @@ function renderRecordList(records) {
   const container = document.getElementById('records-list-container');
   const list = document.getElementById('records-list');
   const count = document.getElementById('record-count');
-  container.style.display = 'block';
+  // flex, not block: the container is a column whose list child is the only
+  // scrolling part. An inline display:block would beat the stylesheet and
+  // break that, letting the list grow past the sidebar.
+  container.style.display = 'flex';
   count.textContent = `${records.length} records`;
 
   // Insert before batch-options
@@ -1048,73 +905,46 @@ fileTab.insertBefore(container, batchOpts || null);
   }).join('');
 }
 
-function selectRecord(idx) {
+async function selectRecord(idx) {
   document.querySelectorAll('.record-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.record-item[data-index="${idx}"]`)?.classList.add('active');
-  renderRecordDetail(allRecords[idx], idx);
-}
-
-function renderRecordDetail(rec, idx) {
-  const detail = document.getElementById('record-detail');
-
-  if (!rec.fields_866.length) {
-    detail.innerHTML = `
-      <div class="card">
-        <div class="card-title">${escHtml(rec.title)}</div>
-        <div class="alert alert-info">No 866 fields found in this record.</div>
-      </div>`;
-    return;
-  }
-
-  const blocksHtml = rec.fields_866.map((f866, fi) => `
-    <div class="conversion-866-block" id="block-${idx}-${fi}">
-      <div class="conversion-866-header">
-        <span class="pill has-866">866</span>
-        <span class="f866-text">${escHtml(f866.display)}</span>
-        <button class="btn btn-secondary btn-sm" onclick="previewSingle(${idx},${fi})">Preview</button>
-        <button class="btn btn-primary btn-sm" onclick="applyAllInRecord(${idx})"
-                title="Linking numbers are shared across a record, so conversion applies to every 866 here">Convert record</button>
-      </div>
-      <div class="conversion-866-body">
-        <div class="field-display f866">${escHtml(f866.a)}</div>
-        <div id="preview-${idx}-${fi}" class="mt-2"></div>
-      </div>
-    </div>
-  `).join('');
-
-  detail.innerHTML = `
-    <div class="card">
-      <div class="card-title">
-        ${escHtml(rec.title)}
-        ${rec.issn ? `<span class="tag">ISSN ${escHtml(rec.issn)}</span>` : ''}
-        ${rec.location ? `<span class="tag">${escHtml(rec.location)}</span>` : ''}
-      </div>
-      ${blocksHtml}
-      <div class="btn-row">
-        <button class="btn btn-primary" onclick="applyAllInRecord(${idx})">Apply All in Record</button>
-      </div>
-      <div id="record-status-${idx}" class="mt-2"></div>
-    </div>`;
+  await renderRecordDetail(idx);
 }
 
 /**
- * Preview one 866 block.
+ * Fetch the whole record's conversion and render it.
  *
- * Linking numbers depend on the other statements in the record, so this asks
- * the server to convert the whole record and then renders every block that is
- * already on screen -- otherwise two blocks sharing an 853 could show
- * inconsistent $8 values.
+ * Linking numbers depend on every statement in the record, so the preview is
+ * always record-level. Statements sharing a publication pattern share one 853,
+ * which is therefore shown once per group rather than once per 866.
  */
-async function previewSingle(recIdx, fieldIdx) {
-  const container = document.getElementById(`preview-${recIdx}-${fieldIdx}`);
-  container.innerHTML = '<span class="spinner"></span>';
+async function renderRecordDetail(idx) {
+  const rec = allRecords[idx];
+  const detail = document.getElementById('record-detail');
+  const heading = `
+    <div class="card-title">
+      ${escHtml(rec.title)}
+      ${rec.issn ? `<span class="tag">ISSN ${escHtml(rec.issn)}</span>` : ''}
+      ${rec.location ? `<span class="tag">${escHtml(rec.location)}</span>` : ''}
+    </div>`;
 
+  if (!rec.fields_866.length) {
+    detail.innerHTML =
+      `<div class="card">${heading}
+         <div class="alert alert-info">No 866 fields found in this record.</div>
+       </div>`;
+    return;
+  }
+
+  detail.innerHTML = `<div class="card">${heading}<span class="spinner"></span></div>`;
+
+  let previews;
   try {
     const res = await fetch('api/preview-record', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        record_index: recIdx,
+        record_index: idx,
         ...conventionPayload('b'),
         frequency: document.getElementById('batch-freq').value,
         numbering_continuity: document.getElementById('batch-continuity').value,
@@ -1122,36 +952,106 @@ async function previewSingle(recIdx, fieldIdx) {
     });
     const data = await res.json();
     if (data.error) {
-      container.innerHTML = `<div class="alert alert-err">${escHtml(data.error)}</div>`;
+      detail.innerHTML = `<div class="card">${heading}
+        <div class="alert alert-err">${escHtml(data.error)}</div></div>`;
       return;
     }
-    data.previews.forEach((pv, i) => {
-      const el = document.getElementById(`preview-${recIdx}-${i}`);
-      // Only refresh blocks the user has already asked to see.
-      if (el && (i === fieldIdx || el.innerHTML.trim())) {
-        el.innerHTML = renderPreview(pv);
-      }
-    });
-  } catch(err) {
-    container.innerHTML = `<div class="alert alert-err">Error: ${escHtml(err.message)}</div>`;
+    previews = data.previews;
+  } catch (err) {
+    detail.innerHTML = `<div class="card">${heading}
+      <div class="alert alert-err">Preview failed: ${escHtml(err.message)}</div></div>`;
+    return;
   }
+
+  // Group by linking number, preserving first-appearance order. Statements held
+  // for review have no 853 and are collected separately.
+  const groups = new Map();
+  const review = [];
+  previews.forEach(pv => {
+    if (pv.needs_review || !pv.fields_863.length) { review.push(pv); return; }
+    if (!groups.has(pv.link)) groups.set(pv.link, { field_853: pv.field_853,
+                                                   existing: pv.existing, rows: [] });
+    groups.get(pv.link).rows.push(pv);
+  });
+
+  const groupsHtml = [...groups.entries()].map(([link, g]) => `
+    <div class="pattern-group">
+      <div class="pg-header">
+        <div class="pg-header-meta">
+          <span class="pg-title">Pattern $8 ${escHtml(link)}</span>
+          <span class="pill ${g.existing ? '' : 'has-866'}">${
+            g.existing ? 'already on this record' : 'generated'}</span>
+          <span class="dim small">${g.rows.length} statement${g.rows.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="field-display f853">${highlightField(escHtml(g.field_853 || ''))}</div>
+      </div>
+      ${g.rows.map(pv => `
+        <div class="pair-row">
+          <div>
+            <div class="pair-col-label">866 — source</div>
+            <div class="field-display f866">${escHtml(pv.source_866)}</div>
+          </div>
+          <div>
+            <div class="pair-col-label">863 — generated</div>
+            ${pv.fields_863.map(f =>
+              `<div class="field-display f863">${highlightField(escHtml(f))}</div>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>`).join('');
+
+  const reviewHtml = review.length ? `
+    <div class="pattern-group">
+      <div class="pg-header">
+        <div class="pg-header-meta">
+          <span class="pg-title">Held for review</span>
+          <span class="pill">${review.length} statement${review.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="dim small">Not converted — the values can be read, but not which
+        level they belong to.</div>
+      </div>
+      ${review.map(pv => `
+        <div class="pair-row">
+          <div>
+            <div class="pair-col-label">866 — source</div>
+            <div class="field-display f866">${escHtml(pv.source_866)}</div>
+          </div>
+          <div>
+            <div class="pair-col-label">Reason</div>
+            <div class="alert alert-warn">${escHtml(pv.warnings[0] || 'Not converted.')}</div>
+          </div>
+        </div>`).join('')}
+    </div>` : '';
+
+  detail.innerHTML = `
+    <div class="card">
+      ${heading}
+      ${groupsHtml}
+      ${reviewHtml}
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="applyAllInRecord(${idx})"
+                title="Linking numbers are shared across a record, so conversion applies to every 866 here">
+          Convert record
+        </button>
+      </div>
+      <div id="record-status-${idx}" class="mt-2"></div>
+    </div>`;
 }
 
-function renderPreview(pv) {
-  const head = pv.needs_review
-    ? `<div class="alert alert-warn small">⚠ Held for review — not converted.</div>`
-    : pv.conformed
-      ? `<div class="field-label">863 Preview <span class="dim">(conforms to existing 853)</span></div>`
-      : `<div class="field-label">853 Preview</div>
-         <div class="field-display f853 small">${highlightField(escHtml(pv.field_853))}</div>`;
-  return `
-    ${head}
-    ${pv.fields_863.map(f =>
-      `<div class="field-display f863 small mt-1">${highlightField(escHtml(f))}</div>`
-    ).join('')}
-    ${pv.warnings.length ? `<div class="alert alert-warn small mt-1">⚠ ${escHtml(pv.warnings[0])}</div>` : ''}
-  `;
-}
+// ── Conversion settings dialog ────────────────────────────────────────────
+// Rarely-used defaults live in a modal so they never compete with the record
+// list for sidebar space. <dialog> handles focus trapping and Esc itself.
+(function () {
+  const dlg = document.getElementById('batch-options');
+  const open = document.getElementById('btn-open-settings');
+  const done = document.getElementById('btn-settings-done');
+  if (!dlg || !open) return;
+  open.addEventListener('click', () => dlg.showModal());
+  done && done.addEventListener('click', () => dlg.close());
+  // Return focus to the trigger however the dialog was dismissed, including Esc.
+  dlg.addEventListener('close', () => open.focus());
+  // Clicking the backdrop closes it too.
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+})();
 
 // Conversion is always record-level: 853 linking numbers are shared across a
 // record's 866s, so applying one statement at a time cannot produce correct $8
@@ -1191,6 +1091,12 @@ async function applyAllInRecord(recIdx) {
       const review = data.previews.filter(p => p.needs_review).length;
       statusDiv.innerHTML = `<div class="alert alert-ok">✓ ${n853} 853 + ${total863} 863 field(s) applied${review ? `, ${review} held for review` : ''}. <a href="api/download-converted" class="btn btn-success btn-sm" style="margin-left:0.5rem;">↓ Download</a></div>`;
       document.getElementById('btn-download').style.display = 'inline-flex';
+      // Reflect the conversion in the list without rebuilding the detail panel:
+      // it already shows exactly what was written, and the source 866s may now
+      // have been removed from the record.
+      rec.has_853 = true;
+      renderRecordList(allRecords);
+      document.querySelector(`.record-item[data-index="${recIdx}"]`)?.classList.add('active');
     }
   } catch(err) {
     showAlert(statusDiv, err.message, 'err');
@@ -1232,6 +1138,38 @@ document.getElementById('btn-batch-all')?.addEventListener('click', async () => 
   }
 });
 
+// ── Accessibility controls: text size and theme ───────────────────────────
+// Both are written to the document element and remembered in localStorage;
+// the inline script in <head> re-applies them before the first paint.
+(function () {
+  const root = document.documentElement;
+
+  const sizeBtns = Array.from(document.querySelectorAll('.ui-size-btn'));
+  function applyScale(v) {
+    root.style.setProperty('--ui-scale', v);
+    try { localStorage.setItem('mst-scale', v); } catch (e) {}
+    sizeBtns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.scale === String(v))));
+  }
+  sizeBtns.forEach(b => b.addEventListener('click', () => applyScale(b.dataset.scale)));
+  let savedScale = null;
+  try { savedScale = localStorage.getItem('mst-scale'); } catch (e) {}
+  applyScale(savedScale || '1');
+
+  const themeBtn = document.getElementById('theme-toggle');
+  function applyTheme(t) {
+    root.setAttribute('data-theme', t);
+    try { localStorage.setItem('mst-theme', t); } catch (e) {}
+    // The button offers the theme you would switch *to*.
+    themeBtn.querySelector('.theme-label').textContent = t === 'dark' ? 'Light' : 'Dark';
+    themeBtn.setAttribute('aria-pressed', String(t === 'dark'));
+  }
+  let savedTheme = null;
+  try { savedTheme = localStorage.getItem('mst-theme'); } catch (e) {}
+  applyTheme(savedTheme ||
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+  themeBtn.addEventListener('click', () =>
+    applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+})();
 </script>
 </body>
 </html>

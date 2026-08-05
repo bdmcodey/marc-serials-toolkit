@@ -28,6 +28,7 @@ from flask import (
     request,
     jsonify,
     send_file,
+    send_from_directory,
     session,
 )
 
@@ -61,18 +62,45 @@ def _add_853(record, field_data) -> None:
     record.add_field(field_data.to_pymarc())
 
 
-def _previews_from(rc, rejections=()) -> list:
-    """One preview entry per statement, in 866 field order."""
-    return [
-        {
-            "field_853": c.field_853.display() if c.field_853 else None,
+def _display_marc_field(fld) -> str:
+    """
+    Render a pymarc field the way FieldData.display() renders a generated one,
+    so an existing 853 and a generated one look identical in the UI.
+    """
+    ind = f"{fld.indicator1}{fld.indicator2}".replace(" ", "#")
+    # Values in real records often carry padding; strip it so an existing field
+    # and a generated one render identically rather than with doubled spaces.
+    sfs = " ".join(f"${sf.code} {(sf.value or '').strip()}" for sf in fld.subfields)
+    return f"{fld.tag} {ind} {sfs}"
+
+
+def _previews_from(rc, rejections=(), existing_853s=()) -> list:
+    """
+    One preview entry per statement, in 866 field order.
+
+    `link` lets the client group statements that share an 853 without parsing
+    $8 back out of the display string.  When a statement conforms to an 853
+    already on the record, field_853 is None -- substitute that field's text so
+    the group still has a heading to show.
+    """
+    by_link = {}
+    for fld in existing_853s or ():
+        by_link[(fld.get("8") or "").strip()] = _display_marc_field(fld)
+
+    out = []
+    for c in rc.results:
+        link = str(c.linking_number)
+        display = c.field_853.display() if c.field_853 else by_link.get(link)
+        out.append({
+            "field_853": display,
             "fields_863": [f.display() for f in c.fields_863],
             "warnings": c.warnings + list(rejections),
             "conformed": c.conformed,
             "needs_review": c.needs_review,
-        }
-        for c in rc.results
-    ]
+            "link": link,
+            "existing": bool(c.conformed and display),
+        })
+    return out
 
 
 def _apply_record_conversion(record, rc) -> None:
@@ -272,6 +300,18 @@ def _load_all_records() -> Optional[list]:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+@app.route("/ui.css")
+def ui_css():
+    """
+    Serve the stylesheet shared with the pattern detector.
+
+    Templates link to it relatively, so it resolves both locally and behind
+    nginx, whose trailing-slash proxy_pass strips the /converter prefix.
+    """
+    return send_from_directory(os.path.join(_BASE_DIR, os.pardir, "shared"),
+                               "ui.css", mimetype="text/css")
+
 
 @app.route("/")
 def index():
@@ -488,10 +528,12 @@ def api_preview_record():
         record = all_records[record_index]
         conv_opts, rejections = _convention_opts(data)
 
+        existing_853s = list(record.get_fields("853"))
         texts = [(f["a"] or "") for f in record.get_fields("866")]
+        statements = [t for t in texts if t]
         rc = convert_record(
-            [parse_866(t) for t in texts if t],
-            existing_853s=list(record.get_fields("853")),
+            [parse_866(t) for t in statements],
+            existing_853s=existing_853s,
             captions=data.get("captions") or None,
             frequency=data.get("frequency", ""),
             numbering_continuity=data.get("numbering_continuity", "r"),
@@ -499,10 +541,16 @@ def api_preview_record():
         )
         # Deliberately no _apply_record_conversion and no _save_file: preview
         # must leave the uploaded file untouched.
+        previews = _previews_from(rc, rejections, existing_853s)
+        # Pair each preview with the 866 it came from so the UI can show them
+        # side by side without re-deriving the order.
+        for pv, text in zip(previews, statements):
+            pv["source_866"] = text
+
         return jsonify({
             "success": True,
             "record_index": record_index,
-            "previews": _previews_from(rc, rejections),
+            "previews": previews,
         })
 
     except Exception as exc:

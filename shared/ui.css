@@ -1,0 +1,505 @@
+/* ============================================================================
+   MARC Serials Toolkit — shared UI
+   ----------------------------------------------------------------------------
+   One stylesheet for both the converter and the pattern detector, served by
+   each Flask app at /ui.css.
+
+   Design targets (the primary user is a cataloger with low vision):
+     - the browser's own font-size setting is the baseline; never overridden
+     - body text ~18px at a default 16px root; nothing below 14px
+     - body and muted text at WCAG AAA contrast (>=7:1); borders >=3:1
+     - every control at least 44x44px
+     - the layout reflows when text grows instead of clipping
+
+   App-specific rules stay in each template's own <style> block.
+   ========================================================================== */
+
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Tokens ──────────────────────────────────────────────────────────────── */
+
+:root {
+  color-scheme: light;
+
+  /* Light theme. Every value verified against bg, surface and surface-2:
+     text 14.7-17.8:1, muted 7.0-8.5:1, accents >=5.4:1, borders >=4.0:1 */
+  --bg:          #ffffff;
+  --surface:     #f3f5f8;
+  --surface-2:   #e6eaef;
+  --text:        #16181d;
+  --text-muted:  #474d57;
+  --border:      #6b7280;
+  --border-soft: #c3cad3;
+  --accent:      #8a5000;   /* converter overrides; detector overrides */
+  --accent-soft: #f7ede0;
+  --ok:          #14672f;
+  --ok-soft:     #e4f4ea;
+  --warn:        #7a5200;
+  --warn-soft:   #fbf0d8;
+  --danger:      #a4262c;
+  --danger-soft: #fbe9e9;
+  --focus:       #0b57d0;
+  --shadow:      0 1px 3px rgba(0, 0, 0, 0.12);
+
+  /* Type scale. Body is --fs-md; nothing in either app may go below --fs-xs. */
+  --fs-xs:   0.875rem;   /* 14px */
+  --fs-sm:   1rem;       /* 16px */
+  --fs-md:   1.125rem;   /* 18px  <- body */
+  --fs-lg:   1.375rem;   /* 22px */
+  --fs-xl:   1.75rem;    /* 28px */
+  --fs-2xl:  2.25rem;    /* 36px */
+
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+
+  --radius: 6px;
+  --control-min: 2.75rem;          /* 44px at a 16px root */
+  --ease: 150ms ease;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+               Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas,
+               "Liberation Mono", Menlo, monospace;
+}
+
+/* Dark theme: explicit choice wins, system preference is the fallback. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:          #0f1116;
+  --surface:     #181b22;
+  --surface-2:   #232833;
+  --text:        #eef1f6;
+  --text-muted:  #b9c1cf;
+  --border:      #79818f;
+  --border-soft: #333a46;
+  --accent:      #e8bd58;
+  --accent-soft: #2a2418;
+  --ok:          #63d891;
+  --ok-soft:     #16271d;
+  --warn:        #f2b93c;
+  --warn-soft:   #2a2313;
+  --danger:      #ff9a94;
+  --danger-soft: #2d1b1b;
+  --focus:       #8ab8ff;
+  --shadow:      0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:          #0f1116;
+    --surface:     #181b22;
+    --surface-2:   #232833;
+    --text:        #eef1f6;
+    --text-muted:  #b9c1cf;
+    --border:      #79818f;
+    --border-soft: #333a46;
+    --accent:      #e8bd58;
+    --accent-soft: #2a2418;
+    --ok:          #63d891;
+    --ok-soft:     #16271d;
+    --warn:        #f2b93c;
+    --warn-soft:   #2a2313;
+    --danger:      #ff9a94;
+    --danger-soft: #2d1b1b;
+    --focus:       #8ab8ff;
+    --shadow:      0 1px 3px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+
+/* 100% keeps the reader's own browser setting as the baseline; --ui-scale is
+   the in-app A / A+ / A++ control multiplying on top of it. Both compound, so
+   someone who has already set a 20px default gets 20px * their chosen scale. */
+html {
+  font-size: calc(100% * var(--ui-scale, 1));
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1 { font-size: var(--fs-xl);  line-height: 1.25; }
+h2 { font-size: var(--fs-lg);  line-height: 1.3;  }
+h3 { font-size: var(--fs-md);  line-height: 1.35; }
+
+a { color: var(--focus); }
+a:hover { text-decoration-thickness: 2px; }
+
+code, pre, .mono { font-family: var(--font-mono); }
+
+/* Sentence case, at a readable size. The previous design set these in
+   letter-spaced uppercase at 8-10px, which is the hardest combination to read
+   for exactly the audience this tool serves. */
+.section-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-3);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+label {
+  display: block;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--sp-1);
+  font-weight: 500;
+}
+
+.small { font-size: var(--fs-sm); }
+.dim   { color: var(--text-muted); }
+.ok    { color: var(--ok); }
+.err   { color: var(--danger); }
+.mt-05 { margin-top: var(--sp-1); }
+.mt-1  { margin-top: var(--sp-2); }
+.mt-2  { margin-top: var(--sp-4); }
+
+/* ── Focus and motion ────────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+:focus:not(:focus-visible) { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Form controls ───────────────────────────────────────────────────────── */
+
+input[type="text"], input[type="number"], textarea, select {
+  width: 100%;
+  min-height: var(--control-min);
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  padding: var(--sp-2) var(--sp-3);
+  transition: border-color var(--ease);
+}
+input[type="text"]:hover, textarea:hover, select:hover { border-color: var(--text-muted); }
+input[type="text"]:focus, textarea:focus, select:focus { border-color: var(--focus); }
+textarea { resize: vertical; min-height: 9rem; }
+select { font-family: var(--font-sans); cursor: pointer; }
+
+input[type="checkbox"] {
+  width: 1.25rem;
+  height: 1.25rem;
+  min-height: 0;
+  accent-color: var(--focus);
+  cursor: pointer;
+}
+
+.form-group { margin-bottom: var(--sp-4); }
+
+/* Checkbox + label as one full-size hit target. */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  cursor: pointer;
+  margin-bottom: var(--sp-2);
+  min-height: var(--control-min);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.btn {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  min-height: var(--control-min);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--radius);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: background var(--ease), border-color var(--ease);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  line-height: 1.3;
+}
+.btn-primary   { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.btn-primary:hover   { filter: brightness(1.12); }
+.btn-secondary { background: var(--bg); color: var(--text); border-color: var(--border); }
+.btn-secondary:hover { background: var(--surface-2); }
+.btn-ghost     { background: transparent; color: var(--text); border-color: transparent; }
+.btn-ghost:hover     { background: var(--surface-2); }
+.btn-success   { background: var(--bg); color: var(--ok); border-color: var(--ok); }
+.btn-success:hover   { background: var(--ok-soft); }
+.btn-danger    { background: var(--bg); color: var(--danger); border-color: var(--danger); }
+.btn-danger:hover    { background: var(--danger-soft); }
+
+/* Still a full-size hit target -- only the label and padding shrink. */
+.btn-sm { font-size: var(--fs-xs); padding: var(--sp-1) var(--sp-3); }
+
+.btn:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
+.btn-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-3); }
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+
+.tabs { display: flex; border-bottom: 2px solid var(--border-soft); }
+.tab-btn {
+  flex: 1;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  min-height: var(--control-min);
+  padding: var(--sp-2) var(--sp-3);
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  margin-bottom: -2px;
+}
+.tab-btn:hover  { color: var(--text); background: var(--surface-2); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-panel        { display: none; }
+.tab-panel.active { display: block; }
+
+/* ── Alerts ──────────────────────────────────────────────────────────────── */
+
+.alert {
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius);
+  border: 2px solid;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+}
+.alert-ok   { background: var(--ok-soft);     border-color: var(--ok);     color: var(--text); }
+.alert-warn { background: var(--warn-soft);   border-color: var(--warn);   color: var(--text); }
+.alert-err  { background: var(--danger-soft); border-color: var(--danger); color: var(--text); }
+.alert-info { background: var(--surface-2);   border-color: var(--border); color: var(--text); }
+
+/* ── Pills ───────────────────────────────────────────────────────────────── */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius);
+  border: 2px solid var(--border);
+  color: var(--text);
+  background: var(--bg);
+  white-space: nowrap;
+}
+
+/* ── Misc shared ─────────────────────────────────────────────────────────── */
+
+.divider { width: 2px; align-self: stretch; background: var(--border-soft); }
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-4);
+  color: var(--text-muted);
+  text-align: center;
+  padding: var(--sp-6);
+  font-size: var(--fs-md);
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 3px solid var(--border-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* ── Header, and the accessibility controls ──────────────────────────────── */
+
+header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 2px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.ui-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.ui-controls fieldset { border: 0; display: flex; align-items: center; gap: var(--sp-1); }
+.ui-controls legend {
+  float: left;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-right: var(--sp-2);
+  padding: 0;
+}
+.ui-size-btn {
+  min-width: var(--control-min);
+  min-height: var(--control-min);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--bg);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  line-height: 1;
+}
+.ui-size-btn:hover { background: var(--surface-2); }
+.ui-size-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.ui-size-btn.s1 { font-size: var(--fs-sm); }
+.ui-size-btn.s2 { font-size: var(--fs-md); }
+.ui-size-btn.s3 { font-size: var(--fs-lg); }
+
+.ui-theme-btn {
+  min-height: var(--control-min);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.ui-theme-btn:hover { background: var(--surface-2); }
+
+/* Skip link — first tab stop, visible only once focused. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--bg);
+  border: 2px solid var(--focus);
+  border-radius: var(--radius);
+  z-index: 100;
+}
+.skip-link:focus { left: var(--sp-2); }
+
+/* ── Dialog ──────────────────────────────────────────────────────────────── */
+/* Settings that are consulted rarely belong here rather than in a column they
+   have to share. Native <dialog> brings focus trapping, Esc-to-close and page
+   inertness without script. */
+
+dialog {
+  max-width: min(42rem, 92vw);
+  max-height: 85dvh;
+  overflow-y: auto;
+  padding: var(--sp-5);
+  background: var(--bg);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+dialog[open] { display: block; }
+
+.dialog-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: var(--sp-4);
+}
+/* Sticks to the bottom of the dialog's own scroll area, so the way out is
+   always in view however long the form gets. */
+.dialog-actions {
+  position: sticky;
+  bottom: calc(var(--sp-5) * -1);
+  margin: var(--sp-4) calc(var(--sp-5) * -1) calc(var(--sp-5) * -1);
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--surface);
+  border-top: 2px solid var(--border-soft);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+
+/* Sidebars are sized in rem so they grow with the text rather than clipping it,
+   and the shell scrolls instead of hiding overflow. */
+main {
+  display: grid;
+  grid-template-columns: minmax(20rem, 26rem) 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 60rem) {
+  main { grid-template-columns: 1fr; }
+  #sidebar { border-right: none; border-bottom: 2px solid var(--border-soft); }
+}
+
+/* Two-pane widths only: bound the shell so each pane scrolls on its own and a
+   long record list cannot stretch the document. Once the layout stacks -- a
+   narrow window, or a reader at the largest text size -- the page returns to
+   normal flow, so no container can clip its contents. In the bounded case
+   everything stays reachable by scrolling a pane, so resize-text still holds. */
+@media (min-width: 60rem) {
+  body { height: 100dvh; overflow: hidden; }
+  main { overflow: hidden; }
+  #workspace { overflow-y: auto; min-height: 0; }
+}
+
+/* The workspace is a flex column, so its children are flex items and may be
+   shrunk to fit. A flex item's automatic minimum size is its content height --
+   except when its overflow is not `visible`, where the spec makes that minimum
+   zero. Cards that clip their own corners (overflow: hidden) are therefore free
+   to collapse to a few pixels and hide everything inside them, instead of the
+   column scrolling. Pinning flex-shrink makes scrolling the overflow mechanism
+   again, which is what the bounded shell above assumes. */
+#workspace > * { flex-shrink: 0; }

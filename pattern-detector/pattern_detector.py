@@ -490,7 +490,7 @@ class PatternGroup:
     signature: str                          # raw token-kind sequence
     human_label: str                        # compact display label
     count: int                              # number of statements
-    examples: list[str]                     # up to 5 example strings
+    examples: list[str]                     # every statement in the cluster
     regex: str                              # generated Python regex
     named_groups: list[str]                 # ordered group names
     match_rate: float                       # 0.0–1.0
@@ -563,7 +563,7 @@ def detect_patterns(statements: list[str]) -> list[PatternGroup]:
                 signature        = sig,
                 human_label      = (label or sig)[:80],
                 count            = len(members),
-                examples         = members[:5],
+                examples         = members,
                 regex            = "",
                 named_groups     = [],
                 match_rate       = 0.0,
@@ -583,7 +583,7 @@ def detect_patterns(statements: list[str]) -> list[PatternGroup]:
             signature        = sig,
             human_label      = label or sig[:80],
             count            = len(members),
-            examples         = members[:5],
+            examples         = members,
             regex            = regex,
             named_groups     = named_groups,
             match_rate       = match_rate,
