@@ -1,0 +1,10 @@
+# Development and test dependencies.
+#
+# The runtime dependencies stay where they are, one file per app. Both are
+# pulled in here because the test suite imports from both directories in a
+# single interpreter. They pin identically today, so pip resolves them without
+# conflict; referencing both keeps this file honest if they ever diverge.
+-r converter/requirements.txt
+-r pattern-detector/requirements.txt
+
+pytest>=8.0,<9.0

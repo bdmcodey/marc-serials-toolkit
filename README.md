@@ -60,10 +60,13 @@ marc-serials-toolkit/
 ├── pattern-detector/   866 pattern detector + regex generator (Flask web app)
 ├── pnx-lookup/         Primo PNX record lookup (local web app; needs Playwright)
 ├── ai-regex/           LLM-based regex generation (CLI/experimental)
+├── tests/              pytest suite covering both apps
 ├── data/
-│   └── example_holdings.mrc   Small SYNTHETIC sample for demos/tests
+│   ├── example_holdings.mrc   Small SYNTHETIC sample for demos/tests
+│   └── messy_holdings.mrc     SYNTHETIC awkward cases, for the test suite
 ├── scripts/
-│   └── create_example_mrc.py  Regenerates the synthetic sample
+│   ├── create_example_mrc.py  Regenerates the synthetic sample
+│   └── create_messy_mrc.py    Regenerates the awkward-case fixture
 ├── NOTICE.md           Licensing status — no license currently granted
 ├── THIRD-PARTY-NOTICES.md  Attribution for derived third-party code
 └── .gitignore
@@ -71,12 +74,34 @@ marc-serials-toolkit/
 
 ## Sample data
 
-`data/example_holdings.mrc` is a small file of **invented** records — no real
-institutional data. Regenerate or extend it with:
+Both files in `data/` are **invented** records — no real institutional data.
+`example_holdings.mrc` is the demo sample; `messy_holdings.mrc` collects the
+awkward shapes the test suite needs (the chronology-first grammar, slash-
+separated ranges, records that already carry an 853). Regenerate either with:
 
 ```bash
 pip install pymarc
 python scripts/create_example_mrc.py
+python scripts/create_messy_mrc.py
+```
+
+## Running the tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+The suite runs in under a second: everything is in-process, with no servers and
+no network. A few tests are marked `xfail` — they describe known defects and say
+what the behaviour should be, so fixing one turns its test green.
+
+The exact output counts recorded in `HANDOFF.md` were measured against private
+holdings files that are deliberately not in this repository. They are skipped
+unless you point the suite at them:
+
+```bash
+MARC_TEST_DATA_DIR=/path/to/mounted/share python -m pytest -m calibration
 ```
 
 ## Notes on the MARC fields

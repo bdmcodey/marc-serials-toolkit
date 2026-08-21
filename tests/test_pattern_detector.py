@@ -1,0 +1,237 @@
+"""
+Tests for pattern_detector: tokenising, clustering, and regex generation.
+
+split_multi_range() gets a disproportionate share of this file because the risk
+there is silent corruption rather than a visible failure. A slash is meaningful
+inside a holdings statement -- v.1/2 is a combined volume, 1990/91 a split year,
+Jan./Feb. a combined month -- so a separator rule that is even slightly too eager
+would quietly cut real statements in half. The discrimination table below is the
+regression test for the fix released in 0.5.1.
+"""
+
+from __future__ import annotations
+
+import re
+
+import pytest
+
+from pattern_detector import (detect_patterns, split_multi_range, get_signature,
+                              tokenize, MAX_PATTERN_TOKENS)
+
+
+# ---------------------------------------------------------------------------
+# Tokenising
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text, kind", [
+    ("1990", "YEAR"),        # YEAR must beat NUMBER
+    ("Nov.", "MON"),         # MON must beat ISS_CAP, or "Nov." becomes "no" + junk
+    ("no.", "ISS_CAP"),
+    ("v.", "VOL_CAP"),
+    ("Volume", "VOL_CAP"),
+    ("pt.", "PT_CAP"),
+    ("Spring", "SEASON"),
+    ("4a", "NUMBER"),        # a trailing letter stays part of one number
+])
+def test_token_kinds(text, kind):
+    """
+    Pattern order in the tokeniser is load-bearing: first match wins per
+    position, so these are the cases where a reordering would silently change
+    what the detector thinks it is looking at.
+    """
+    tokens = tokenize(text)
+    assert tokens[0].kind == kind
+
+
+@pytest.mark.parametrize("text, kind", [
+    ("1799", "NUMBER"), ("1800", "YEAR"),
+    ("2099", "YEAR"), ("2100", "NUMBER"),
+])
+def test_year_recognition_boundaries(text, kind):
+    assert tokenize(text)[0].kind == kind
+
+
+def test_springtime_is_not_a_season():
+    """The season pattern is word-bounded; "springtime" is ordinary text."""
+    assert tokenize("springtime")[0].kind != "SEASON"
+
+
+# ---------------------------------------------------------------------------
+# Fuzzy signatures
+# ---------------------------------------------------------------------------
+
+def test_caption_variants_share_a_signature():
+    """
+    The whole clustering premise in one assertion: "v.1(1990)" and
+    "Vol. 2 (1991)" differ in style, not in structure, so they must land in the
+    same group and be described by one regex.
+    """
+    assert get_signature("v.1(1990)") == get_signature("Vol. 2 (1991)")
+
+
+def test_different_structures_get_different_signatures():
+    assert get_signature("v.1(1990)") != get_signature("v.1:no.1(1990)")
+
+
+def test_free_text_length_does_not_split_a_signature():
+    """
+    Consecutive unknown tokens collapse, so two statements differing only in the
+    length of a cataloguer's note still cluster together instead of each
+    becoming a bespoke one-off pattern.
+
+    Note the notes here carry no punctuation the tokeniser recognises. A colon
+    in "Library has:" is a SEP_COLON, not free text, and legitimately changes
+    the structure -- collapsing applies to unknown runs, not to punctuation.
+    """
+    assert get_signature("Library has v.1(1990)") == get_signature("[lacks] v.1(1990)")
+    assert get_signature("incomplete run v.1(1990)") == get_signature("[lacks] v.1(1990)")
+
+
+# ---------------------------------------------------------------------------
+# split_multi_range -- what separates, and what must not
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text, expected", [
+    # Separators at paren depth 0 split.
+    ("v.1(1990)-v.3(1992), v.5(1994)-", ["v.1(1990)-v.3(1992)", "v.5(1994)-"]),
+    ("v.1(1990); v.2(1991)",            ["v.1(1990)", "v.2(1991)"]),
+    ("v.1(1990) / v.2(1991)",           ["v.1(1990)", "v.2(1991)"]),
+    ("v.1(1990)-v.3(1992), v.5(1994)- / v.9(1998)-",
+     ["v.1(1990)-v.3(1992)", "v.5(1994)-", "v.9(1998)-"]),
+])
+def test_statements_split_on_top_level_separators(text, expected):
+    assert split_multi_range(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "v.1/2(1990)",                  # combined volume
+    "1990/91",                      # split year
+    "v.5:no.1/2(1994:Jan./Feb.)",   # combined issue and combined month
+    "v.1(1990/91)-v.3(1992/93)",    # split years either side of a range
+])
+def test_meaningful_slashes_are_never_split(text):
+    """
+    A slash only separates when whitespace surrounds it. Splitting any of these
+    would cut a single value in half and change what the holdings say.
+    """
+    assert split_multi_range(text) == [text]
+
+
+def test_separators_inside_parentheses_do_not_split():
+    assert split_multi_range("v.1(1990, 1991)") == ["v.1(1990, 1991)"]
+
+
+@pytest.mark.parametrize("text", ["/", "", "   ", ",,,", "v.1(1990) /", "/ v.1(1990)"])
+def test_degenerate_input_does_not_crash(text):
+    """
+    Never raise and never return an empty list: the caller feeds the result
+    straight into clustering, so a missing fallback would lose the statement.
+    """
+    parts = split_multi_range(text)
+    assert isinstance(parts, list)
+    assert parts != []
+
+
+# ---------------------------------------------------------------------------
+# Clustering and regex generation
+# ---------------------------------------------------------------------------
+
+def test_no_statements_means_no_groups():
+    assert detect_patterns([]) == []
+
+
+def test_blank_statements_are_dropped():
+    assert detect_patterns(["", "   "]) == []
+
+
+def test_homogeneous_cluster_matches_every_member():
+    groups = detect_patterns(["v.1(1990)-v.3(1992)",
+                              "v.5(1994)-v.8(1997)",
+                              "v.10(1999)-v.14(2003)"])
+    assert len(groups) == 1
+    assert groups[0].count == 3
+    assert groups[0].match_rate == 1.0
+    assert groups[0].failed == []
+
+
+def test_every_statement_lands_in_exactly_one_group():
+    statements = ["v.1(1990)", "Vol. 2 (1991)", "v.1:no.1(1990:Jan.)", "1993: (1 [Feb])"]
+    groups = detect_patterns(statements)
+    assert sum(g.count for g in groups) == len(statements)
+
+
+def test_generated_regexes_compile_and_declare_their_groups():
+    groups = detect_patterns(["v.1(1990)-v.3(1992)", "v.5(1994)-v.8(1997)"])
+    for group in groups:
+        compiled = re.compile(group.regex, re.IGNORECASE)
+        assert set(group.named_groups) == set(compiled.groupindex)
+
+
+def test_caption_variants_are_recorded_and_matched():
+    """A group spanning "v." and "Vol." must match both, not just the first."""
+    groups = detect_patterns(["v.1(1990)", "Vol. 2 (1991)"])
+    assert len(groups) == 1
+    assert groups[0].match_rate == 1.0
+    assert len(groups[0].caption_variants.get("vol", [])) >= 2
+
+
+def test_groups_are_ordered_by_size():
+    groups = detect_patterns(["v.1(1990)", "v.2(1991)", "v.3(1992)",
+                              "v.1:no.1(1990:Jan.)"])
+    assert [g.count for g in groups] == sorted((g.count for g in groups), reverse=True)
+
+
+def test_regex_generation_is_deterministic():
+    """
+    The builder walks dicts and uses a set for name disambiguation, so an
+    ordering bug here would show up as a regex that changes between runs.
+    """
+    statements = ["v.1(1990)-v.3(1992)", "Vol. 5 (1994)-Vol. 8 (1997)"]
+    assert [g.regex for g in detect_patterns(statements)] == \
+           [g.regex for g in detect_patterns(statements)]
+
+
+def test_to_dict_is_json_safe():
+    import json
+    groups = detect_patterns(["v.1(1990)-v.3(1992)"])
+    json.dumps(groups[0].to_dict())      # raises if anything is not serialisable
+
+
+# ---------------------------------------------------------------------------
+# The complexity guard
+# ---------------------------------------------------------------------------
+
+LONG_RUN_ON = ("1977: (46[Jul], 48-51[Sep-Dec])"
+               "1978: (52-60[Jan-Jun], 61-70[Jul-Dec])"
+               "1979: (71-80[Jan-Jun], 81-90[Jul-Dec])")
+
+
+def test_over_long_cluster_is_reported_not_converted():
+    """
+    Past a certain length the generated regex is one nobody can read and the
+    tool's own Test button would reject it, so the detector reports a finding
+    instead. The statement must survive in `examples` -- a finding the cataloguer
+    cannot see is worse than no finding at all.
+    """
+    group = detect_patterns([LONG_RUN_ON])[0]
+
+    assert group.too_complex is True
+    assert group.token_count > MAX_PATTERN_TOKENS
+    assert group.regex == ""
+    assert group.named_groups == []
+    assert group.examples == [LONG_RUN_ON]
+    assert group.human_label
+
+
+def test_ordinary_statements_stay_under_the_guard():
+    for group in detect_patterns(["v.1(1990)-v.3(1992)", "1993: (1 [Feb])"]):
+        assert group.too_complex is False
+        assert group.token_count <= MAX_PATTERN_TOKENS
+        assert group.regex
+
+
+def test_too_complex_implies_no_regex_and_vice_versa():
+    """The guard and the output must never disagree about what was emitted."""
+    for group in detect_patterns(["v.1(1990)-v.3(1992)", LONG_RUN_ON]):
+        assert group.too_complex == (group.regex == "")
+        assert group.too_complex == (group.token_count > MAX_PATTERN_TOKENS)

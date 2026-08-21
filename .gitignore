@@ -27,6 +27,7 @@ patterns/*.json
 *.mrc
 *.mrk
 !data/example_holdings.mrc
+!data/messy_holdings.mrc
 
 # OS / editor
 .DS_Store
