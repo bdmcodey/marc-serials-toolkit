@@ -600,9 +600,13 @@ def detect_patterns(statements: list[str]) -> list[PatternGroup]:
 
 def split_multi_range(text: str) -> list[str]:
     """
-    Split a holdings string that contains multiple comma- or semicolon-
-    separated ranges into individual range strings, ignoring separators
+    Split a holdings string that contains multiple comma-, semicolon- or
+    slash-separated ranges into individual range strings, ignoring separators
     that fall inside parentheses.
+
+    A slash separates only when whitespace surrounds it.  A bare slash carries
+    meaning inside a statement — combined issues (v.1/2), split years
+    (1990/91) — and splitting on those would corrupt the statement.
 
     Example
     -------
@@ -613,14 +617,19 @@ def split_multi_range(text: str) -> list[str]:
     parts:   list[str] = []
     current: list[str] = []
 
-    for ch in text:
+    for i, ch in enumerate(text):
         if ch == "(":
             depth += 1
             current.append(ch)
         elif ch == ")":
             depth -= 1
             current.append(ch)
-        elif ch in (",", ";") and depth == 0:
+        elif depth == 0 and (
+            ch in (",", ";")
+            or (ch == "/"
+                and i > 0            and text[i - 1].isspace()
+                and i + 1 < len(text) and text[i + 1].isspace())
+        ):
             seg = "".join(current).strip()
             if seg:
                 parts.append(seg)

@@ -1,7 +1,7 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.5.0",
-  "released": "2026-08-04",
+  "version": "0.5.1",
+  "released": "2026-08-21",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Two tools for MARC serials holdings. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
   "licensing": "No license is granted at this time; the repository is published for reference only while institutional intellectual property rights are reviewed. See NOTICE.md.",
@@ -11,6 +11,25 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.5.1",
+      "date": "2026-08-21",
+      "summary": "Holdings that use slashes between their ranges now produce patterns.",
+      "changes": [
+        {
+          "tool": "Pattern detector",
+          "text": "A statement that separates its ranges with slashes \u2014 v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997) / v.10(1999)- \u2014 is now broken into those separate ranges before patterns are worked out. Previously the whole statement was read as one long run, which was usually reported as too idiosyncratic to express as a pattern, so it produced no pattern at all. Statements separated by commas or semicolons already behaved this way."
+        },
+        {
+          "tool": "Pattern detector",
+          "text": "Slashes that form part of a number are left alone. Combined issues such as v.1/2, split years such as 1990/91, and month spans such as Jan./Feb. are not split. Only a slash with a space on either side is treated as separating one range from the next."
+        },
+        {
+          "tool": "Pattern detector",
+          "text": "The Options checkbox now reads \"Split multi-range statements on top-level commas, semicolons or slashes\". It has always handled semicolons as well as commas; the label mentioned only commas."
+        }
+      ]
+    },
     {
       "version": "0.5.0",
       "date": "2026-08-04",
