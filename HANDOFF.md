@@ -37,6 +37,17 @@ cd pattern-detector && python3 app.py
 Converter is on <http://localhost:5000>, detector on <http://localhost:5001>.
 They are independent Flask apps and can run at the same time.
 
+**On macOS, port 5000 is already taken** by AirPlay Receiver — see below. Either
+turn that off, or override the port:
+
+```bash
+cd converter && CONVERTER_PORT=5002 python3 app.py
+```
+
+`CONVERTER_PORT` and `DETECTOR_PORT` override the defaults (5000 / 5001). They
+are named separately so both can be exported at once without colliding.
+Deployment runs under gunicorn and ignores them.
+
 ## Things that will bite you on the Mac
 
 **The test MARC files are not in the repo.** `.gitignore` excludes `*.mrc`
@@ -64,12 +75,25 @@ shows the *old* page. Either restart, or run with `FLASK_DEBUG=1 python3 app.py`
 `shared/ui.css` is served as a file and needs no restart, though the browser may
 cache it, so hard-reload.
 
-**Orphaned servers hold the port.** This cost real time on Windows: a stopped
-process sometimes kept running and kept answering, serving a stale template. On
-macOS:
+**macOS AirPlay Receiver owns port 5000.** The listener on 5000 is
+ControlCenter, a system process — *do not* kill it to free the port. Confirm
+what you are looking at before killing anything:
 
 ```bash
-lsof -ti:5000 | xargs kill -9
+lsof -i:5000 -sTCP:LISTEN -P
+```
+
+If that names ControlCenter, either run the converter on another port with
+`CONVERTER_PORT`, or switch AirPlay Receiver off in System Settings > General >
+AirDrop & Handoff.
+
+**Orphaned servers hold the port.** This cost real time on Windows: a stopped
+process sometimes kept running and kept answering, serving a stale template. The
+same can happen here, but check the process name first — only kill your own
+Python:
+
+```bash
+pkill -f 'python3 app.py'
 ```
 
 If an edit "doesn't take effect", check for a second process before you start

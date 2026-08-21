@@ -672,4 +672,9 @@ def api_download_converted():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(debug=os.environ.get("FLASK_DEBUG") == "1", port=5000)
+    # Default port is overridable: on macOS, AirPlay Receiver (ControlCenter)
+    # already listens on 5000, and it must not be killed to free the port.
+    # CONVERTER_PORT=5002 python3 app.py sidesteps it without changing system
+    # settings. Deployment runs under gunicorn and ignores this entirely.
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1",
+            port=int(os.environ.get("CONVERTER_PORT", 5000)))

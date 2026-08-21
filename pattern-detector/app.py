@@ -280,4 +280,7 @@ def api_test_regex():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(debug=os.environ.get("FLASK_DEBUG") == "1", port=5001)
+    # Default port is overridable; see the note in converter/app.py. Named
+    # separately from the converter's so both can be exported at once.
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1",
+            port=int(os.environ.get("DETECTOR_PORT", 5001)))
