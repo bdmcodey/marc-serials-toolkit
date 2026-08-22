@@ -217,3 +217,61 @@ def test_messy_corpus_converts_without_error(converter_client, messy_marc_bytes)
     # skipped before conversion rather than summarised as a zero-field record.
     assert body["records_processed"] == 9
     assert len(_records(converter_client.get("/api/download-converted").data)) == 10
+
+
+# ---------------------------------------------------------------------------
+# Per-statement 866 stripping (0.5.2)
+#
+# Stripping used to be decided for the whole record, which destroyed holdings
+# the parser could not read. These pin the per-statement rule from both routes.
+# ---------------------------------------------------------------------------
+
+def test_batch_keeps_the_866_of_an_unconverted_statement(converter_client,
+                                                         messy_marc_bytes):
+    """
+    Messy record 5 carries three statements: "?: 16" and "? 106" are held for
+    review, "2016?" converts. Only the converted one's 866 may be removed.
+    """
+    upload_marc(converter_client, messy_marc_bytes)
+    converter_client.post("/api/batch-convert", json={})
+
+    record = _records(converter_client.get("/api/download-converted").data)[5]
+    remaining = sorted((f["a"] or "") for f in record.get_fields("866"))
+
+    assert remaining == ["? 106", "?: 16"]
+    assert record.get_fields("863")          # the converted one did convert
+
+
+def test_single_record_route_keeps_unconverted_866s(converter_client,
+                                                    example_marc_bytes):
+    """
+    The single-statement route used to strip every 866 before conversion had
+    even run, so it destroyed review statements the batch route protected.
+    """
+    upload_marc(converter_client, example_marc_bytes)
+    response = converter_client.post("/api/convert-record", json={
+        "record_index": 3,
+        "conversions": [{"text": "34 no 3, 4 (Summer, Autumn 1990)"},
+                        {"text": "39 no 1 (Spring 1995)"}],
+    })
+    assert response.status_code == 200
+
+    record = _records(converter_client.get("/api/download-converted").data)[3]
+    assert len(record.get_fields("866")) == 2
+
+
+def test_an_edited_statement_never_deletes_an_866(converter_client,
+                                                  example_marc_bytes):
+    """
+    Statement text arrives from the client and may have been edited in the UI.
+    A spec matching no 866 on the record must leave every field alone rather
+    than guessing which one it meant.
+    """
+    upload_marc(converter_client, example_marc_bytes)
+    converter_client.post("/api/convert-record", json={
+        "record_index": 0,
+        "conversions": [{"text": "v.99(2099)-v.100(2100)"}],   # not on the record
+    })
+
+    record = _records(converter_client.get("/api/download-converted").data)[0]
+    assert len(record.get_fields("866")) == 2

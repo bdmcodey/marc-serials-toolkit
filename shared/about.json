@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "released": "2026-08-21",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Two tools for MARC serials holdings. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,25 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.5.2",
+      "date": "2026-08-21",
+      "summary": "Holdings the converter cannot read are no longer deleted.",
+      "changes": [
+        {
+          "tool": "Converter",
+          "text": "A holdings statement the converter cannot read now keeps its original 866 field. Previously, converting a record could remove every 866 on it even when nothing was produced to replace them \u2014 so a statement in a format the converter did not recognise was deleted outright, and the file you downloaded was missing holdings with nothing on screen to say so. Please re-check any file you converted before this version: look for records that now have no holdings at all."
+        },
+        {
+          "tool": "Converter",
+          "text": "Converting a single record from its own button follows the same rule. It previously removed every 866 on the record before it had worked anything out, so even statements it had set aside for review were lost."
+        },
+        {
+          "tool": "Converter",
+          "text": "On a record where some statements convert and others do not, only the converted ones have their 866 removed. The rest stay exactly as they were. Previously the whole record was treated as one decision, so a single statement needing review kept every 866 \u2014 leaving the converted holdings recorded twice, once as an 866 and once as an 853/863."
+        }
+      ]
+    },
     {
       "version": "0.5.1",
       "date": "2026-08-21",

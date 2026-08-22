@@ -122,6 +122,57 @@ def _apply_record_conversion(record, rc) -> None:
         record.add_field(f863.to_pymarc())
 
 
+def _match_866_sources(record, texts) -> list:
+    """
+    Line each statement up with the 866 field it came from.
+
+    Returns a list the same length as `texts`, holding either the matching field
+    or None.  Each field is claimed at most once, so a record carrying the same
+    statement twice maps to two distinct fields rather than the first one twice.
+
+    Used by the single-statement route, where the text arrives from the client
+    and may have been edited in the UI.  An edited statement matches nothing and
+    yields None, which _remove_converted_866s() then leaves alone: a field we
+    cannot account for is never deleted.
+    """
+    claimed = []
+    matched = []
+    for text in texts:
+        wanted = (text or "").strip()
+        found = None
+        for field in record.get_fields("866"):
+            if any(field is c for c in claimed):
+                continue
+            if (field["a"] or "").strip() == wanted:
+                found = field
+                claimed.append(field)
+                break
+        matched.append(found)
+    return matched
+
+
+def _remove_converted_866s(record, sources, rc) -> None:
+    """
+    Drop only those 866s whose statement actually produced 863s.
+
+    Stripping used to be decided for the whole record, so a statement the parser
+    could not read had its 866 removed alongside its converted neighbours and
+    left nothing behind -- the holdings were simply gone, and the response still
+    reported success.  Each field is now judged on its own result.
+
+    `sources` is the 866 fields that were handed to convert_record(), in the
+    same order as rc.results, and may contain None for a statement with no field
+    to match.  Callers must build it themselves rather than reusing
+    get_fields("866"): statements with an empty $a are filtered out before
+    conversion, so the two lists are not otherwise aligned.  An 866 with nothing
+    in $a is consequently never stripped, which is right -- it carried nothing
+    to convert.
+    """
+    for field, result in zip(sources, rc.results):
+        if field is not None and result.fields_863:
+            record.remove_field(field)
+
+
 def _convention_opts(data: dict) -> tuple:
     """
     Build a caption-convention spec from a request body.
@@ -486,11 +537,16 @@ def api_convert_record():
             existing_853s = []
 
         remove_866 = any(c.get("remove_866", True) for c in conversions_input)
-        if remove_866:
-            target.remove_fields("866")
 
         conv_opts, rejections = _convention_opts(data)
         specs = [c for c in conversions_input if c.get("text")]
+
+        # Match each statement back to the 866 it came from, so stripping can be
+        # decided per statement once the results are known.  The text arrives
+        # from the client and the cataloguer may have edited it, so a spec that
+        # matches nothing leaves every 866 alone: never delete a field we cannot
+        # account for.
+        sources = _match_866_sources(target, [c["text"] for c in specs])
 
         # Linking numbers are a record-level decision, so the whole record is
         # converted at once; any per-conversion linking_number is advisory.
@@ -504,6 +560,9 @@ def api_convert_record():
             **conv_opts,
         )
         _apply_record_conversion(target, rc)
+
+        if remove_866:
+            _remove_converted_866s(target, sources, rc)
 
         previews = _previews_from(rc, rejections)
 
@@ -611,6 +670,9 @@ def api_batch_convert():
                 continue
 
             texts = [f["a"] or "" for f in fields_866]
+            # Kept alongside `texts` so each surviving 866 can be matched to its
+            # own conversion result; the `if t` below drops the empty ones.
+            sources = [f for f, t in zip(fields_866, texts) if t]
             rc = convert_record(
                 [parse_866(t) for t in texts if t],
                 existing_853s=existing_853s,
@@ -624,10 +686,11 @@ def api_batch_convert():
             rec_warnings = rc.warnings
             converted, conformed, review = rc.converted, rc.conformed, rc.needs_review
 
-            # Only strip the source 866s that were actually converted; a
-            # statement held back for review must keep its original data.
-            if remove_866 and review == 0:
-                record.remove_fields("866")
+            # Only strip the source 866s that were actually converted; anything
+            # held back for review, or that the parser could not read at all,
+            # must keep its original data.
+            if remove_866:
+                _remove_converted_866s(record, sources, rc)
 
             review_total += review
             summary.append({

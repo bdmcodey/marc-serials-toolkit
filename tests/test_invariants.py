@@ -163,42 +163,35 @@ def _holdings_survived(converter_client, corpus: bytes) -> list[int]:
     return lost
 
 
-@pytest.mark.xfail(reason="api_batch_convert strips the source 866 whenever "
-                          "needs_review is 0, which a hard parse failure also "
-                          "satisfies -- see the strict regression test below")
 def test_no_record_loses_its_only_holdings(converter_client, any_corpus):
     """
-    Not strict, because whether a corpus trips the defect depends on whether it
-    happens to contain a statement neither grammar accepts. The example corpus
-    does and the messy one does not, so a strict marker here would fail on the
-    corpus where the invariant legitimately holds. The deterministic case is
-    pinned strictly in test_unparseable_statement_is_never_deleted().
+    A record that arrived carrying holdings must leave carrying holdings, in one
+    form or another. Until 0.5.2 this failed on any corpus containing a
+    statement neither grammar accepts: stripping was decided per record, so an
+    unreadable statement had its 866 removed alongside its converted neighbours.
     """
     assert _holdings_survived(converter_client, any_corpus) == []
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="a statement that fails to parse sets success=False "
-                          "but leaves needs_review at 0, so the `review == 0` "
-                          "guard strips its 866 with nothing to replace it")
 def test_unparseable_statement_is_never_deleted(converter_client, example_marc_bytes):
     """
-    Record 3 of data/example_holdings.mrc carries two statements that neither
-    grammar accepts. It goes in with two 866s and comes out with no 866, no 853
-    and no 863 -- the holdings are gone -- while the API reports success and the
-    per-record summary shows converted_fields: 0.
+    Regression test for the data-loss bug fixed in 0.5.2.
 
-    The guard in api_batch_convert reads
+    Record 3 of data/example_holdings.mrc carries two statements that neither
+    grammar accepts. Before the fix it went in with two 866s and came out with
+    no 866, no 853 and no 863 -- the holdings were gone -- while the API still
+    reported success and the summary showed converted_fields: 0.
+
+    The cause was that api_batch_convert decided stripping for the whole record:
 
         if remove_866 and review == 0:
 
-    and its comment says a statement held back for review keeps its original
-    data. But needs_review is only set when values were found and could not be
-    placed; a hard parse failure leaves it at 0, so the 866 is stripped exactly
-    as if it had been converted.
+    needs_review is only set when values were found and could not be placed, so
+    a hard parse failure left it at 0 and the 866 was stripped exactly as if it
+    had been converted. Stripping is now per statement.
 
-    Strict, because this case is deterministic: fixing the guard must turn this
-    green, and a fix that only half-works must still fail.
+    Kept as a named case alongside the corpus-wide check because this one is
+    deterministic: it is the exact record the bug was found on.
     """
     assert _holdings_survived(converter_client, example_marc_bytes) == []
 
