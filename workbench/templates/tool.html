@@ -1,0 +1,1499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Holdings Workbench — patterns and conversion in one tool</title>
+  <link rel="stylesheet" href="ui.css" />
+  <script>
+    // Apply the saved theme and text size before first paint, so the page
+    // never flashes in the wrong one.
+    (function () {
+      try {
+        var t = localStorage.getItem('mst-theme');
+        if (t) document.documentElement.setAttribute('data-theme', t);
+        var s = localStorage.getItem('mst-scale');
+        if (s) document.documentElement.style.setProperty('--ui-scale', s);
+      } catch (e) {}
+    })();
+  </script>
+  <style>
+    /* ── Holdings Workbench — app-specific ───────────────────────────────── */
+
+    /* Teal accent, distinct from the converter's amber and the detector's
+       blue: three tools on one host, and the colour says which one you are in.
+       Verified 5.9:1 on white and 9.2:1 on the dark ground. */
+    :root { --accent: #0b6b6b; --accent-soft: #e2f2f2; }
+    :root[data-theme="dark"] { --accent: #62d0d0; --accent-soft: #16292a; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --accent: #62d0d0; --accent-soft: #16292a; }
+    }
+
+    /* Any class that sets `display` outranks the [hidden] attribute's UA rule,
+       and both .pill and .btn do -- which showed the "Confirmed" pill on an
+       unconfirmed pattern. Give the attribute back its meaning everywhere. */
+    [hidden] { display: none !important; }
+
+    header h1 { font-size: var(--fs-xl); }
+    .subtitle { font-size: var(--fs-sm); color: var(--text-muted); }
+    .badge {
+      font-size: var(--fs-xs); font-weight: 600;
+      padding: var(--sp-1) var(--sp-2);
+      border-radius: var(--radius);
+      border: 2px solid var(--border);
+      color: var(--text);
+    }
+    .badge.ok  { border-color: var(--ok);     background: var(--ok-soft); }
+    .badge.err { border-color: var(--danger); background: var(--danger-soft); }
+
+    #sidebar {
+      border-right: 2px solid var(--border-soft);
+      display: flex; flex-direction: column;
+      overflow-y: auto;
+      background: var(--surface);
+      min-height: 0;
+    }
+    #records-list-container { flex-direction: column; }
+
+    /* The record list is the only part of the sidebar that scrolls, so the
+       source panel above and the batch buttons below stay put however many
+       records the file holds. */
+    @media (min-width: 60rem) {
+      #sidebar { overflow: hidden; }
+      #source-section { flex: none; }
+      #records-list-container { min-height: 0; flex: 1 1 0; overflow: hidden; }
+      #records-list { overflow-y: auto; flex: 1 1 0; }
+      #batch-actions { flex: none; border-top: 2px solid var(--border-soft); }
+    }
+
+    .sidebar-section { padding: var(--sp-4) var(--sp-4) 0; }
+    .sidebar-section + .sidebar-section {
+      border-top: 2px solid var(--border-soft);
+      margin-top: var(--sp-4);
+      padding-top: var(--sp-4);
+    }
+
+    #workspace {
+      display: flex; flex-direction: column;
+      overflow-y: auto;
+      padding: var(--sp-5);
+      gap: var(--sp-4);
+      min-height: 0;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: var(--sp-4);
+    }
+    .card-title {
+      font-size: var(--fs-lg); font-weight: 700; color: var(--text);
+      margin-bottom: var(--sp-3);
+      display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    }
+    .card-title .tag {
+      font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 600;
+      padding: var(--sp-1) var(--sp-2);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      color: var(--text);
+      border: 2px solid var(--border);
+    }
+
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+    @media (max-width: 40rem) { .form-row { grid-template-columns: 1fr; } }
+
+    /* Per-level subfield + caption editor */
+    .conv-grid {
+      display: grid;
+      grid-template-columns: minmax(4rem, auto) minmax(3rem, auto) 1fr;
+      gap: var(--sp-2);
+      align-items: center;
+    }
+    .conv-head  { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
+    .conv-level { font-size: var(--fs-sm); color: var(--text); }
+    .conv-sf    { text-align: center; }
+    .conv-sf.invalid { border-color: var(--danger); background: var(--danger-soft); }
+
+    #drop-zone {
+      border: 3px dashed var(--border);
+      border-radius: var(--radius);
+      padding: var(--sp-5) var(--sp-4);
+      text-align: center; cursor: pointer;
+      color: var(--text-muted);
+      font-size: var(--fs-md);
+      background: var(--bg);
+    }
+    #drop-zone:hover, #drop-zone.dragover {
+      border-color: var(--accent); background: var(--accent-soft); color: var(--text);
+    }
+    #drop-zone .icon { font-size: var(--fs-2xl); display: block; margin-bottom: var(--sp-2); }
+    #drop-zone.loaded {
+      padding: var(--sp-3);
+      font-size: var(--fs-sm);
+      min-height: var(--control-min);
+      display: flex; align-items: center; justify-content: center;
+      gap: var(--sp-2);
+      border-style: solid;
+      border-color: var(--ok);
+      background: var(--ok-soft);
+      color: var(--text);
+      text-align: left;
+    }
+    #drop-zone.loaded .icon { font-size: var(--fs-md); display: inline; margin: 0; }
+    #file-input, #import-input { display: none; }
+
+    /* Record list */
+    .record-item {
+      padding: var(--sp-3);
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
+      margin-bottom: var(--sp-2);
+      cursor: pointer;
+      background: var(--bg);
+      min-height: var(--control-min);
+    }
+    .record-item:hover  { border-color: var(--border); background: var(--surface-2); }
+    .record-item.active { border-color: var(--accent); background: var(--accent-soft); }
+    .rec-title { font-weight: 600; font-size: var(--fs-sm); color: var(--text); }
+    .rec-meta  { font-size: var(--fs-xs); color: var(--text-muted); margin-top: var(--sp-1); }
+    .pill.has-866 { border-color: var(--ok); background: var(--ok-soft); }
+    .pill.from-pattern { border-color: var(--accent); background: var(--accent-soft); }
+
+    /* MARC field displays */
+    .field-display {
+      font-family: var(--font-mono);
+      font-size: var(--fs-sm);
+      line-height: 1.7;
+      padding: var(--sp-3);
+      border-radius: var(--radius);
+      background: var(--bg);
+      border: 2px solid var(--border-soft);
+      border-left-width: 6px;
+      word-break: break-word;
+      color: var(--text);
+    }
+    .field-display.f866 { border-left-color: var(--text-muted); }
+    .field-display.f853 { border-left-color: var(--accent); }
+    .field-display.f863 { border-left-color: var(--focus); }
+
+    .sf-tag   { color: var(--accent); font-weight: 700; }
+    .sf-ind   { color: var(--text-muted); font-weight: 600; }
+    .sf-code  { color: var(--focus);  font-weight: 700; }
+    .sf-value { color: var(--text); }
+
+    .pattern-group {
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
+      margin-bottom: var(--sp-4);
+      overflow: hidden;
+    }
+    .pg-header {
+      padding: var(--sp-3);
+      background: var(--surface-2);
+      border-bottom: 2px solid var(--border-soft);
+    }
+    .pg-header-meta {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-2);
+    }
+    .pg-title { font-size: var(--fs-sm); font-weight: 700; color: var(--text); }
+
+    .pair-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--sp-3);
+      padding: var(--sp-3);
+      border-bottom: 2px solid var(--border-soft);
+    }
+    .pair-row:last-child { border-bottom: none; }
+    @media (max-width: 60rem) { .pair-row { grid-template-columns: 1fr; } }
+    .pair-col-label {
+      font-size: var(--fs-xs); font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: var(--sp-1);
+    }
+    .pair-row .field-display + .field-display { margin-top: var(--sp-2); }
+
+    /* ── Pattern cards ───────────────────────────────────────────────────── */
+
+    .pattern-card {
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .pattern-card.confirmed { border-color: var(--ok); }
+    .pattern-card.too-complex { border-style: dashed; }
+    .pc-head {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: var(--sp-2);
+      padding: var(--sp-3);
+      background: var(--surface-2);
+    }
+    .pc-label {
+      font-family: var(--font-mono); font-weight: 700;
+      font-size: var(--fs-sm); color: var(--text);
+      flex: 1; min-width: 12rem; word-break: break-word;
+    }
+    .pc-body {
+      padding: var(--sp-4);
+      border-top: 2px solid var(--border-soft);
+      display: flex; flex-direction: column; gap: var(--sp-4);
+    }
+    .pc-body[hidden] { display: none; }
+    .pill.confirmed-pill { border-color: var(--ok); background: var(--ok-soft); }
+    .pill.decide { border-color: var(--warn); background: var(--warn-soft); }
+
+    .regex-box {
+      width: 100%;
+      font-family: var(--font-mono);
+      font-size: var(--fs-xs);
+      line-height: 1.6;
+      min-height: 5rem;
+      resize: vertical;
+    }
+
+    /* The role table: one row per captured value. This is where a cataloguer
+       says what the tool found, so it is the most important thing on screen —
+       full width, real controls, nothing abbreviated. */
+    .role-table { width: 100%; border-collapse: collapse; }
+    .role-table th {
+      text-align: left;
+      font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted);
+      padding: var(--sp-2); border-bottom: 2px solid var(--border-soft);
+    }
+    .role-table td {
+      padding: var(--sp-2);
+      border-bottom: 2px solid var(--border-soft);
+      vertical-align: middle;
+    }
+    .role-table tr:last-child td { border-bottom: none; }
+    .role-table tr.needs-decision td { background: var(--warn-soft); }
+    .role-group  { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text); }
+    .role-sample { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); word-break: break-word; }
+    .role-table select { min-width: 8rem; }
+    .role-scroll { overflow-x: auto; }
+
+    .preview-pair {
+      display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3);
+      padding: var(--sp-3);
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
+      margin-bottom: var(--sp-3);
+    }
+    @media (max-width: 60rem) { .preview-pair { grid-template-columns: 1fr; } }
+    .preview-stmt {
+      font-family: var(--font-mono); font-size: var(--fs-sm);
+      color: var(--text); margin-bottom: var(--sp-2); word-break: break-word;
+    }
+    .preview-head {
+      display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+      margin-bottom: var(--sp-2);
+    }
+
+    /* The library list in the sidebar */
+    .lib-item {
+      display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-2);
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
+      margin-bottom: var(--sp-2);
+      background: var(--bg);
+    }
+    .lib-label {
+      flex: 1; min-width: 0;
+      font-family: var(--font-mono); font-size: var(--fs-xs);
+      color: var(--text); word-break: break-word;
+    }
+    .lib-example {
+      display: block; margin-top: var(--sp-1);
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#workspace">Skip to workspace</a>
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<header>
+  <div>
+    <h1>Holdings Workbench</h1>
+    <div class="subtitle">Find the patterns in your 866 holdings, confirm what they mean, convert to 853 / 863</div>
+  </div>
+  {% if has_pymarc %}
+    <span class="badge ok">pymarc installed</span>
+  {% else %}
+    <span class="badge err">pymarc not installed</span>
+  {% endif %}
+  <div class="ui-controls">
+    <fieldset>
+      <legend>Text size</legend>
+      <button type="button" class="ui-size-btn s1" data-scale="1" aria-pressed="true"
+              title="Normal text size">A</button>
+      <button type="button" class="ui-size-btn s2" data-scale="1.15" aria-pressed="false"
+              title="Larger text">A</button>
+      <button type="button" class="ui-size-btn s3" data-scale="1.3" aria-pressed="false"
+              title="Largest text">A</button>
+    </fieldset>
+    <button type="button" class="ui-theme-btn" id="theme-toggle" aria-pressed="false">
+      <span aria-hidden="true">◐</span> <span class="theme-label">Dark</span>
+    </button>
+  </div>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────────────── -->
+<main>
+
+  <aside id="sidebar">
+
+    <!-- ── 1. Holdings ── -->
+    <div class="sidebar-section" id="source-section">
+      <div class="section-label">1 · Holdings</div>
+      <div id="drop-zone">
+        <span class="icon">📁</span>
+        Drop a MARC file here, or click to browse
+      </div>
+      <input type="file" id="file-input" accept=".mrc,.marc" />
+      <div id="file-status" class="mt-1 small dim"></div>
+
+      <div class="form-group mt-2">
+        <label for="stmt-input">Or paste 866 statements, one per line</label>
+        <textarea id="stmt-input" rows="4"
+                  placeholder="v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)
+v.6(1995)-"></textarea>
+        <div class="small dim mt-05">
+          Pasted statements can be used to work out patterns. Converting a file
+          needs the file itself.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 2. Pattern library ── -->
+    <div class="sidebar-section">
+      <div class="section-label">2 · Confirmed patterns</div>
+      <div id="library-summary" class="small dim">No patterns confirmed yet.</div>
+      <div id="library-list" class="mt-1"></div>
+      <div class="btn-row">
+        <a class="btn btn-secondary btn-sm" href="api/patterns/export"
+           title="Save these patterns to a file you can load again later">Export</a>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-import"
+                title="Load patterns from a file exported earlier">Import</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-clear-library">Clear</button>
+      </div>
+      <input type="file" id="import-input" accept=".json,application/json" />
+      <div id="library-status" class="mt-1"></div>
+    </div>
+
+    <!-- ── 3. Convert ── -->
+    <div class="sidebar-section" id="batch-actions" style="display:none;">
+      <div class="section-label">3 · Convert</div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="btn-open-settings">Conversion settings</button>
+        <button class="btn btn-primary" id="btn-batch-all">Convert all records</button>
+        <a href="api/download-converted" class="btn btn-success" id="btn-download"
+           style="display:none;">Download .mrc</a>
+      </div>
+      <div id="batch-status" class="mt-2"></div>
+    </div>
+
+  </aside>
+
+  <!-- ── Workspace ─────────────────────────────────────────────────────── -->
+  <section id="workspace">
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="ws-patterns">Patterns</button>
+      <button class="tab-btn" data-tab="ws-convert">Convert</button>
+    </div>
+
+    <!-- ── Patterns ── -->
+    <div id="ws-patterns" class="tab-panel active">
+      <div class="card">
+        <div class="card-title">Find patterns</div>
+        <p class="small dim">
+          Every group of holdings that shares a structure gets one expression.
+          Open a group to say what each captured value means, check the 853 / 863
+          it would produce, and confirm it. Confirmed patterns are used when you
+          convert; anything they do not match is converted the way it always was.
+        </p>
+        <div class="check-row mt-2">
+          <input type="checkbox" id="opt-split" checked />
+          <label for="opt-split">Split multi-range statements on top-level commas, semicolons or slashes</label>
+        </div>
+        <div class="check-row">
+          <input type="checkbox" id="opt-dedup" />
+          <label for="opt-dedup">Ignore duplicate statements</label>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-detect">
+            <span id="detect-label">⟳ Find patterns</span>
+          </button>
+        </div>
+        <div id="detect-error" class="mt-1"></div>
+      </div>
+
+      <div id="patterns-area"></div>
+    </div>
+
+    <!-- ── Convert ── -->
+    <div id="ws-convert" class="tab-panel">
+      <div id="record-detail">
+        <div class="empty-state">
+          <p>Upload a MARC file, then choose a record to see what it converts to.</p>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+</main>
+
+{% if about.version %}
+<footer class="app-footer">
+  <button type="button" class="version-badge" id="btn-about"
+          aria-haspopup="dialog" title="Version, changes and licensing">
+    v{{ about.version }}
+  </button>
+</footer>
+
+<dialog id="about-dialog" aria-labelledby="about-dialog-title">
+  <div class="dialog-title" id="about-dialog-title">
+    {{ about.name }} <span class="dim">v{{ about.version }}</span>
+  </div>
+
+  {% if about.status %}
+  <div class="about-section">
+    <div class="about-status">{{ about.status }}</div>
+  </div>
+  {% endif %}
+
+  {% if about.description %}
+  <div class="about-section"><p>{{ about.description }}</p></div>
+  {% endif %}
+
+  <div class="about-section small dim">
+    {% if about.licensing %}<p>{{ about.licensing }}</p>{% endif %}
+    {% if about.attribution %}<p>{{ about.attribution }}</p>{% endif %}
+    {% if about.contact %}<p>Questions: {{ about.contact }}</p>{% endif %}
+  </div>
+
+  <h2>What has changed</h2>
+  {% for rel in about.changelog %}
+  <div class="release">
+    <div class="release-head">
+      <span class="release-version">v{{ rel.version }}</span>
+      <span class="release-date">{{ rel.date }}</span>
+    </div>
+    {% if rel.summary %}<div class="release-summary">{{ rel.summary }}</div>{% endif %}
+    <ul class="release-changes">
+      {% for c in rel.changes %}
+      <li><span class="change-tool">{{ c.tool }}</span><span>{{ c.text }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+
+  <div class="dialog-actions">
+    <button type="button" class="btn btn-primary" id="btn-about-done">Done</button>
+  </div>
+</dialog>
+{% endif %}
+
+<!-- ── Conversion settings ─────────────────────────────────────────────── -->
+<dialog id="batch-options" aria-labelledby="batch-options-title">
+  <div class="dialog-title" id="batch-options-title">Conversion settings</div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label for="batch-freq">Frequency (853 $w)</label>
+      <select id="batch-freq">
+        {% for code, label in frequency_codes.items() %}
+        <option value="{{ code }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="batch-continuity">Numbering (853 $v)</label>
+      <select id="batch-continuity">
+        <option value="">(not specified)</option>
+        <option value="r" selected>Restarts each volume</option>
+        <option value="c">Continuous</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label for="batch-convention">Caption convention</label>
+    <select id="batch-convention">
+      <option value="standard" selected>Standard (MARC 21)</option>
+      <option value="house">House practice</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label>Subfields and captions</label>
+    <div class="conv-grid mt-1" id="conv-grid-batch">
+      <div class="conv-head">Level</div>
+      <div class="conv-head">$</div>
+      <div class="conv-head">Caption</div>
+      {% for level in convention_levels %}
+      <div class="conv-level">{{ level }}</div>
+      <input type="text" class="conv-sf" id="bsf-{{ level }}" maxlength="1"
+             aria-label="{{ level }} subfield" />
+      <input type="text" id="bcap-{{ level }}" aria-label="{{ level }} caption" />
+      {% endfor %}
+    </div>
+    <div class="form-row mt-2">
+      <div class="form-group">
+        <label>853 indicators</label>
+        <div style="display:flex; gap:var(--sp-2);">
+          <input type="text" id="batch-ind1" maxlength="1" style="width:50%;" aria-label="First indicator" />
+          <input type="text" id="batch-ind2" maxlength="1" style="width:50%;" aria-label="Second indicator" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="batch-chronology">Chronology written as</label>
+        <select id="batch-chronology">
+          <option value="code">MARC codes (03)</option>
+          <option value="text">Text (Mar)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="check-row">
+    <input type="checkbox" id="batch-remove866" checked />
+    <label for="batch-remove866">Remove the 866 once it has been converted</label>
+  </div>
+  <div class="check-row">
+    <input type="checkbox" id="batch-clear853863" />
+    <label for="batch-clear853863">Clear existing 853 / 863 first</label>
+  </div>
+
+  <div class="dialog-actions">
+    <button type="button" class="btn btn-primary" id="btn-settings-done">Done</button>
+  </div>
+</dialog>
+
+<!-- ── Record list (injected into the sidebar once a file is loaded) ───── -->
+<div id="records-list-container" style="display:none;">
+  <div class="sidebar-section" style="padding-bottom:0; display:flex; align-items:center; justify-content:space-between;">
+    <div class="section-label" style="margin-bottom:0;">Records</div>
+    <span id="record-count" class="dim small"></span>
+  </div>
+  <div id="records-list"></div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────
+// Constants from the server, so the maps live in exactly one place.
+// ─────────────────────────────────────────────────────────────────────────
+const CONVENTION_PRESETS = {{ convention_presets | tojson }};
+const CONVENTION_LEVELS  = {{ convention_levels | tojson }};
+const LEVEL_LABELS       = {{ level_labels | tojson }};
+const IGNORE_LEVEL       = {{ ignore_level | tojson }};
+const IGNORE_LABEL       = {{ ignore_label | tojson }};
+const UNRESOLVED_LEVEL   = {{ unresolved_level | tojson }};
+const DEFAULT_CAPTIONS   = {
+  vol: 'v.', issue: 'no.', part: 'pt.', year: '(year)', month: '(month)'
+};
+const ALLOWED_SUBFIELDS = 'abcdefghijklm';
+
+// ── State ────────────────────────────────────────────────────────────────
+let allRecords  = [];    // record summaries from the uploaded file
+let allStatements = [];  // every 866 $a in that file, in order
+let detected    = [];    // the last detection run's groups
+let library     = [];    // confirmed patterns, mirroring the server's copy
+let lastSplit   = true;  // how the last detection ran; patterns inherit it
+
+// ─────────────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────────────
+
+function escHtml(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function highlightField(raw) {
+  // Colour-code MARC display strings like "853 ## $8 1 $a v."
+  return raw
+    .replace(/^(\d{3})/,         '<span class="sf-tag">$1</span>')
+    .replace(/\s(##|\d[\d#])/,   ' <span class="sf-ind">$1</span>')
+    .replace(/\$([a-z0-9])/g,    '<span class="sf-code">$$$1</span>')
+    .replace(/<\/span>([^<$]+)/g, '</span><span class="sf-value">$1</span>');
+}
+
+function showAlert(container, msg, type='warn') {
+  if (!container) return;
+  container.innerHTML = `<div class="alert alert-${type}">${escHtml(msg)}</div>`;
+}
+
+function fieldHtml(display, cls) {
+  return `<div class="field-display ${cls}">${highlightField(escHtml(display))}</div>`;
+}
+
+/** POST JSON and return the parsed body, or throw with the server's message. */
+async function postJson(url, payload) {
+  const res  = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Caption convention (ported from the converter, one editor rather than two)
+// ─────────────────────────────────────────────────────────────────────────
+
+function applyPreset(name) {
+  const preset = CONVENTION_PRESETS[name] || CONVENTION_PRESETS.standard;
+  CONVENTION_LEVELS.forEach(level => {
+    const sf  = document.getElementById(`bsf-${level}`);
+    const cap = document.getElementById(`bcap-${level}`);
+    if (sf)  sf.value  = preset.subfields[level] || '';
+    if (cap) cap.value = DEFAULT_CAPTIONS[level] || '';
+  });
+  document.getElementById('batch-ind1').value = preset.indicators[0];
+  document.getElementById('batch-ind2').value = preset.indicators[1];
+  document.getElementById('batch-chronology').value =
+    preset.chron_as_text ? 'text' : 'code';
+  markInvalidSubfields();
+}
+
+/** Flag subfields MARC will not accept, or that two levels are fighting over. */
+function markInvalidSubfields() {
+  const seen = {};
+  CONVENTION_LEVELS.forEach(level => {
+    const el = document.getElementById(`bsf-${level}`);
+    if (!el) return;
+    const v = (el.value || '').trim().toLowerCase();
+    const bad = v && (v.length !== 1 || !ALLOWED_SUBFIELDS.includes(v) || seen[v]);
+    el.classList.toggle('invalid', !!bad);
+    if (v) seen[v] = true;
+  });
+}
+
+/** Collect the editor into the shape every conversion endpoint expects. */
+function conventionPayload() {
+  const subfields = {}, captions = {};
+  CONVENTION_LEVELS.forEach(level => {
+    const sf  = document.getElementById(`bsf-${level}`);
+    const cap = document.getElementById(`bcap-${level}`);
+    if (sf && sf.value.trim())   subfields[level] = sf.value.trim().toLowerCase();
+    if (cap && cap.value.trim()) captions[level]  = cap.value.trim();
+  });
+  return {
+    convention: document.getElementById('batch-convention').value,
+    subfields,
+    captions,
+    indicators: [document.getElementById('batch-ind1').value,
+                 document.getElementById('batch-ind2').value],
+    chronology: document.getElementById('batch-chronology').value,
+    frequency: document.getElementById('batch-freq').value,
+    numbering_continuity: document.getElementById('batch-continuity').value,
+  };
+}
+
+(function () {
+  const sel = document.getElementById('batch-convention');
+  sel.addEventListener('change', () => applyPreset(sel.value));
+  document.getElementById('conv-grid-batch')
+          .addEventListener('input', markInvalidSubfields);
+  applyPreset(sel.value);
+})();
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tabs
+// ─────────────────────────────────────────────────────────────────────────
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('#workspace .tab-panel')
+            .forEach(p => p.classList.remove('active'));
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 1 · Holdings — upload once, both halves use it
+// ─────────────────────────────────────────────────────────────────────────
+
+const dropZone  = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault(); dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) uploadMarcFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files.length) uploadMarcFile(e.target.files[0]);
+});
+
+async function uploadMarcFile(file) {
+  const form = new FormData();
+  form.append('file', file);
+  dropZone.innerHTML = '<span class="spinner"></span> Reading MARC file…';
+
+  try {
+    const res  = await fetch('api/upload-marc', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) {
+      dropZone.innerHTML = `<span class="icon">❌</span>${escHtml(data.error)}`;
+      return;
+    }
+    allRecords    = data.records;
+    allStatements = data.statements;
+    renderRecordList(data.records);
+    document.getElementById('batch-actions').style.display = 'block';
+    dropZone.classList.add('loaded');
+    dropZone.innerHTML =
+      `<span class="icon">✓</span> ${escHtml(file.name)} — ${data.total} records, ${data.count} holdings statements`;
+  } catch (err) {
+    dropZone.innerHTML = '<span class="icon">❌</span>Upload failed.';
+    console.error(err);
+  }
+}
+
+function renderRecordList(records) {
+  const container = document.getElementById('records-list-container');
+  const list  = document.getElementById('records-list');
+  const count = document.getElementById('record-count');
+  container.style.display = 'flex';
+  count.textContent = `${records.length} records`;
+
+  const sidebar = document.getElementById('sidebar');
+  sidebar.insertBefore(container, document.getElementById('batch-actions'));
+
+  list.innerHTML = records.map((rec, i) => `
+    <div class="record-item" data-index="${i}" onclick="selectRecord(${i})">
+      <div class="rec-title">${escHtml(rec.title)}
+        ${rec.fields_866.length ? `<span class="pill has-866">866 ×${rec.fields_866.length}</span>` : ''}
+        ${rec.has_853 ? '<span class="pill">853✓</span>' : ''}
+      </div>
+      <div class="rec-meta">${escHtml(rec.issn || '–')} · ${escHtml(rec.location || 'no location')}</div>
+    </div>`).join('');
+}
+
+/** The statements pattern detection runs over: the file, or what was pasted. */
+function statementsForDetection() {
+  const pasted = document.getElementById('stmt-input').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  const source = pasted.length ? pasted : allStatements;
+  if (!document.getElementById('opt-dedup').checked) return source;
+  return [...new Set(source)];
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 2 · Patterns
+// ─────────────────────────────────────────────────────────────────────────
+
+document.getElementById('btn-detect').addEventListener('click', runDetect);
+
+async function runDetect() {
+  const statements = statementsForDetection();
+  const errBox = document.getElementById('detect-error');
+  errBox.innerHTML = '';
+
+  if (!statements.length) {
+    showAlert(errBox, 'Upload a MARC file or paste some statements first.', 'warn');
+    return;
+  }
+
+  const label = document.getElementById('detect-label');
+  label.innerHTML = '<span class="spinner"></span> Finding patterns…';
+  lastSplit = document.getElementById('opt-split').checked;
+
+  try {
+    const data = await postJson('api/detect', {
+      statements,
+      split_multi_range: lastSplit,
+    });
+    detected = data.groups;
+    renderPatterns(data);
+  } catch (err) {
+    showAlert(errBox, err.message, 'err');
+  } finally {
+    label.textContent = '⟳ Find patterns';
+  }
+}
+
+function renderPatterns(data) {
+  const area = document.getElementById('patterns-area');
+  area.innerHTML = '';
+
+  const summary = document.createElement('div');
+  summary.className = 'card';
+  summary.innerHTML = `
+    <div class="card-title">${data.total_patterns} pattern${data.total_patterns !== 1 ? 's' : ''}
+      <span class="tag">${data.total_statements} statements</span></div>
+    <p class="small dim">Largest groups first. Confirm a pattern to have it used
+      when you convert.</p>`;
+  area.appendChild(summary);
+
+  data.groups.forEach((group, idx) => area.appendChild(buildPatternCard(group, idx)));
+}
+
+/** The id a confirmed pattern gets: stable for a group across re-detections. */
+function patternIdFor(group) {
+  return 'p' + Math.abs(hashString(group.signature || group.human_label)).toString(36);
+}
+
+function hashString(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; }
+  return h;
+}
+
+function buildPatternCard(group, idx) {
+  const card = document.createElement('div');
+  card.className = 'pattern-card';
+  card.dataset.idx = idx;
+
+  const id = patternIdFor(group);
+  const confirmed = library.find(p => p.id === id);
+  if (confirmed) card.classList.add('confirmed');
+
+  const rate = Math.round((group.match_rate || 0) * 100);
+
+  if (group.too_complex) {
+    card.classList.add('too-complex');
+    card.innerHTML = `
+      <div class="pc-head">
+        <span class="pc-label">${escHtml(group.human_label)}</span>
+        <span class="pill">${group.count} statement${group.count !== 1 ? 's' : ''}</span>
+        <span class="pill decide">too idiosyncratic to express as a pattern</span>
+      </div>
+      <div class="pc-body">
+        <p class="small dim">These statements are ${group.token_count} parts long, which
+          is past the point where a single expression can describe them usefully.
+          They will be converted by the standard parser.</p>
+        ${buildExamplesHtml(group.examples)}
+      </div>`;
+    return card;
+  }
+
+  // Roles already confirmed win over the freshly inferred ones: a cataloguer's
+  // decision must survive re-running detection.
+  const roles = confirmed ? confirmed.roles : group.suggested_roles;
+
+  card.innerHTML = `
+    <div class="pc-head">
+      <span class="pc-label">${escHtml(group.human_label)}</span>
+      <span class="pill">${group.count} statement${group.count !== 1 ? 's' : ''}</span>
+      <span class="pill ${rate === 100 ? 'has-866' : 'decide'}">${rate}% matched</span>
+      <span class="pill confirmed-pill" ${confirmed ? '' : 'hidden'}>Confirmed</span>
+      <span class="pill decide role-warning" ${roles.some(r => r.level === UNRESOLVED_LEVEL) ? '' : 'hidden'}>
+        needs a decision</span>
+      <button type="button" class="btn btn-secondary btn-sm pc-toggle">Review</button>
+    </div>
+    <div class="pc-body" hidden>
+      <div>
+        <div class="section-label">What each value means</div>
+        <p class="small dim">
+          The tool reads a statement's structure, not its meaning. Check each row
+          against the values it caught, and correct anything wrong before confirming.
+        </p>
+        <div class="role-scroll">
+          <table class="role-table">
+            <thead>
+              <tr><th>Captured</th><th>Values found</th><th>Boundary</th><th>Means</th></tr>
+            </thead>
+            <tbody class="role-rows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">What it would produce</div>
+        <div class="pattern-preview"><span class="dim small">Checking…</span></div>
+      </div>
+
+      <details>
+        <summary class="small">Expression and example statements</summary>
+        <div class="mt-2">
+          <label for="rx-${idx}" class="small">Expression (editable)</label>
+          <textarea class="regex-box" id="rx-${idx}">${escHtml(group.regex)}</textarea>
+          <div class="btn-row">
+            <button type="button" class="btn btn-secondary btn-sm pc-test">Test expression</button>
+          </div>
+          <div class="test-result mt-1"></div>
+          ${buildExamplesHtml(group.examples)}
+        </div>
+      </details>
+
+      <div class="btn-row">
+        <button type="button" class="btn btn-primary pc-confirm">
+          ${confirmed ? 'Update confirmation' : 'Confirm pattern'}</button>
+        <button type="button" class="btn btn-danger btn-sm pc-remove" ${confirmed ? '' : 'hidden'}>
+          Remove from library</button>
+        <button type="button" class="btn btn-ghost btn-sm pc-reset">Reset to suggested</button>
+      </div>
+      <div class="pc-status"></div>
+    </div>`;
+
+  card._group = group;
+  card._id = id;
+  renderRoleRows(card, roles, group.sample_values || {});
+  wireCard(card);
+  return card;
+}
+
+function buildExamplesHtml(examples) {
+  const shown = (examples || []).slice(0, 12);
+  const more  = (examples || []).length - shown.length;
+  return `
+    <div class="mt-2">
+      <div class="section-label">Example statements</div>
+      ${shown.map(s => `<div class="role-sample">${escHtml(s)}</div>`).join('')}
+      ${more > 0 ? `<div class="small dim mt-05">+ ${more} more</div>` : ''}
+    </div>`;
+}
+
+/**
+ * Draw one row per captured value.
+ *
+ * The samples column is what makes the screen worth having: seeing "1990" and
+ * "1994" under two rows the tool both called an end year is how a cataloguer
+ * notices that the first is really the start.
+ */
+function renderRoleRows(card, roles, samples) {
+  const body = card.querySelector('.role-rows');
+  body.innerHTML = roles.map(role => {
+    const undecided = role.level === UNRESOLVED_LEVEL;
+    const values = (samples[role.group] || []).slice(0, 4).join('  ·  ');
+    const levelOptions = Object.entries(LEVEL_LABELS).map(([lvl, label]) =>
+      `<option value="${lvl}" ${role.level === lvl ? 'selected' : ''}>${escHtml(label)}</option>`
+    ).join('');
+    return `
+      <tr class="${undecided ? 'needs-decision' : ''}" data-group="${escHtml(role.group)}">
+        <td class="role-group">${escHtml(role.group)}</td>
+        <td class="role-sample">${escHtml(values || '—')}</td>
+        <td>
+          <select class="role-boundary" aria-label="Boundary for ${escHtml(role.group)}">
+            <option value="start" ${role.boundary === 'start' ? 'selected' : ''}>Start</option>
+            <option value="end"   ${role.boundary === 'end'   ? 'selected' : ''}>End</option>
+          </select>
+        </td>
+        <td>
+          <select class="role-level" aria-label="Meaning of ${escHtml(role.group)}">
+            <option value="" ${undecided ? 'selected' : ''} disabled>— choose —</option>
+            ${levelOptions}
+            <option value="${IGNORE_LEVEL}" ${role.level === IGNORE_LEVEL ? 'selected' : ''}>
+              ${escHtml(IGNORE_LABEL)}</option>
+          </select>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+/** Read the role table back out. */
+function collectRoles(card) {
+  return Array.from(card.querySelectorAll('.role-rows tr')).map(tr => ({
+    group:    tr.dataset.group,
+    boundary: tr.querySelector('.role-boundary').value,
+    level:    tr.querySelector('.role-level').value || UNRESOLVED_LEVEL,
+  }));
+}
+
+function undecidedCount(card) {
+  return collectRoles(card).filter(r => r.level === UNRESOLVED_LEVEL).length;
+}
+
+function wireCard(card) {
+  const body   = card.querySelector('.pc-body');
+  const toggle = card.querySelector('.pc-toggle');
+
+  toggle.addEventListener('click', () => {
+    body.hidden = !body.hidden;
+    toggle.textContent = body.hidden ? 'Review' : 'Hide';
+    if (!body.hidden) refreshPreview(card);
+  });
+
+  // Re-preview whenever a role changes: the point of the screen is watching the
+  // MARC output move when you correct something, not pressing a button to find
+  // out afterwards.
+  card.querySelector('.role-rows').addEventListener('change', e => {
+    e.target.closest('tr')?.classList.remove('needs-decision');
+    updateCardWarnings(card);
+    refreshPreview(card);
+  });
+
+  card.querySelector('.pc-test').addEventListener('click', () => testPattern(card));
+  card.querySelector('.pc-confirm').addEventListener('click', () => confirmPattern(card));
+  card.querySelector('.pc-remove').addEventListener('click', () => removePattern(card));
+  card.querySelector('.pc-reset').addEventListener('click', () => {
+    renderRoleRows(card, card._group.suggested_roles, card._group.sample_values || {});
+    updateCardWarnings(card);
+    refreshPreview(card);
+  });
+}
+
+function updateCardWarnings(card) {
+  const warn = card.querySelector('.role-warning');
+  if (warn) warn.hidden = undecidedCount(card) === 0;
+}
+
+let previewTimer = null;
+function refreshPreview(card) {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => runPreview(card), 250);
+}
+
+async function runPreview(card) {
+  const target = card.querySelector('.pattern-preview');
+  const roles  = collectRoles(card);
+  const undecided = roles.filter(r => r.level === UNRESOLVED_LEVEL);
+
+  if (undecided.length) {
+    target.innerHTML = `<div class="alert alert-warn">
+      Choose what ${undecided.map(r => `<code>${escHtml(r.group)}</code>`).join(', ')}
+      ${undecided.length > 1 ? 'mean' : 'means'} before this pattern can be used.</div>`;
+    return;
+  }
+
+  target.innerHTML = '<span class="spinner"></span> Working out the fields…';
+
+  try {
+    const data = await postJson('api/pattern-preview', {
+      regex: card.querySelector('.regex-box').value,
+      roles,
+      statements: card._group.examples,
+      split: lastSplit,
+      ...conventionPayload(),
+    });
+    target.innerHTML = data.previews.map(renderPreviewPair).join('') ||
+      '<div class="alert alert-info">Nothing to preview.</div>';
+  } catch (err) {
+    showAlert(target, err.message, 'err');
+  }
+}
+
+function renderPreviewPair(pv) {
+  const side = (fields, label, cls) => {
+    if (!fields) {
+      return `<div><div class="pair-col-label">${label}</div>
+        <div class="alert alert-warn">The pattern does not match this statement.</div></div>`;
+    }
+    const lines = [
+      fields.field_853 ? fieldHtml(fields.field_853, 'f853') : '',
+      ...fields.fields_863.map(f => fieldHtml(f, 'f863')),
+    ].filter(Boolean).join('');
+    return `<div>
+      <div class="pair-col-label">${label}</div>
+      ${lines || '<div class="alert alert-warn">Nothing converted.</div>'}
+      ${(fields.warnings || []).length
+        ? `<div class="small dim mt-1">${fields.warnings.map(escHtml).join('<br>')}</div>` : ''}
+    </div>`;
+  };
+
+  return `
+    <div class="preview-pair">
+      <div style="grid-column:1/-1;">
+        <div class="preview-head">
+          <span class="preview-stmt">${escHtml(pv.statement)}</span>
+          ${pv.differs
+            ? '<span class="pill decide">differs from the standard parser</span>'
+            : '<span class="pill has-866">same as the standard parser</span>'}
+        </div>
+      </div>
+      ${side(pv.pattern, 'With this pattern', 'f863')}
+      ${side(pv.parser, 'Standard parser (used today)', 'f863')}
+    </div>`;
+}
+
+async function testPattern(card) {
+  const box = card.querySelector('.test-result');
+  box.innerHTML = '<span class="spinner"></span> Testing…';
+  try {
+    const data = await postJson('api/test-regex', {
+      regex: card.querySelector('.regex-box').value,
+      statements: card._group.examples,
+      roles: collectRoles(card),
+    });
+    const pct = Math.round(data.match_rate * 100);
+    box.innerHTML = `<div class="alert alert-${pct === 100 ? 'ok' : 'warn'}">
+      ${data.matched} of ${data.matched + data.failed} matched (${pct}%).</div>`;
+    // The edit may have added or removed capture groups, so the table is
+    // rebuilt from the roles the server worked out, keeping earlier decisions.
+    renderRoleRows(card, data.roles, data.sample_values || {});
+    updateCardWarnings(card);
+    refreshPreview(card);
+  } catch (err) {
+    showAlert(box, err.message, 'err');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// The pattern library
+// ─────────────────────────────────────────────────────────────────────────
+
+async function confirmPattern(card) {
+  const status = card.querySelector('.pc-status');
+  if (undecidedCount(card)) {
+    showAlert(status, 'Every captured value needs a meaning first.', 'warn');
+    return;
+  }
+
+  const entry = {
+    id:       card._id,
+    label:    card._group.human_label,
+    regex:    card.querySelector('.regex-box').value,
+    roles:    collectRoles(card),
+    split:    lastSplit,
+    priority: card._group.count,
+    // A compact label like ":#" says nothing on its own; the statement it came
+    // from is how a cataloguer recognises the pattern in a list of them.
+    notes:    (card._group.examples || [])[0] || '',
+  };
+
+  const next = library.filter(p => p.id !== entry.id).concat([entry]);
+  const data = await saveLibrary(next);
+  if (data.rejected && data.rejected.length) {
+    showAlert(status, data.rejected.join(' '), 'err');
+    return;
+  }
+
+  card.classList.add('confirmed');
+  card.querySelector('.confirmed-pill').hidden = false;
+  card.querySelector('.pc-remove').hidden = false;
+  card.querySelector('.pc-confirm').textContent = 'Update confirmation';
+  showAlert(status, 'Confirmed. This pattern will be used when you convert.', 'ok');
+}
+
+async function removePattern(card) {
+  await saveLibrary(library.filter(p => p.id !== card._id));
+  card.classList.remove('confirmed');
+  card.querySelector('.confirmed-pill').hidden = true;
+  card.querySelector('.pc-remove').hidden = true;
+  card.querySelector('.pc-confirm').textContent = 'Confirm pattern';
+  showAlert(card.querySelector('.pc-status'), 'Removed from the library.', 'info');
+}
+
+async function saveLibrary(patterns) {
+  const res  = await fetch('api/patterns', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ patterns }),
+  });
+  const data = await res.json();
+  library = data.patterns || [];
+  renderLibrary();
+  return data;
+}
+
+async function loadLibrary() {
+  try {
+    const res  = await fetch('api/patterns');
+    const data = await res.json();
+    library = data.patterns || [];
+    renderLibrary();
+  } catch (err) { console.error(err); }
+}
+
+function renderLibrary() {
+  const summary = document.getElementById('library-summary');
+  const list    = document.getElementById('library-list');
+
+  if (!library.length) {
+    summary.textContent = 'No patterns confirmed yet. Holdings will be converted the way they always were.';
+    list.innerHTML = '';
+    return;
+  }
+
+  summary.textContent =
+    `${library.length} pattern${library.length !== 1 ? 's' : ''} will be tried before the standard parser.`;
+  list.innerHTML = library.map(p => `
+    <div class="lib-item">
+      <span class="lib-label">${escHtml(p.label)}
+        ${p.notes ? `<span class="lib-example">${escHtml(p.notes)}</span>` : ''}</span>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="dropPattern('${escHtml(p.id)}')"
+              title="Remove this pattern" aria-label="Remove ${escHtml(p.label)}">✕</button>
+    </div>`).join('');
+}
+
+async function dropPattern(id) {
+  await saveLibrary(library.filter(p => p.id !== id));
+  // Re-render the cards so a removed pattern stops showing as confirmed.
+  if (detected.length) renderPatterns({
+    total_patterns: detected.length,
+    total_statements: detected.reduce((n, g) => n + g.count, 0),
+    groups: detected,
+  });
+}
+
+document.getElementById('btn-clear-library').addEventListener('click', async () => {
+  await saveLibrary([]);
+  showAlert(document.getElementById('library-status'), 'Library cleared.', 'info');
+  if (detected.length) dropPattern('');
+});
+
+document.getElementById('btn-import').addEventListener('click', () =>
+  document.getElementById('import-input').click());
+
+document.getElementById('import-input').addEventListener('change', async e => {
+  if (!e.target.files.length) return;
+  const status = document.getElementById('library-status');
+  const form = new FormData();
+  form.append('file', e.target.files[0]);
+  form.append('merge', '1');
+  try {
+    const res  = await fetch('api/patterns/import', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) { showAlert(status, data.error, 'err'); return; }
+    library = data.patterns || [];
+    renderLibrary();
+    showAlert(status,
+      `Loaded ${data.imported} pattern${data.imported !== 1 ? 's' : ''}.` +
+      (data.rejected.length ? ' Some were not usable: ' + data.rejected.join(' ') : ''),
+      data.rejected.length ? 'warn' : 'ok');
+  } catch (err) {
+    showAlert(status, err.message, 'err');
+  } finally {
+    e.target.value = '';
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 3 · Convert
+// ─────────────────────────────────────────────────────────────────────────
+
+async function selectRecord(idx) {
+  document.querySelectorAll('.record-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.record-item[data-index="${idx}"]`)?.classList.add('active');
+  // Looking at a record is asking to see its conversion, so show that tab.
+  document.querySelector('.tab-btn[data-tab="ws-convert"]').click();
+  await renderRecordDetail(idx);
+}
+
+async function renderRecordDetail(idx) {
+  const rec = allRecords[idx];
+  const detail = document.getElementById('record-detail');
+  const heading = `
+    <div class="card-title">
+      ${escHtml(rec.title)}
+      ${rec.issn ? `<span class="tag">ISSN ${escHtml(rec.issn)}</span>` : ''}
+      ${rec.location ? `<span class="tag">${escHtml(rec.location)}</span>` : ''}
+    </div>`;
+
+  if (!rec.fields_866.length) {
+    detail.innerHTML = `<div class="card">${heading}
+      <div class="alert alert-info">No 866 fields found in this record.</div></div>`;
+    return;
+  }
+
+  detail.innerHTML = `<div class="card">${heading}<span class="spinner"></span></div>`;
+
+  let previews;
+  try {
+    const data = await postJson('api/preview-record', {
+      record_index: idx,
+      ...conventionPayload(),
+    });
+    previews = data.previews;
+  } catch (err) {
+    detail.innerHTML = `<div class="card">${heading}
+      <div class="alert alert-err">Preview failed: ${escHtml(err.message)}</div></div>`;
+    return;
+  }
+
+  // Group by linking number, preserving first-appearance order. Statements held
+  // for review have no 853 and are collected separately.
+  const groups = new Map();
+  const review = [];
+  previews.forEach(pv => {
+    if (pv.needs_review || !pv.fields_863.length) { review.push(pv); return; }
+    if (!groups.has(pv.link)) {
+      groups.set(pv.link, { field_853: pv.field_853, existing: pv.existing, rows: [] });
+    }
+    groups.get(pv.link).rows.push(pv);
+  });
+
+  const groupsHtml = [...groups.entries()].map(([link, g]) => `
+    <div class="pattern-group">
+      <div class="pg-header">
+        <div class="pg-header-meta">
+          <span class="pg-title">Pattern $8 ${escHtml(link)}</span>
+          <span class="pill ${g.existing ? '' : 'has-866'}">${
+            g.existing ? 'already on this record' : 'generated'}</span>
+          <span class="dim small">${g.rows.length} statement${g.rows.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="field-display f853">${highlightField(escHtml(g.field_853 || ''))}</div>
+      </div>
+      ${g.rows.map(pv => `
+        <div class="pair-row">
+          <div>
+            <div class="pair-col-label">866 — source</div>
+            <div class="field-display f866">${escHtml(pv.source_866)}</div>
+            <div class="small dim mt-1">
+              read by <span class="pill ${pv.from_pattern ? 'from-pattern' : ''}">${escHtml(pv.source_label)}</span>
+            </div>
+          </div>
+          <div>
+            <div class="pair-col-label">863 — generated</div>
+            ${pv.fields_863.map(f => fieldHtml(f, 'f863')).join('')}
+          </div>
+        </div>`).join('')}
+    </div>`).join('');
+
+  const reviewHtml = review.length ? `
+    <div class="pattern-group">
+      <div class="pg-header">
+        <div class="pg-header-meta">
+          <span class="pg-title">Held for review</span>
+          <span class="pill">${review.length} statement${review.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="dim small">Not converted. Finding a pattern for these and
+          confirming it is how they get converted.</div>
+      </div>
+      ${review.map(pv => `
+        <div class="pair-row">
+          <div>
+            <div class="pair-col-label">866 — source</div>
+            <div class="field-display f866">${escHtml(pv.source_866)}</div>
+          </div>
+          <div>
+            <div class="pair-col-label">Reason</div>
+            <div class="alert alert-warn">${escHtml(pv.warnings[0] || 'Not converted.')}</div>
+          </div>
+        </div>`).join('')}
+    </div>` : '';
+
+  detail.innerHTML = `
+    <div class="card">
+      ${heading}
+      ${groupsHtml}
+      ${reviewHtml}
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="applyAllInRecord(${idx})"
+                title="Linking numbers are shared across a record, so conversion applies to every 866 here">
+          Convert record
+        </button>
+      </div>
+      <div id="record-status-${idx}" class="mt-2"></div>
+    </div>`;
+}
+
+async function applyAllInRecord(recIdx) {
+  const rec = allRecords[recIdx];
+  const status = document.getElementById(`record-status-${recIdx}`);
+  status.innerHTML = '<span class="spinner"></span> Converting…';
+
+  const settings = conventionPayload();
+  try {
+    const data = await postJson('api/convert-record', {
+      record_index: recIdx,
+      clear_existing_853_863: document.getElementById('batch-clear853863').checked,
+      conversions: rec.fields_866.filter(f => f.a).map(f => ({
+        text: f.a,
+        captions: settings.captions,
+        frequency: settings.frequency,
+        numbering_continuity: settings.numbering_continuity,
+        remove_866: document.getElementById('batch-remove866').checked,
+      })),
+      ...settings,
+    });
+    const converted = data.previews.filter(p => p.fields_863.length).length;
+    const held = data.previews.filter(p => !p.fields_863.length).length;
+    showAlert(status,
+      `Converted ${converted} statement${converted !== 1 ? 's' : ''}` +
+      (held ? `; ${held} left for review.` : '.'), held ? 'warn' : 'ok');
+    document.getElementById('btn-download').style.display = 'inline-flex';
+  } catch (err) {
+    showAlert(status, err.message, 'err');
+  }
+}
+
+document.getElementById('btn-batch-all').addEventListener('click', async () => {
+  const status = document.getElementById('batch-status');
+  status.innerHTML = '<span class="spinner"></span> Converting every record…';
+  try {
+    const data = await postJson('api/batch-convert', {
+      remove_866: document.getElementById('batch-remove866').checked,
+      clear_existing_853_863: document.getElementById('batch-clear853863').checked,
+      ...conventionPayload(),
+    });
+    const breakdown = (data.by_source || [])
+      .map(s => `${s.count} by ${escHtml(s.label)}`).join(', ');
+    status.innerHTML = `<div class="alert alert-ok">
+      ${data.records_processed} records converted${breakdown ? ' — ' + breakdown : ''}.
+      ${data.needs_review ? data.needs_review + ' statements left for review.' : ''}
+    </div>`;
+    document.getElementById('btn-download').style.display = 'inline-flex';
+  } catch (err) {
+    showAlert(status, err.message, 'err');
+  }
+});
+
+// ── Conversion settings dialog ────────────────────────────────────────────
+(function () {
+  const dlg  = document.getElementById('batch-options');
+  const open = document.getElementById('btn-open-settings');
+  const done = document.getElementById('btn-settings-done');
+  if (!dlg || !open) return;
+  open.addEventListener('click', () => dlg.showModal());
+  done && done.addEventListener('click', () => dlg.close());
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+})();
+
+// ── Accessibility controls: text size and theme ───────────────────────────
+(function () {
+  const root = document.documentElement;
+
+  const sizeBtns = Array.from(document.querySelectorAll('.ui-size-btn'));
+  function applyScale(v) {
+    root.style.setProperty('--ui-scale', v);
+    try { localStorage.setItem('mst-scale', v); } catch (e) {}
+    sizeBtns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.scale === String(v))));
+  }
+  sizeBtns.forEach(b => b.addEventListener('click', () => applyScale(b.dataset.scale)));
+  let savedScale = null;
+  try { savedScale = localStorage.getItem('mst-scale'); } catch (e) {}
+  applyScale(savedScale || '1');
+
+  const themeBtn = document.getElementById('theme-toggle');
+  function applyTheme(t) {
+    root.setAttribute('data-theme', t);
+    try { localStorage.setItem('mst-theme', t); } catch (e) {}
+    themeBtn.querySelector('.theme-label').textContent = t === 'dark' ? 'Light' : 'Dark';
+    themeBtn.setAttribute('aria-pressed', String(t === 'dark'));
+  }
+  let savedTheme = null;
+  try { savedTheme = localStorage.getItem('mst-theme'); } catch (e) {}
+  applyTheme(savedTheme ||
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+  themeBtn.addEventListener('click', () =>
+    applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+})();
+
+// ── About / changelog dialog ──────────────────────────────────────────────
+(function () {
+  const dlg  = document.getElementById('about-dialog');
+  const open = document.getElementById('btn-about');
+  const done = document.getElementById('btn-about-done');
+  if (!dlg || !open) return;
+  open.addEventListener('click', () => dlg.showModal());
+  done && done.addEventListener('click', () => dlg.close());
+  dlg.addEventListener('close', () => open.focus());
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+})();
+
+loadLibrary();
+</script>
+</body>
+</html>

@@ -1,8 +1,8 @@
 """
 Shared fixtures for the MARC Serials Toolkit test suite.
 
-The repository holds two independent Flask applications that were never meant to
-be imported into one interpreter:
+The repository holds three independent Flask applications that were never meant
+to be imported into one interpreter:
 
   * both define a module called ``app``, so a plain ``import app`` caches the
     first one in ``sys.modules`` and silently hands it to whoever asks second;
@@ -12,14 +12,19 @@ be imported into one interpreter:
     ``from holdings_parser import parse_866`` -- so its directory has to be on
     ``sys.path`` before it will import at all.
 
-Nothing here changes production code. The two ``app.py`` files are loaded from
+Nothing here changes production code. The three ``app.py`` files are loaded from
 their paths under distinct aliases; their sibling modules are reached by
-ordinary import, because no two files across the two directories share a name
-(holdings_parser, marc_converter and pattern_detector are all distinct).
+ordinary import, because no two files across the three directories share a name
+(holdings_parser, marc_converter, pattern_detector, pattern_bridge and
+pattern_library are all distinct).
+
+The workbench imports the other two apps' engine modules by bare name, exactly
+as this file does and for the same reason, so it needs no special handling here
+beyond having its own directory on the path.
 
 Do NOT write ``import app`` in a test module -- it would bind whichever app
-happened to load first. Use the ``converter_app`` / ``detector_app`` fixtures;
-tests/test_app_isolation.py guards this.
+happened to load first. Use the ``converter_app`` / ``detector_app`` /
+``workbench_app`` fixtures; tests/test_app_isolation.py guards this.
 """
 
 from __future__ import annotations
@@ -41,6 +46,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONVERTER_DIR = REPO_ROOT / "converter"
 DETECTOR_DIR = REPO_ROOT / "pattern-detector"
+WORKBENCH_DIR = REPO_ROOT / "workbench"
 DATA_DIR = REPO_ROOT / "data"
 
 EXAMPLE_MRC = DATA_DIR / "example_holdings.mrc"
@@ -49,7 +55,7 @@ MESSY_MRC = DATA_DIR / "messy_holdings.mrc"
 # Both app directories go on sys.path at collection time so test modules can say
 # `import holdings_parser` at the top of the file. Prepended rather than
 # appended so a same-named module elsewhere on the path cannot shadow ours.
-for _app_dir in (CONVERTER_DIR, DETECTOR_DIR):
+for _app_dir in (CONVERTER_DIR, DETECTOR_DIR, WORKBENCH_DIR):
     if str(_app_dir) not in sys.path:
         sys.path.insert(0, str(_app_dir))
 
@@ -110,6 +116,18 @@ def converter_app(_upload_root: Path) -> ModuleType:
 
 
 @pytest.fixture(scope="session")
+def workbench_app(_upload_root: Path) -> ModuleType:
+    """
+    The workbench's app.py, loaded under the alias `workbench_app`.
+
+    Depends on `_upload_root` for the same reason the converter does: it reads
+    MARC_UPLOAD_DIR into a module-level global at import and os.makedirs it
+    immediately, so the redirection has to happen first.
+    """
+    return _load_app_module("workbench_app", WORKBENCH_DIR / "app.py")
+
+
+@pytest.fixture(scope="session")
 def detector_app() -> ModuleType:
     """
     The pattern detector's app.py, loaded under the alias `detector_app`.
@@ -140,17 +158,42 @@ def converter_client(converter_app, tmp_path: Path, monkeypatch):
     upload_dir.mkdir()
     monkeypatch.setattr(converter_app, "UPLOAD_DIR", str(upload_dir))
 
+    # A plain client, not `with app.test_client() as client`. The context-manager
+    # form preserves each request's context until the fixture ends, and two
+    # preserved contexts from different apps pop out of order the moment a test
+    # uses both clients -- which the workbench/converter equivalence tests do.
+    # Nothing here needs the preserved context; the cookie jar, and so the Flask
+    # session, lives on the client either way.
     converter_app.app.config.update(TESTING=True, SECRET_KEY="test-secret-key")
-    with converter_app.app.test_client() as client:
-        yield client
+    return converter_app.app.test_client()
+
+
+@pytest.fixture
+def workbench_client(workbench_app, tmp_path: Path, monkeypatch):
+    """
+    A workbench test client with an upload directory of its own.
+
+    Isolated the same two ways the converter's client is, and for the same
+    reasons -- but the workbench also stores its pattern library there, so
+    without the redirect one test's confirmed patterns would convert another
+    test's holdings.
+    """
+    # Named apart from the converter's directory, not merely isolated from other
+    # tests: a test using both clients must not have them share a store, or
+    # _purge_old_uploads() would walk the other app's working set.
+    upload_dir = tmp_path / "workbench-uploads"
+    upload_dir.mkdir()
+    monkeypatch.setattr(workbench_app, "UPLOAD_DIR", str(upload_dir))
+
+    workbench_app.app.config.update(TESTING=True, SECRET_KEY="test-secret-key")
+    return workbench_app.app.test_client()      # plain: see converter_client
 
 
 @pytest.fixture
 def detector_client(detector_app):
     """A pattern-detector test client. The app holds no state to isolate."""
     detector_app.app.config.update(TESTING=True)
-    with detector_app.app.test_client() as client:
-        yield client
+    return detector_app.app.test_client()       # plain: see converter_client
 
 
 # ---------------------------------------------------------------------------
