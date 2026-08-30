@@ -237,13 +237,15 @@ def test_unrecognised_chron_unit_is_left_alone():
 # point the marker should be removed.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(reason="captionless leading volume is not recognised; "
-                          "'v.39 no 1 (Spring 1995)' parses but '39 no 1 (Spring 1995)' does not")
-def test_captionless_leading_volume_should_parse():
+def test_captionless_leading_volume_parses():
     """
     Both holdings statements on record 4 of data/example_holdings.mrc take this
-    shape, and both are lost today. Adding a "v." caption is enough to make the
-    same statement parse, so the defect is the missing caption, not the season.
+    shape. Adding a "v." caption was once enough to make the same statement
+    parse, so the defect was the missing caption, not the season.
+
+    A number sitting a level above an issue is a volume, which is what makes
+    this readable without the caption. See the two guards in _parse_unit for
+    what stops that reasoning being applied where it does not hold.
     """
     r = parse_866("39 no 1 (Spring 1995)")
     assert r.success is True
@@ -277,3 +279,37 @@ def test_cataloguer_note_should_not_cost_the_statement():
     assert r.success is True
     assert len(r.ranges) == 1
     assert r.ranges[0].start.year == "1993"
+
+
+# ---------------------------------------------------------------------------
+# A captionless number is only a volume when the statement says so
+# ---------------------------------------------------------------------------
+
+def test_a_bare_number_with_no_issue_after_it_is_not_a_volume():
+    """
+    "2016?" is an uncertain year, not volume 2016. Without an issue caption to
+    sit above, a leading number says nothing about its own level, and guessing
+    would put a year into $a on every record of this shape.
+    """
+    r = parse_866("2016?")
+    assert r.ranges[0].start.vol is None
+    assert r.ranges[0].start.year == "2016"
+
+
+def test_a_partly_readable_statement_is_left_alone_rather_than_half_converted():
+    """
+    "34 no 3, 4 (Summer, Autumn 1990)" reads as far as "34 no 3" and no further.
+    Converting that much would be worse than converting nothing: the 866 is
+    removed once anything has been written from it, so the second issue and both
+    seasons would be deleted with it.
+    """
+    r = parse_866("34 no 3, 4 (Summer, Autumn 1990)")
+    assert r.ranges == []
+    assert r.success is False
+
+
+def test_a_captioned_volume_is_unaffected_by_the_relaxed_caption():
+    """The ordinary shapes must parse exactly as they did."""
+    r = parse_866("v.39 no 1 (Spring 1995)")
+    start = r.ranges[0].start
+    assert (start.vol, start.issue, start.year, start.month) == ("39", "1", "1995", "21")

@@ -19,6 +19,7 @@ from holdings_parser import parse_866
 from pattern_detector import detect_patterns
 from pattern_bridge import (
     BOUNDARY_END,
+    GroupRole,
     BOUNDARY_START,
     LEVEL_IGNORE,
     LEVEL_ISSUE,
@@ -469,3 +470,44 @@ def test_a_library_survives_export_and_import():
 def test_a_library_from_a_future_format_is_refused_rather_than_misread():
     _, errors = plib.from_export({"schema": 99, "patterns": []})
     assert any("version" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Levels read from convention rather than from the statement
+# ---------------------------------------------------------------------------
+
+def test_a_captionless_number_above_an_issue_is_suggested_as_a_volume():
+    """
+    "39 no 1" is v.39 no.1 -- a number sitting a level above an issue is a
+    volume, and holdings_parser reads the same statement the same way. It is a
+    convention rather than something the statement states, so it arrives as a
+    default that still has to be accepted.
+    """
+    group = detect_one("39 no 1 (Spring 1995)")
+    roles = {r.group: r for r in infer_roles(group.named_groups)}
+
+    assert roles["start_num"].level == LEVEL_VOL
+    assert roles["start_num"].suggested is True
+    assert roles["start_num"].needs_a_decision is True
+    # The captioned levels are stated outright and need no confirming.
+    assert roles["start_iss"].suggested is False
+
+
+def test_a_captionless_number_with_no_issue_after_it_is_not_suggested():
+    """Nothing to sit above means nothing to infer from."""
+    for statement in ("4 (Summer, Autumn 1990)", "?: 16"):
+        roles = {r.group: r for r in infer_roles(detect_one(statement).named_groups)}
+        assert roles["start_num"].level == LEVEL_UNRESOLVED, statement
+        assert roles["start_num"].suggested is False, statement
+
+
+def test_an_ordinary_pattern_suggests_nothing():
+    """Captions state the level, so nothing about them is a guess."""
+    roles = infer_roles(detect_one("v.1(1990)-v.5(1994)").named_groups)
+    assert not any(r.suggested for r in roles)
+    assert not any(r.needs_a_decision for r in roles)
+
+
+def test_a_suggested_role_survives_the_round_trip():
+    role = GroupRole("start_num", BOUNDARY_START, LEVEL_VOL, suggested=True)
+    assert GroupRole.from_dict(role.to_dict()).suggested is True

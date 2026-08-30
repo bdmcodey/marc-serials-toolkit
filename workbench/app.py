@@ -462,7 +462,7 @@ def _annotate_group(group_dict: dict, origins: Optional[dict] = None) -> dict:
         origins.get((e or "").strip()[:MAX_STATEMENT_CHARS]) for e in shown
     ]
     group_dict["examples_shown"] = len(shown)
-    group_dict["needs_decision"] = any(r.level == LEVEL_UNRESOLVED for r in roles)
+    group_dict["needs_decision"] = any(r.needs_a_decision for r in roles)
     return group_dict
 
 
@@ -654,7 +654,7 @@ def api_test_regex():
         # Aligned with the statements sent, so the card can keep showing the
         # example it was already on after the expression is edited.
         "example_values": _example_values(regex_str, statements, roles),
-        "needs_decision": any(r.level == LEVEL_UNRESOLVED for r in roles),
+        "needs_decision": any(r.needs_a_decision for r in roles),
     })
 
 

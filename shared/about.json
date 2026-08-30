@@ -33,6 +33,18 @@
           "text": "The fields shown for a pattern now carry the linking numbers they would really be given. $8 depends on the whole record \u2014 statements published to the same pattern share one 853 and run 1.1, 1.2, and a change of pattern starts 2.1 \u2014 so the screen shows the entire record the example belongs to, with that statement marked. It previously showed every statement as 1.1 whatever it would actually receive."
         },
         {
+          "tool": "Converter",
+          "text": "Holdings that begin with a number carrying no caption of its own \u2014 \"39 no 1 (Spring 1995)\" \u2014 are now read, with that number taken as the volume. A number sitting a level above an issue is a volume, so \"39 no 1\" means the same as \"v.39 no 1\", which already worked. These statements were previously not converted at all."
+        },
+        {
+          "tool": "Converter",
+          "text": "That reading is applied only where the statement supports it. \"2016?\" is still an uncertain year rather than volume 2016, and \"34 no 3, 4 (Summer, Autumn 1990)\" is still left alone: only its first issue can be read, and converting that much would remove the 866 and take the second issue and both seasons with it."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Where a level is worked out from cataloguing convention rather than stated in the holdings, the value is marked \"likely, please confirm\" and the pattern is not confirmed for you \u2014 it waits for you to look at it, even though the answer is already filled in."
+        },
+        {
           "tool": "Pattern detector",
           "text": "A holdings statement that compresses its range \u2014 \"v.1-5(1990-1994)\", \"no.1-6(1990)\" \u2014 is now read correctly. The hyphen in \"v.1-5\" joins two volumes; it does not split the statement into a beginning and an end. Reading it as a split put every value after it on the wrong side, so both years in \"v.1-5(1990-1994)\" were labelled as the end of the range and the \"5\" was left as a number of no particular kind."
         },
