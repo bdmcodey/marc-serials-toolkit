@@ -68,6 +68,13 @@ app = Flask(__name__,
 app.secret_key = os.environ.get("SECRET_KEY", "marc-workbench-dev-key")
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # 25 MB
 
+# Flask names its session cookie "session" at path / by default, and the three
+# apps are served from one hostname -- so with the stock name the workbench and
+# the converter overwrite each other's cookie. Neither can then read what it
+# wrote, and the cataloguer is told their uploaded file has gone. The workbench
+# is the newcomer, so it is the one that yields.
+app.config["SESSION_COOKIE_NAME"] = "workbench_session"
+
 UPLOAD_DIR = os.environ.get(
     "MARC_UPLOAD_DIR", os.path.join(tempfile.gettempdir(), "marc_uploads")
 )

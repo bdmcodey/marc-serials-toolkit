@@ -323,6 +323,30 @@ def test_conversion_is_downloadable(workbench_client, example_marc_bytes):
     assert response.data.startswith(b"0")        # a MARC leader
 
 
+def test_the_workbench_cannot_clobber_the_converters_session(workbench_client,
+                                                            converter_client,
+                                                            example_marc_bytes):
+    """
+    All three apps are served from one hostname, and Flask names its session
+    cookie "session" at path / by default. With the stock name, a cataloguer who
+    uploaded in the converter and then uploaded here would overwrite the
+    converter's cookie -- and on going back would be told their file was gone,
+    because the cookie no longer verifies against the converter's secret key.
+
+    Ports do not save this either: cookies ignore them, so localhost:5000 and
+    localhost:5003 share a jar just as the deployed paths share a hostname.
+    """
+    def cookie_name(response):
+        return response.headers["Set-Cookie"].split("=", 1)[0]
+
+    here = cookie_name(upload_marc(workbench_client, example_marc_bytes))
+    there = cookie_name(upload_marc(converter_client, example_marc_bytes))
+
+    assert here != there, (
+        f"both apps set a cookie named {here!r}; one would overwrite the other"
+    )
+
+
 # ---------------------------------------------------------------------------
 # The promise: nothing is sacrificed
 # ---------------------------------------------------------------------------
