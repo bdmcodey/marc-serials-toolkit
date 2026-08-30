@@ -333,6 +333,57 @@ def test_higher_priority_patterns_are_tried_first():
     assert source == "narrow"
 
 
+def test_without_the_parser_an_unmatched_statement_is_left_alone():
+    """
+    Switched off, only confirmed patterns convert. A statement none of them
+    matches produces nothing, so its 866 survives untouched.
+    """
+    pattern = confirmed("v.1(1990)-v.5(1994)")
+    result, source = apply_patterns("1993: (1 [Feb])", [pattern], fallback=False)
+
+    assert source == "unmatched"
+    assert result.ranges == []
+    assert any("left as it is" in w for w in result.warnings)
+
+
+def test_without_the_parser_a_half_matching_statement_converts_nothing():
+    """
+    The case that decides the rule. The 866 is removed once anything is written
+    from it, so converting the first range of a two-range statement and dropping
+    the second would delete holdings outright -- worse than converting nothing.
+
+    With the parser available the second range is recovered, so this only bites
+    when it is switched off. All or nothing keeps the field intact.
+    """
+    group = detect_one("v.1(1990)-v.3(1992)")
+    pattern = confirmed("v.1(1990)-v.3(1992)", split=True)
+    statement = "v.1(1990)-v.3(1992), v.5:no.2(1994)-v.6:no.4(1995)"
+
+    with_parser = build_parse_result(
+        statement, pattern.compiled(), pattern.roles, split=True, fallback=True)
+    assert len(with_parser.ranges) == 2          # second range recovered
+
+    without = build_parse_result(
+        statement, pattern.compiled(), pattern.roles, split=True, fallback=False)
+    assert without is None                       # nothing written, 866 survives
+
+
+def test_the_parser_still_reads_unmatched_statements_by_default():
+    """The switch defaults to on, so nothing changes for anyone not using it."""
+    pattern = confirmed("v.1(1990)-v.5(1994)")
+    _, source = apply_patterns("1993: (1 [Feb])", [pattern])
+    assert source == "parser"
+
+
+def test_a_matching_statement_converts_either_way():
+    """Turning the parser off must not disturb what the patterns themselves do."""
+    pattern = confirmed("v.1(1990)-v.5(1994)")
+    on, src_on = apply_patterns("v.2(1991)-v.4(1993)", [pattern], fallback=True)
+    off, src_off = apply_patterns("v.2(1991)-v.4(1993)", [pattern], fallback=False)
+    assert src_on == src_off == pattern.id
+    assert [str(r.start) for r in on.ranges] == [str(r.start) for r in off.ranges]
+
+
 # ---------------------------------------------------------------------------
 # The library: what it refuses to store
 # ---------------------------------------------------------------------------

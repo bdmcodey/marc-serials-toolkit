@@ -75,6 +75,10 @@
         {
           "tool": "Workbench",
           "text": "Holdings matching none of your confirmed patterns are converted exactly as the Converter converts them today, including the ones it holds back for review. Confirming no patterns at all gives output identical to the Converter's, so there is nothing to lose by working here instead."
+        },
+        {
+          "tool": "Workbench",
+          "text": "That fallback can now be switched off, under Conversion settings. With it off only your own confirmed patterns convert anything, and a statement none of them matches is left exactly as it was, 866 and all. A statement only half covered by a pattern is left alone too rather than half converted \u2014 the 866 is removed once anything has been written from it, so converting one range of a two-range statement would take the other with it."
         }
       ]
     },

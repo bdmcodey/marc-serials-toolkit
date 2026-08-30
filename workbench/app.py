@@ -57,8 +57,8 @@ from pattern_detector import detect_patterns, split_multi_range
 
 import pattern_library as plib
 from pattern_bridge import (ENCODABLE_LEVELS, LEVEL_IGNORE, LEVEL_LABELS,
-                            LEVEL_UNRESOLVED, PARSER_SOURCE, apply_patterns,
-                            build_parse_result, infer_roles)
+                            LEVEL_UNRESOLVED, PARSER_SOURCE, UNMATCHED_SOURCE,
+                            apply_patterns, build_parse_result, infer_roles)
 
 # ---------------------------------------------------------------------------
 
@@ -228,6 +228,14 @@ def _remove_converted_866s(record, sources, rc) -> None:
             record.remove_field(field)
 
 
+def _parser_fallback(data: dict) -> bool:
+    """Whether an unmatched statement falls to the standard parser. Default yes."""
+    value = data.get("parser_fallback", True)
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "0", "false", "no")
+    return bool(value)
+
+
 def _convention_opts(data: dict) -> tuple:
     """Build a caption-convention spec from a request body."""
     conv = (data.get("convention") or CONVENTION_STANDARD).strip().lower()
@@ -323,14 +331,17 @@ def _load_all_records() -> Optional[list]:
 # Conversion, with the library applied
 # ---------------------------------------------------------------------------
 
-def _parse_all(texts, patterns) -> tuple[list, list]:
+def _parse_all(texts, patterns, fallback: bool = True) -> tuple[list, list]:
     """
-    Parse every statement, preferring a confirmed pattern and falling back to
-    the standard parser.  Returns (parse_results, sources) in step with `texts`.
+    Parse every statement, preferring a confirmed pattern.
+
+    `fallback` decides what becomes of a statement no pattern matches: the
+    standard parser reads it, or nothing is written and its 866 is left alone.
+    Returns (parse_results, sources) in step with `texts`.
     """
     parsed, sources = [], []
     for text in texts:
-        result, source = apply_patterns(text, patterns)
+        result, source = apply_patterns(text, patterns, fallback)
         parsed.append(result)
         sources.append(source)
     return parsed, sources
@@ -339,6 +350,7 @@ def _parse_all(texts, patterns) -> tuple[list, list]:
 def _source_labels(patterns) -> dict:
     labels = {p.id: p.label for p in patterns}
     labels[PARSER_SOURCE] = "Standard parser"
+    labels[UNMATCHED_SOURCE] = "No pattern matched — left as it is"
     return labels
 
 
@@ -726,7 +738,8 @@ def api_pattern_preview():
                     field_indexes.append(idx)
 
             patterns = [candidate] + _load_library()
-            parsed, sources = _parse_all(texts, patterns)
+            parsed, sources = _parse_all(texts, patterns,
+                                         _parser_fallback(data))
             rc = convert_record(
                 parsed,
                 existing_853s=existing_853s,
@@ -772,7 +785,8 @@ def api_pattern_preview():
 
     previews = []
     for statement in statements:
-        pattern_result = build_parse_result(statement, compiled, roles, do_split)
+        pattern_result = build_parse_result(statement, compiled, roles, do_split,
+                                            _parser_fallback(data))
         pattern_side = _fields(pattern_result) if pattern_result else None
         parser_side = _fields(parse_866(statement))
         differs = (
@@ -899,7 +913,8 @@ def api_preview_record():
 
         existing_853s = list(record.get_fields("853"))
         statements = [t for t in ((f["a"] or "") for f in record.get_fields("866")) if t]
-        parsed, sources = _parse_all(statements, patterns)
+        parsed, sources = _parse_all(statements, patterns,
+                                     _parser_fallback(data))
 
         rc = convert_record(
             parsed,
@@ -959,7 +974,7 @@ def api_convert_record():
         sources_866 = _match_866_sources(target, texts)
 
         patterns = _load_library()
-        parsed, sources = _parse_all(texts, patterns)
+        parsed, sources = _parse_all(texts, patterns, _parser_fallback(data))
 
         first = specs[0] if specs else {}
         rc = convert_record(
@@ -1003,6 +1018,7 @@ def api_batch_convert():
     conv_opts, rejections = _convention_opts(data)
     captions = data.get("captions") or None
     patterns = _load_library()
+    fallback = _parser_fallback(data)
 
     try:
         summary = []
@@ -1023,7 +1039,7 @@ def api_batch_convert():
             sources_866 = [f for f, t in zip(fields_866, texts) if t]
             statements = [t for t in texts if t]
 
-            parsed, sources = _parse_all(statements, patterns)
+            parsed, sources = _parse_all(statements, patterns, fallback)
             for src in sources:
                 by_source[src] = by_source.get(src, 0) + 1
 
