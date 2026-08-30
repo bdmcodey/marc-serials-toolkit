@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "workbench",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "workbench/app.py"
+      ],
+      "port": 5003,
+      "env": {
+        "FLASK_DEBUG": "1"
+      }
+    }
+  ]
+}
