@@ -25,8 +25,20 @@
           "text": "Before a pattern converts anything, you are shown every value it captured, the values it found in your own statements, and what each one is about to become in MARC \u2014 a start or an end, a volume, issue, part, year or month. Correct anything wrong and the 853 / 863 on screen changes as you do. Nothing is converted by a pattern until you confirm it."
         },
         {
+          "tool": "Pattern detector",
+          "text": "A holdings statement that compresses its range \u2014 \"v.1-5(1990-1994)\", \"no.1-6(1990)\" \u2014 is now read correctly. The hyphen in \"v.1-5\" joins two volumes; it does not split the statement into a beginning and an end. Reading it as a split put every value after it on the wrong side, so both years in \"v.1-5(1990-1994)\" were labelled as the end of the range and the \"5\" was left as a number of no particular kind."
+        },
+        {
+          "tool": "Pattern detector",
+          "text": "The parts of a generated expression are now named for what they hold \u2014 start_vol and end_vol, start_year and end_year \u2014 with each level getting at most one beginning and one end. Names such as end_year_2 no longer appear where a plain end_year was meant."
+        },
+        {
+          "tool": "Pattern detector",
+          "text": "A pattern's heading shows a compressed range as one: \"VOL-VOL(YEAR-YEAR)\" rather than \"VOL#(YEARYEAR)\", which ran the two values together and gave no hint that a range was involved."
+        },
+        {
           "tool": "Workbench",
-          "text": "In \"v.1-5(1990-1994)\" the tool used to read both years as the end of the range. It now reads the first year of a statement as the start and the second as the end, which is right far more often \u2014 and where it is still wrong, you can say so."
+          "text": "Because of those corrections, a statement such as \"v.1-5(1990-1994)\" now arrives with all four of its values already placed, and can be confirmed without correcting anything first. Statements where a value genuinely cannot be placed \u2014 the \"5\" in \"v.1(1990)-5(1994)\", which no caption reaches \u2014 still ask."
         },
         {
           "tool": "Workbench",

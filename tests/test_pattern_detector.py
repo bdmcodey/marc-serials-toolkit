@@ -167,6 +167,59 @@ def test_generated_regexes_compile_and_declare_their_groups():
         assert set(group.named_groups) == set(compiled.groupindex)
 
 
+def test_a_compressed_range_is_not_a_unit_separator():
+    """
+    The hyphen in "v.1-5" joins two volumes; it does not divide the statement
+    into a start unit and an end unit. Treating it as though it did put every
+    later value on the far side of a range that was not there -- both years in
+    "v.1-5(1990-1994)" came out named end_year.
+
+    holdings_parser._smart_split_range has always drawn this distinction; this
+    is the same rule in token form.
+    """
+    groups = detect_patterns(["v.1-5(1990-1994)"])[0]
+    assert groups.named_groups == ["start_vol", "end_vol", "start_year", "end_year"]
+
+
+def test_a_real_unit_separator_is_still_found():
+    """The distinction must not cost the ordinary shape its separator."""
+    assert detect_patterns(["v.1(1990)-v.5(1994)"])[0].named_groups == \
+        ["start_vol", "start_year", "end_vol", "end_year"]
+    assert detect_patterns(["1990-1994"])[0].named_groups == \
+        ["start_year", "end_year"]
+
+
+def test_each_level_gets_at_most_one_start_and_one_end():
+    """
+    Which boundary a value sits on is a property of its own level, not of the
+    statement. Every level should therefore name at most a start and an end,
+    whatever shape the statement takes.
+    """
+    for statement in ("v.1-5(1990-1994)", "v.1(1990)-v.5(1994)",
+                      "v.1:no.1-v.2:no.4(1990-1991)",
+                      "v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)"):
+        names = detect_patterns([statement])[0].named_groups
+        assert len(names) == len(set(names)), statement
+        for level in ("vol", "iss", "year", "month"):
+            at_level = [n for n in names if n.endswith(f"_{level}")]
+            assert len(at_level) <= 2, (statement, at_level)
+            assert len(at_level) == len(set(at_level)), (statement, at_level)
+
+
+def test_a_captionless_value_across_a_separator_is_still_just_a_number():
+    """
+    A caption does not reach across a unit separator: the "v." in
+    "v.1(1990)-5(1994)" says nothing about the 5, so it stays a bare number for
+    a cataloguer to place rather than being claimed as a volume.
+    """
+    assert "start_num" in detect_patterns(["v.1(1990)-5(1994)"])[0].named_groups
+
+
+def test_a_compressed_range_reads_as_one_in_its_label():
+    """The label is how a cataloguer picks a pattern out of a list of them."""
+    assert detect_patterns(["v.1-5(1990-1994)"])[0].human_label == "VOL-VOL(YEAR-YEAR)"
+
+
 def test_caption_variants_are_recorded_and_matched():
     """A group spanning "v." and "Vol." must match both, not just the first."""
     groups = detect_patterns(["v.1(1990)", "Vol. 2 (1991)"])

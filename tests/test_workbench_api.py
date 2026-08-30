@@ -130,8 +130,23 @@ def test_every_group_arrives_with_roles_and_the_values_they_would_take(
 
 
 def test_a_group_needing_a_decision_says_so(workbench_client):
-    group = group_for(workbench_client, "v.1-5(1990-1994)", split=False)
+    """
+    A captionless value the detector cannot place has to be flagged, so the card
+    shows the amber pill rather than looking ready to confirm.
+    """
+    group = group_for(workbench_client, "v.1(1990)-5(1994)", split=False)
     assert group["needs_decision"] is True
+
+
+def test_a_compressed_range_needs_no_decision_at_all(workbench_client):
+    """
+    "v.1-5(1990-1994)" used to need one: the detector named both years end_year
+    and left the 5 as a captionless number. It now reads all four values, so the
+    cataloguer confirms it without having to correct anything first.
+    """
+    group = group_for(workbench_client, "v.1-5(1990-1994)", split=False)
+    assert group["needs_decision"] is False
+    assert group["named_groups"] == ["start_vol", "end_vol", "start_year", "end_year"]
 
 
 def test_preview_shows_the_pattern_beside_the_parser(workbench_client):
@@ -153,16 +168,17 @@ def test_preview_shows_the_pattern_beside_the_parser(workbench_client):
 
 def test_correcting_a_role_changes_the_marc_the_screen_shows(workbench_client):
     """
-    The cataloguer's loop, end to end over HTTP: the tool reads the '5' in
-    "v.1-5(1990-1994)" as a number of unknown level, so nothing is encoded for
-    it; saying it is the end volume puts it in the 863.
+    The cataloguer's loop, end to end over HTTP: a real separator divides
+    "v.1(1990)-5(1994)", so the "v." does not reach the 5 and nothing is encoded
+    for it; saying it is the end volume puts it in the 863.
     """
-    group = group_for(workbench_client, "v.1-5(1990-1994)", split=False)
+    statement = "v.1(1990)-5(1994)"
+    group = group_for(workbench_client, statement, split=False)
 
     def preview(roles):
         return workbench_client.post("/api/pattern-preview", json={
             "regex": group["regex"], "roles": roles,
-            "statements": ["v.1-5(1990-1994)"], "split": False, **SETTINGS,
+            "statements": [statement], "split": False, **SETTINGS,
         }).get_json()["previews"][0]
 
     before = preview(group["suggested_roles"])
@@ -170,7 +186,7 @@ def test_correcting_a_role_changes_the_marc_the_screen_shows(workbench_client):
 
     corrected = [dict(r) for r in group["suggested_roles"]]
     for role in corrected:
-        if role["group"] == "end_num":
+        if role["group"] == "start_num":
             role["boundary"], role["level"] = "end", "vol"
 
     after = preview(corrected)
