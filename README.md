@@ -10,23 +10,41 @@ conference presentation on applying AI to serials-holdings enhancement.
 
 ## The tools
 
-Each tool is self-contained and can be installed and run on its own — you do
-**not** need the others (or an API key) to use any single one.
+Each tool can be installed and run on its own. All but the Workbench are
+self-contained; the Workbench is the other two joined up, and imports their
+engines rather than copying them, so it needs the whole repository present.
 
 | Tool | Folder | What it does | Type |
 |---|---|---|---|
+| **Holdings Workbench** | [`workbench/`](workbench/) | Detect patterns, confirm what each captured value means in MARC, and convert with them — the other two tools joined up | Flask web app |
 | **Converter** | [`converter/`](converter/) | Convert an 866 statement — or a whole MARC file — into structured 853 / 863 fields | Flask web app |
 | **Pattern Detector** | [`pattern-detector/`](pattern-detector/) | Scan a collection of 866 statements, cluster them by structure, and generate a named-group regex per pattern | Flask web app |
 | **PNX Lookup** | [`pnx-lookup/`](pnx-lookup/) | Look up a record's full normalized PNX from an Ex Libris Primo catalog by MMS ID — no API key — with a table view and CSV/Excel export | Local web app (headless browser) |
 | **AI Regex Generator** | [`ai-regex/`](ai-regex/) | Use an LLM to generate a parsing regex from sample holdings (an exploratory approach) | CLI / experimental |
 
-The Converter and Pattern Detector are deterministic — no network calls, no
-API key. The AI Regex Generator calls the OpenAI API and requires your own key
-(see [`ai-regex/README.md`](ai-regex/README.md)).
+The Workbench, Converter and Pattern Detector are deterministic — no network
+calls, no API key. The AI Regex Generator calls the OpenAI API and requires your
+own key (see [`ai-regex/README.md`](ai-regex/README.md)).
+
+The Workbench does not replace the other two, and does not copy them: it imports
+their engines, so a fix to the parser or the detector reaches all three. Use the
+Converter or the Pattern Detector on its own when that is all you need; use the
+Workbench when the detector has found a pattern the converter should be using.
 
 ## Quick start
 
 Pick a tool, install just its requirements in a virtual environment, and run it.
+
+**Holdings Workbench** (opens at http://localhost:5003). Unlike the other two it
+is not self-contained: it imports the Converter's and the Pattern Detector's
+engine modules, so it needs the whole repository present. It finds them relative
+to its own file, so it can be started from any directory.
+
+```bash
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r workbench/requirements.txt
+python workbench/app.py
+```
 
 **Converter** (opens at http://localhost:5000):
 
@@ -56,11 +74,12 @@ an `OPENAI_API_KEY`.
 
 ```
 marc-serials-toolkit/
+├── workbench/          detect → confirm → convert, in one app (Flask web app)
 ├── converter/          866 → 853/863 converter (Flask web app)
 ├── pattern-detector/   866 pattern detector + regex generator (Flask web app)
 ├── pnx-lookup/         Primo PNX record lookup (local web app; needs Playwright)
 ├── ai-regex/           LLM-based regex generation (CLI/experimental)
-├── tests/              pytest suite covering both apps
+├── tests/              pytest suite covering all three apps
 ├── data/
 │   ├── example_holdings.mrc   Small SYNTHETIC sample for demos/tests
 │   └── messy_holdings.mrc     SYNTHETIC awkward cases, for the test suite
@@ -103,6 +122,25 @@ unless you point the suite at them:
 ```bash
 MARC_TEST_DATA_DIR=/path/to/mounted/share python -m pytest -m calibration
 ```
+
+## How the Workbench joins the two tools
+
+The Pattern Detector generates a regex whose capture groups are named by
+position — `start_vol`, `end_year`, `end_year_2`. What it cannot know is what
+those values *mean*: which number is a volume rather than an issue, and which
+year opens a range rather than closing it. The Workbench asks, once per pattern,
+and then converts every matching statement with the answer.
+
+That confirmation step is not ceremony. A regex built from `v.1-5(1990-1994)`
+names both years `end_year`, because the detector flips to its "end" context at
+the volume hyphen; and a bare number in `?: 16` carries nothing at all to say
+which level it belongs to, which is why the Converter refuses to guess and holds
+the statement for review. A cataloguer can answer both questions in a moment.
+
+Statements no confirmed pattern matches are parsed by
+`holdings_parser.parse_866()` exactly as the Converter parses them, so an empty
+pattern library produces output identical to the Converter's — asserted byte for
+byte in `tests/test_workbench_api.py`.
 
 ## Notes on the MARC fields
 

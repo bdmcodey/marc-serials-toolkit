@@ -1,9 +1,9 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.5.2",
-  "released": "2026-08-21",
+  "version": "0.6.0",
+  "released": "2026-08-25",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
-  "description": "Two tools for MARC serials holdings. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
+  "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
   "licensing": "No license is granted at this time; the repository is published for reference only while institutional intellectual property rights are reviewed. See NOTICE.md.",
   "attribution": "Portions derive from extract.py by Phani Chaitanya Pendyala (MIT). See THIRD-PARTY-NOTICES.md.",
   "contact": "Matthew Codey, codey@usc.edu",
@@ -11,6 +11,45 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.6.0",
+      "date": "2026-08-25",
+      "summary": "A new Holdings Workbench: find a pattern, say what it means, convert with it.",
+      "changes": [
+        {
+          "tool": "Workbench",
+          "text": "A new tool joins the other two. It finds the patterns in your holdings the way the Pattern Detector does, then converts with them the way the Converter does \u2014 with a step in between where you say what each part of a pattern means. The Converter and the Pattern Detector are unchanged and still at their own addresses; nothing you do today has to change."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Before a pattern converts anything, you are shown every value it captured, the values it found in your own statements, and what each one is about to become in MARC \u2014 a start or an end, a volume, issue, part, year or month. Correct anything wrong and the 853 / 863 on screen changes as you do. Nothing is converted by a pattern until you confirm it."
+        },
+        {
+          "tool": "Workbench",
+          "text": "In \"v.1-5(1990-1994)\" the tool used to read both years as the end of the range. It now reads the first year of a statement as the start and the second as the end, which is right far more often \u2014 and where it is still wrong, you can say so."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Holdings that were being left for review can now be converted. \"?: 16\" has a number in it but nothing to say whether it is a volume or an issue, so it was never converted and never could be. Tell the workbench which it is, once, and every statement of that shape converts."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Each converted statement says what read it \u2014 the name of one of your confirmed patterns, or \"Standard parser\". Converting a whole file reports the same breakdown, so you can see how much of it your patterns covered."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Your confirmed patterns can be saved to a file with Export and loaded again with Import, so the work of confirming a collection's patterns is done once rather than every visit."
+        },
+        {
+          "tool": "Workbench",
+          "text": "The MARC file is uploaded once and used both for finding patterns and for converting. Previously the same file had to be given to two separate tools."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Holdings matching none of your confirmed patterns are converted exactly as the Converter converts them today, including the ones it holds back for review. Confirming no patterns at all gives output identical to the Converter's, so there is nothing to lose by working here instead."
+        }
+      ]
+    },
     {
       "version": "0.5.2",
       "date": "2026-08-21",
