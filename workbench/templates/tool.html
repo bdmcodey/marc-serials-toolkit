@@ -83,13 +83,23 @@
     }
     .source-summary .icon { color: var(--ok); font-weight: 700; }
 
-    .library-head {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: var(--sp-3); flex-wrap: wrap;
+    /* Folded away by default: it is a record of work already done, and open it
+       pushed the pattern cards -- the thing actually being worked on -- down
+       the page. */
+    .library {
       margin-top: var(--sp-4);
       padding-top: var(--sp-3);
       border-top: 2px solid var(--border-soft);
     }
+    .library > summary {
+      cursor: pointer;
+      padding: var(--sp-2) 0;
+      color: var(--text);
+      min-height: var(--control-min);
+      display: flex; align-items: center;
+    }
+    .library > summary:hover { color: var(--accent); }
+    .library-body { padding-top: var(--sp-2); }
 
     /* Records: a row per record, expanding in place. Nothing can be pushed
        out of view, which is what made the old two-pane arrangement fail. */
@@ -463,9 +473,15 @@ v.6(1995)-"></textarea>
       </div>
       <div id="detect-error" class="mt-1"></div>
 
-      <div id="library-bar" hidden>
-        <div class="library-head">
-          <span id="library-summary" class="small"></span>
+      <details id="library-bar" class="library" hidden>
+        <summary class="small"><span id="library-summary"></span></summary>
+        <div class="library-body">
+          <p class="small dim">
+            Every pattern confirmed so far, kept for this visit. They are tried
+            in turn before the standard parser, so what is listed here is what
+            will read your holdings. Remove any that should not be used, or
+            export them to load again next time.
+          </p>
           <div class="btn-row" style="margin-top:0;">
             <a class="btn btn-secondary btn-sm" href="api/patterns/export"
                title="Save these patterns to a file you can load again later">Export</a>
@@ -473,11 +489,11 @@ v.6(1995)-"></textarea>
                     title="Load patterns from a file exported earlier">Import</button>
             <button type="button" class="btn btn-ghost btn-sm" id="btn-clear-library">Clear</button>
           </div>
+          <div id="library-list" class="mt-1"></div>
+          <input type="file" id="import-input" accept=".json,application/json" />
+          <div id="library-status" class="mt-1"></div>
         </div>
-        <div id="library-list" class="mt-1"></div>
-        <input type="file" id="import-input" accept=".json,application/json" />
-        <div id="library-status" class="mt-1"></div>
-      </div>
+      </details>
 
       <div id="patterns-area"></div>
     </div>
@@ -1449,8 +1465,11 @@ function renderLibrary() {
     return;
   }
 
+  const n = library.length;
   summary.textContent =
-    `${library.length} pattern${library.length !== 1 ? 's' : ''} will be tried before the standard parser.`;
+    `Pattern library — ${n} confirmed pattern${n !== 1 ? 's' : ''} in use`;
+  // Only the visibility is touched, never `open`: a cataloguer who opened it to
+  // remove something should not have it fold up under them on the next render.
   document.getElementById('library-bar').hidden = false;
   list.innerHTML = library.map(p => `
     <div class="lib-item">
