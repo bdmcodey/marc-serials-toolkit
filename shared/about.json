@@ -58,7 +58,7 @@
         },
         {
           "tool": "Workbench",
-          "text": "Your confirmed patterns can be saved to a file with Export and loaded again with Import, so the work of confirming a collection's patterns is done once rather than every visit."
+          "text": "The patterns confirmed so far are listed under \"Pattern library\", folded away to a single line so it does not sit between you and the patterns you are working on. Open it to see what will read your holdings, to remove any that should not be used, or to Export them to a file and Import them again next time \u2014 so the work of confirming a collection's patterns is done once rather than every visit."
         },
         {
           "tool": "Workbench",
