@@ -22,7 +22,15 @@
         },
         {
           "tool": "Workbench",
-          "text": "Before a pattern converts anything, you are shown every value it captured, the values it found in your own statements, and what each one is about to become in MARC \u2014 a start or an end, a volume, issue, part, year or month. Correct anything wrong and the 853 / 863 on screen changes as you do. Nothing is converted by a pattern until you confirm it."
+          "text": "A pattern whose every captured value could be read is confirmed for you as soon as the patterns are found. What is left is the shorter list that genuinely needs you: patterns holding a value the tool cannot place, marked \"needs a decision\". Removing a confirmed pattern, or clearing the library, is remembered \u2014 nothing you have taken out comes back the next time you look for patterns."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Each pattern is shown against one holdings statement at a time, reading down the screen as the original 866, then the values taken out of it, then the 853 / 863 they produce. Use \u2039 and \u203a to step through the other statements the pattern covers; the table and the fields follow. Correct anything wrong and the MARC on screen changes as you do."
+        },
+        {
+          "tool": "Workbench",
+          "text": "The fields shown for a pattern now carry the linking numbers they would really be given. $8 depends on the whole record \u2014 statements published to the same pattern share one 853 and run 1.1, 1.2, and a change of pattern starts 2.1 \u2014 so the screen shows the entire record the example belongs to, with that statement marked. It previously showed every statement as 1.1 whatever it would actually receive."
         },
         {
           "tool": "Pattern detector",

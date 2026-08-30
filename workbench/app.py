@@ -88,7 +88,16 @@ UPLOAD_TTL_SECONDS = int(os.environ.get("MARC_UPLOAD_TTL", 6 * 3600))
 MAX_STATEMENT_CHARS = 500
 MAX_STATEMENTS = 5000
 MAX_TEST_STATEMENTS = 2000
-SAMPLE_LIMIT = 8
+
+# How many of a group's examples the confirmation screen can step through.
+# Bounded because a group can hold thousands and each one costs a match.
+EXAMPLE_LIMIT = 25
+
+# The pattern being confirmed, as it appears to the preview: ahead of everything
+# already in the library, and never written to it.
+CANDIDATE_ID = "__candidate__"
+CANDIDATE_LABEL = "This pattern"
+CANDIDATE_PRIORITY = 10 ** 6
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +251,14 @@ def _convention_opts(data: dict) -> tuple:
     return {"convention_spec": spec}, rejections
 
 
+def _record_title(record) -> str:
+    """The 245 $a$b of a record, trimmed of ISBD punctuation."""
+    field = record.get("245")
+    if not field:
+        return ""
+    return " ".join(field.get_subfields("a", "b")).strip().rstrip(" /:")
+
+
 def _read_marc_file(fileobj) -> list[dict]:
     """Read a MARC file into the record summaries the record list renders."""
     records_out = []
@@ -250,10 +267,7 @@ def _read_marc_file(fileobj) -> list[dict]:
     for rec_idx, record in enumerate(reader):
         if record is None:
             continue
-        title_field = record.get("245")
-        title = ""
-        if title_field:
-            title = " ".join(title_field.get_subfields("a", "b")).strip().rstrip(" /:")
+        title = _record_title(record)
 
         issn_field = record.get("022")
         issn = issn_field["a"] if issn_field and issn_field["a"] else ""
@@ -363,39 +377,79 @@ def _previews_from(rc, rejections=(), existing_853s=(), sources=(),
 # Pattern annotation for the confirmation screen
 # ---------------------------------------------------------------------------
 
-def _sample_values(regex: str, statements, roles) -> dict:
+def _example_values(regex: str, statements, roles) -> list:
     """
-    What each capture group actually catches, across a few example statements.
+    What each capture group catches, one entry per example statement.
 
-    The confirmation screen is only meaningful if the cataloguer can see the
-    values a role is about to be assigned to -- "1990" and "1994" under two
-    groups both called end_year is the whole reason the screen exists.
+    Deliberately *not* pooled across examples.  A cataloguer checking a pattern
+    is checking one statement at a time -- this 866, these captured values, that
+    853 -- and a column mixing values from several statements cannot be lined up
+    against any of them.
     """
     try:
         compiled = re.compile(regex, re.IGNORECASE)
     except re.error:
-        return {}
+        return []
 
-    samples: dict = {r.group: [] for r in roles}
-    for statement in list(statements)[:SAMPLE_LIMIT]:
+    out = []
+    for statement in list(statements)[:EXAMPLE_LIMIT]:
         s = (statement or "").strip()[:MAX_STATEMENT_CHARS]
         m = compiled.fullmatch(s) or compiled.search(s)
-        if not m:
-            continue
-        for name, value in m.groupdict().items():
-            if name in samples and value and value not in samples[name]:
-                samples[name].append(value)
-    return samples
+        caught = m.groupdict() if m else {}
+        out.append({r.group: (caught.get(r.group) or "") for r in roles})
+    return out
 
 
-def _annotate_group(group_dict: dict) -> dict:
-    """Add suggested roles and sample values to a detected pattern group."""
+def _statement_origins(do_split: bool) -> dict:
+    """
+    Map each statement back to the 866 field it came from.
+
+    Splitting means a statement need not equal any $a -- "v.1(1990)-v.3(1992) /
+    v.5(1994)-v.8(1997)" becomes two -- so the client cannot match an example to
+    its record by comparing text, and the association has to be made here, while
+    the statements are being taken apart.
+
+    First occurrence wins: the same holdings string can appear on two records,
+    and either one previews the numbering equally well.
+    """
+    stored = _load_file("marc_file")
+    if not stored:
+        return {}
+
+    origins: dict = {}
+    for record in _read_marc_file(io.BytesIO(stored)):
+        for field_index, fld in enumerate(record["fields_866"]):
+            text = (fld["a"] or "").strip()
+            if not text:
+                continue
+            pieces = split_multi_range(text) if do_split else [text]
+            for piece in pieces:
+                key = piece.strip()[:MAX_STATEMENT_CHARS]
+                if key and key not in origins:
+                    origins[key] = {
+                        "record_index": record["index"],
+                        "field_index": field_index,
+                        "source_866": text,
+                    }
+    return origins
+
+
+def _annotate_group(group_dict: dict, origins: Optional[dict] = None) -> dict:
+    """Add the roles to offer, and per-example values and provenance."""
     named = group_dict.get("named_groups") or []
     roles = infer_roles(named)
+    examples = group_dict.get("examples") or []
+    shown = examples[:EXAMPLE_LIMIT]
+    origins = origins or {}
+
     group_dict["suggested_roles"] = [r.to_dict() for r in roles]
-    group_dict["sample_values"] = _sample_values(
-        group_dict.get("regex") or "", group_dict.get("examples") or [], roles
+    group_dict["example_values"] = _example_values(
+        group_dict.get("regex") or "", shown, roles
     )
+    group_dict["example_sources"] = [
+        origins.get((e or "").strip()[:MAX_STATEMENT_CHARS]) for e in shown
+    ]
+    group_dict["examples_shown"] = len(shown)
     group_dict["needs_decision"] = any(r.level == LEVEL_UNRESOLVED for r in roles)
     return group_dict
 
@@ -517,7 +571,12 @@ def api_detect():
     statements = statements[:MAX_STATEMENTS]
 
     try:
-        groups = [_annotate_group(g.to_dict()) for g in detect_patterns(statements)]
+        # Built from the stored file rather than from `raw`, so an example
+        # resolves to its record whether the client resent the statements or
+        # left the server to read them.
+        origins = _statement_origins(do_split)
+        groups = [_annotate_group(g.to_dict(), origins)
+                  for g in detect_patterns(statements)]
         return jsonify({
             "total_statements": len(statements),
             "total_patterns": len(groups),
@@ -580,7 +639,9 @@ def api_test_regex():
         "failed": len(results) - matched_n,
         "match_rate": matched_n / len(results) if results else 1.0,
         "roles": [r.to_dict() for r in roles],
-        "sample_values": _sample_values(regex_str, statements, roles),
+        # Aligned with the statements sent, so the card can keep showing the
+        # example it was already on after the expression is edited.
+        "example_values": _example_values(regex_str, statements, roles),
         "needs_decision": any(r.level == LEVEL_UNRESOLVED for r in roles),
     })
 
@@ -588,23 +649,27 @@ def api_test_regex():
 @app.route("/api/pattern-preview", methods=["POST"])
 def api_pattern_preview():
     """
-    Show what a pattern would produce, beside what the standard parser produces.
+    Show what a pattern would produce, with the linking numbers it would get.
 
-    This is the confirmation step.  A cataloguer approving a role assignment is
-    approving MARC output, so they are shown the MARC output -- and shown where
-    it differs from what they would have got without the pattern, since that
-    difference is the entire effect of confirming it.
+    This is the confirmation step, so it has to show the real thing.  $8 is a
+    record-level decision -- convert_record() shares one 853 across statements
+    expressing the same publication pattern and numbers them 1.1, 1.2, then 2.1
+    when the pattern changes -- so previewing a statement on its own always read
+    "1.1" and quietly misrepresented what conversion would write.
+
+    Given the record an example came from, the whole record is converted with
+    the candidate pattern in front of the confirmed library, exactly as
+    /api/preview-record converts it, and the example's own row is marked.
+
+    Statements pasted rather than uploaded have no record to sit in; those fall
+    back to previewing the statement alone, beside the standard parser.
     """
     data = request.get_json(force=True) or {}
     regex_str = data.get("regex") or ""
-    statements = [str(s)[:MAX_STATEMENT_CHARS]
-                  for s in (data.get("statements") or [])[:SAMPLE_LIMIT]]
     do_split = bool(data.get("split", True))
 
     if not regex_str:
         return jsonify({"error": "No regex provided."}), 400
-    if not statements:
-        return jsonify({"error": "No statements to preview."}), 400
     if len(regex_str) > plib.MAX_REGEX_CHARS:
         return jsonify({
             "error": f"Regex exceeds the {plib.MAX_REGEX_CHARS:,}-character limit.",
@@ -617,10 +682,81 @@ def api_pattern_preview():
 
     roles = [plib.GroupRole.from_dict(r) for r in (data.get("roles") or [])
              if isinstance(r, dict)]
+    unresolved = [r.group for r in roles if r.level == LEVEL_UNRESOLVED]
+
     conv_opts, rejections = _convention_opts(data)
     captions = data.get("captions") or None
     frequency = data.get("frequency", "")
     continuity = data.get("numbering_continuity", "r")
+
+    if unresolved:
+        # Nothing to show until every value has a meaning; the client renders
+        # the list rather than a preview.
+        return jsonify({"scope": "unresolved", "previews": [],
+                        "unresolved": unresolved, "rejections": rejections})
+
+    record_index = data.get("record_index")
+    field_index = data.get("field_index")
+
+    # ── Record scope: the numbering conversion would actually write ──────────
+    if HAS_PYMARC and isinstance(record_index, int):
+        all_records = _load_all_records()
+        if all_records and 0 <= record_index < len(all_records):
+            candidate, errors = plib.validate_pattern({
+                "id": CANDIDATE_ID,
+                "label": CANDIDATE_LABEL,
+                "regex": regex_str,
+                "roles": [r.to_dict() for r in roles],
+                "split": do_split,
+                # Ahead of everything confirmed: the cataloguer is looking at
+                # this pattern, so it must be the one that reads its own shape.
+                "priority": CANDIDATE_PRIORITY,
+            })
+            if candidate is None:
+                return jsonify({"error": "; ".join(errors)}), 400
+
+            record = all_records[record_index]
+            existing_853s = list(record.get_fields("853"))
+
+            texts, field_indexes = [], []
+            for idx, fld in enumerate(record.get_fields("866")):
+                text = fld["a"] or ""
+                if text:
+                    texts.append(text)
+                    field_indexes.append(idx)
+
+            patterns = [candidate] + _load_library()
+            parsed, sources = _parse_all(texts, patterns)
+            rc = convert_record(
+                parsed,
+                existing_853s=existing_853s,
+                captions=captions,
+                frequency=frequency,
+                numbering_continuity=continuity,
+                **conv_opts,
+            )
+            previews = _previews_from(rc, rejections, existing_853s,
+                                      sources, patterns)
+            for preview, text, idx in zip(previews, texts, field_indexes):
+                preview["source_866"] = text
+                preview["is_example"] = (idx == field_index)
+
+            return jsonify({
+                "scope": "record",
+                "record": {
+                    "index": record_index,
+                    "title": _record_title(record) or f"Record {record_index + 1}",
+                },
+                "previews": previews,
+                "unresolved": [],
+                "rejections": rejections,
+            })
+
+    # ── Statement scope: no record to sit in ────────────────────────────────
+    statements = [str(s)[:MAX_STATEMENT_CHARS]
+                  for s in (data.get("statements") or [])[:EXAMPLE_LIMIT]]
+    if not statements:
+        return jsonify({"error": "No statements to preview."}), 400
 
     def _fields(parse_result):
         conversion = convert_holdings(
@@ -653,9 +789,11 @@ def api_pattern_preview():
         })
 
     return jsonify({
+        "scope": "statement",
+        "record": None,
         "previews": previews,
+        "unresolved": [],
         "rejections": rejections,
-        "unresolved": [r.group for r in roles if r.level == LEVEL_UNRESOLVED],
     })
 
 

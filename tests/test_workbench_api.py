@@ -125,8 +125,44 @@ def test_every_group_arrives_with_roles_and_the_values_they_would_take(
     assert set(roles) == set(group["named_groups"])
     assert roles["start_vol"]["level"] == "vol"
     assert roles["start_vol"]["level_label"]          # shown to a cataloguer
-    assert group["sample_values"]["start_year"] == ["1990"]
-    assert group["sample_values"]["end_year"] == ["1994"]
+    assert group["example_values"][0]["start_year"] == "1990"
+    assert group["example_values"][0]["end_year"] == "1994"
+
+
+def test_values_are_reported_per_example_not_pooled(workbench_client):
+    """
+    A cataloguer checks one statement at a time. Pooling values across examples
+    produced a column that could not be lined up against any single 866.
+    """
+    body = detect(workbench_client, ["v.1(1990)-v.5(1994)", "v.2(1991)-v.6(1995)"])
+    group = body["groups"][0]
+    assert group["count"] == 2
+    assert [v["start_vol"] for v in group["example_values"]] == ["1", "2"]
+    assert [v["end_year"] for v in group["example_values"]] == ["1994", "1995"]
+
+
+def test_an_example_resolves_to_the_record_it_came_from(workbench_client,
+                                                        messy_marc_bytes):
+    """
+    Splitting means an example need not equal any $a: "v.1(1990)-v.3(1992) /
+    v.5(1994)-v.8(1997)" becomes two statements, neither of which the client
+    could match back to a record by comparing text. The association is made on
+    the server while the statements are being taken apart.
+    """
+    records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
+    expected = record_index_with(records, "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)")
+
+    groups = workbench_client.post("/api/detect", json={}).get_json()["groups"]
+    found = [
+        (g["examples"][i], src)
+        for g in groups
+        for i, src in enumerate(g.get("example_sources") or [])
+        if src and g["examples"][i] == "v.5(1994)-v.8(1997)"
+    ]
+    assert found, "the split sub-statement resolved to no record"
+    statement, source = found[0]
+    assert source["record_index"] == expected
+    assert source["source_866"] == "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)"
 
 
 def test_a_group_needing_a_decision_says_so(workbench_client):
@@ -181,8 +217,14 @@ def test_correcting_a_role_changes_the_marc_the_screen_shows(workbench_client):
             "statements": [statement], "split": False, **SETTINGS,
         }).get_json()["previews"][0]
 
-    before = preview(group["suggested_roles"])
-    assert "$a 1 " in before["pattern"]["fields_863"][0] + " "
+    before = workbench_client.post("/api/pattern-preview", json={
+        "regex": group["regex"], "roles": group["suggested_roles"],
+        "statements": [statement], "split": False, **SETTINGS,
+    }).get_json()
+    # Nothing is previewed while a value has no meaning: there is no honest
+    # answer to show, and showing a partial one invites confirming it.
+    assert before["scope"] == "unresolved"
+    assert before["unresolved"] == ["start_num"]
 
     corrected = [dict(r) for r in group["suggested_roles"]]
     for role in corrected:
@@ -218,6 +260,128 @@ def test_an_unreadable_expression_is_reported_not_raised(workbench_client):
         "regex": "(?P<start_vol>[", "statements": ["v.1(1990)"]})
     assert response.status_code == 400
     assert "Invalid regex" in response.get_json()["error"]
+
+
+def test_preview_numbers_a_statement_as_its_record_would(workbench_client,
+                                                         example_marc_bytes):
+    """
+    $8 is a record-level decision, so a statement previewed on its own always
+    read "1.1" whatever it would really receive. The confirmation screen exists
+    to show a cataloguer the output they are approving; showing numbering that
+    conversion will not write defeats it.
+
+    The preview must therefore agree with /api/preview-record, which is what
+    conversion actually goes through.
+    """
+    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    idx = record_index_with(records, "v.1(1990)-v.10(1999)")
+    group = group_for(workbench_client, "v.1(1990)-v.10(1999)")
+
+    body = workbench_client.post("/api/pattern-preview", json={
+        "regex": group["regex"], "roles": group["suggested_roles"],
+        "record_index": idx, "field_index": 0, "split": True, **SETTINGS,
+    }).get_json()
+
+    assert body["scope"] == "record"
+    assert body["record"]["index"] == idx
+    assert body["record"]["title"]
+
+    from_record = previews_for(workbench_client, idx)
+    assert [p["fields_863"] for p in body["previews"]] == \
+           [p["fields_863"] for p in from_record]
+
+
+def test_preview_marks_the_example_among_its_siblings(workbench_client,
+                                                      example_marc_bytes):
+    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    idx = record_index_with(records, "v.12(2001)-v.15(2004)")
+    field_index = next(i for i, f in enumerate(records[idx]["fields_866"])
+                       if f["a"] == "v.12(2001)-v.15(2004)")
+    group = group_for(workbench_client, "v.12(2001)-v.15(2004)")
+
+    body = workbench_client.post("/api/pattern-preview", json={
+        "regex": group["regex"], "roles": group["suggested_roles"],
+        "record_index": idx, "field_index": field_index, "split": True, **SETTINGS,
+    }).get_json()
+
+    marked = [p for p in body["previews"] if p["is_example"]]
+    assert len(marked) == 1
+    assert marked[0]["source_866"] == "v.12(2001)-v.15(2004)"
+
+
+def preview_links(client, statement, records, split=True):
+    """The $8 values a record's 863s get when previewing one of its patterns."""
+    idx = record_index_with(records, statement)
+    group = group_for(client, statement, split=split)
+    body = client.post("/api/pattern-preview", json={
+        "regex": group["regex"], "roles": group["suggested_roles"],
+        "record_index": idx, "field_index": 0, "split": split, **SETTINGS,
+    }).get_json()
+    return [f.split("$8")[1].split()[0]
+            for p in body["previews"] for f in p["fields_863"]]
+
+
+def test_statements_sharing_a_pattern_share_an_853(workbench_client,
+                                                   example_marc_bytes):
+    """
+    Half of the behaviour the change exists for: two statements of the same
+    publication pattern sit under one 853 and run 1.1, 1.2 -- not 1.1 twice,
+    which is what previewing each statement in isolation used to show.
+    """
+    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    assert preview_links(workbench_client, "v.1(1990)-v.10(1999)", records) == \
+        ["1.1", "1.2"]
+
+
+def test_a_different_pattern_starts_a_new_linking_number(workbench_client,
+                                                         messy_marc_bytes):
+    """
+    The other half: when the publication pattern actually changes, numbering
+    moves to 2.1 rather than continuing.
+
+    This record shows both halves at once. Its first 866 holds two slash-
+    separated ranges, which the pattern splits into 1.1 and 1.2 -- the standard
+    parser drops the second outright (see the xfail
+    test_slash_separated_ranges_should_both_survive), so a confirmed pattern
+    recovers holdings here as well as numbering them. Its second 866 is a
+    different shape, and starts 2.1.
+    """
+    records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
+    assert preview_links(
+        workbench_client, "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)", records
+    ) == ["1.1", "1.2", "2.1"]
+
+
+def test_the_candidate_pattern_outranks_the_library_but_is_never_stored(
+        workbench_client, example_marc_bytes):
+    """
+    The cataloguer is looking at this pattern, so it must be the one that reads
+    its own shape -- but previewing must not quietly add it to the library.
+    """
+    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    idx = record_index_with(records, "v.6(1995)-")
+    group = group_for(workbench_client, "v.6(1995)-")
+
+    body = workbench_client.post("/api/pattern-preview", json={
+        "regex": group["regex"], "roles": group["suggested_roles"],
+        "record_index": idx, "field_index": 0, "split": True, **SETTINGS,
+    }).get_json()
+
+    used = [p["source_label"] for p in body["previews"] if p["source_866"] == "v.6(1995)-"]
+    assert used == ["This pattern"]
+    assert workbench_client.get("/api/patterns").get_json()["count"] == 0
+
+
+def test_a_statement_with_no_record_still_previews(workbench_client):
+    """Pasted statements have no record to sit in; they fall back gracefully."""
+    group = group_for(workbench_client, "v.1(1990)-v.5(1994)")
+    body = workbench_client.post("/api/pattern-preview", json={
+        "regex": group["regex"], "roles": group["suggested_roles"],
+        "statements": ["v.1(1990)-v.5(1994)"], "split": True, **SETTINGS,
+    }).get_json()
+    assert body["scope"] == "statement"
+    assert body["previews"][0]["pattern"]["fields_863"]
+    assert body["previews"][0]["parser"]["fields_863"]
 
 
 # ---------------------------------------------------------------------------
