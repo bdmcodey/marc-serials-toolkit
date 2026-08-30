@@ -123,7 +123,7 @@ shared/               served by BOTH apps
   ui.css                design tokens, themes, components, layout
   about.json            version + plain-language changelog (single source)
 
-deploy/               systemd units + nginx config for tools.matthewcodey.com
+deploy/               systemd units + nginx config for the hosted demo
 data/                 synthetic sample only
 ai-regex/             experimental LLM regex generation, not part of the web tools
 pnx-lookup/           separate local tool, untouched this session
@@ -199,8 +199,8 @@ Turning these into a real test file is the single highest-value next task.
 
 ## Deployment
 
-Not a long-term hosted service — this is a demonstration. The existing setup on
-`tools.matthewcodey.com` is two gunicorn services behind nginx:
+Not a long-term hosted service — this is a demonstration. The existing setup
+is two gunicorn services behind nginx:
 
 ```bash
 cd ~/marc-serials-toolkit && git pull && sudo systemctl restart mcsite-converter mcsite-patterns

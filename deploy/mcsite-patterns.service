@@ -3,12 +3,12 @@ Description=MARC Serials Toolkit — Pattern Detector (gunicorn)
 After=network.target
 
 [Service]
-User=mcodey
+User=youruser
 Group=www-data
-WorkingDirectory=/home/mcodey/marc-serials-toolkit/pattern-detector
+WorkingDirectory=/home/youruser/marc-serials-toolkit/pattern-detector
 # Replace with a real random value: python3 -c "import secrets;print(secrets.token_hex(32))"
 Environment=SECRET_KEY=CHANGE_ME_RANDOM_HEX
-ExecStart=/home/mcodey/marc-serials-toolkit/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:8002 app:app
+ExecStart=/home/youruser/marc-serials-toolkit/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:8002 app:app
 Restart=always
 
 [Install]
