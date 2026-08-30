@@ -192,7 +192,10 @@ _ENUM_CHRON_RE = re.compile(
     r"""
     (?:
       # --- Enumeration block ---
-      (?P<vol_cap>v(?:ol(?:ume)?)?)\s*[.\s]*\s*
+      # The volume caption is optional so that "39 no 1" reads as v.39 no.1.
+      # _parse_unit() guards that case; on its own this alternative would also
+      # claim a bare year as a volume.
+      (?:(?P<vol_cap>v(?:ol(?:ume)?)?)\s*[.\s]*\s*)?
       (?P<vol_num>\d+[a-zA-Z]?(?:\s*-\s*\d+[a-zA-Z]?)?)
       (?:
         [\s:,]\s*
@@ -383,6 +386,23 @@ def _parse_unit(text: str) -> Optional[EnumChron]:
     m = _ENUM_CHRON_RE.match(text)
     if not m or (not m.group("vol_num") and not m.group("chron_raw")):
         return None
+
+    if m.group("vol_num") and not m.group("vol_cap"):
+        # A number with no caption of its own is only a volume when something
+        # else in the statement says so.  Two things have to hold.
+        #
+        # An issue caption must follow it: "39 no 1" is v.39 no.1, because a
+        # number sitting a level above an issue is a volume.  Without that
+        # anchor there is nothing to read the level from, and "2016?" would
+        # become volume 2016 instead of an uncertain year.
+        #
+        # And the match must account for the whole unit.  In
+        # "34 no 3, 4 (Summer, Autumn 1990)" it reaches only as far as "34 no 3",
+        # and converting that alone would be worse than converting nothing: the
+        # 866 is removed once anything is written from it, so the second issue
+        # and both seasons would go with it.
+        if not m.group("iss_cap") or m.end() != len(text):
+            return None
 
     ec = EnumChron()
 

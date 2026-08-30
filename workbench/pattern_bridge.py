@@ -105,10 +105,18 @@ class GroupRole:
     group: str                       # the named group, e.g. "end_year_2"
     boundary: str = BOUNDARY_START   # start | end
     level: str = LEVEL_UNRESOLVED    # see VALID_LEVELS
+    # True when the level was read off a cataloguing convention rather than off
+    # the statement -- a usable default to show, but not one to act on unasked.
+    suggested: bool = False
 
     @property
     def resolved(self) -> bool:
         return self.level in VALID_LEVELS
+
+    @property
+    def needs_a_decision(self) -> bool:
+        """Unresolved, or resolved only by convention and not yet confirmed."""
+        return self.level == LEVEL_UNRESOLVED or self.suggested
 
     @property
     def encodes(self) -> bool:
@@ -116,7 +124,8 @@ class GroupRole:
 
     def to_dict(self) -> dict:
         return {"group": self.group, "boundary": self.boundary,
-                "level": self.level, "level_label": LEVEL_LABELS.get(self.level, self.level)}
+                "level": self.level, "suggested": self.suggested,
+                "level_label": LEVEL_LABELS.get(self.level, self.level)}
 
     @classmethod
     def from_dict(cls, data: dict) -> "GroupRole":
@@ -124,6 +133,7 @@ class GroupRole:
             group=str(data.get("group") or ""),
             boundary=str(data.get("boundary") or BOUNDARY_START).strip().lower(),
             level=str(data.get("level") or LEVEL_UNRESOLVED).strip().lower(),
+            suggested=bool(data.get("suggested")),
         )
 
 
@@ -158,9 +168,22 @@ def infer_roles(named_groups: Sequence[str]) -> list[GroupRole]:
     """
     roles: list[GroupRole] = []
     seen: dict[str, int] = {}
+    slots = [_slot_of(n) for n in named_groups]
 
-    for name in named_groups:
-        level = _SLOT_LEVEL.get(_slot_of(name), LEVEL_UNRESOLVED)
+    for i, name in enumerate(named_groups):
+        slot = slots[i]
+        level = _SLOT_LEVEL.get(slot, LEVEL_UNRESOLVED)
+        suggested = False
+
+        # A captionless number sitting immediately above an issue is a volume:
+        # "39 no 1" is v.39 no.1. holdings_parser reads the same statement the
+        # same way. It is a convention rather than something the statement says,
+        # so it is offered as a default and still asked about -- unlike the
+        # levels above, which the captions state outright.
+        if level == LEVEL_UNRESOLVED and slot == "num" \
+                and i + 1 < len(slots) and slots[i + 1] == "iss":
+            level, suggested = LEVEL_VOL, True
+
         if level not in ENCODABLE_LEVELS:
             roles.append(GroupRole(group=name, boundary=BOUNDARY_START, level=level))
             continue
@@ -168,9 +191,9 @@ def infer_roles(named_groups: Sequence[str]) -> list[GroupRole]:
         n = seen.get(level, 0)
         seen[level] = n + 1
         if n == 0:
-            roles.append(GroupRole(name, BOUNDARY_START, level))
+            roles.append(GroupRole(name, BOUNDARY_START, level, suggested))
         elif n == 1:
-            roles.append(GroupRole(name, BOUNDARY_END, level))
+            roles.append(GroupRole(name, BOUNDARY_END, level, suggested))
         else:
             roles.append(GroupRole(name, BOUNDARY_START, LEVEL_IGNORE))
 

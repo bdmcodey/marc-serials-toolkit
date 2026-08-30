@@ -305,6 +305,11 @@
     .role-table tr.needs-decision td { background: var(--warn-soft); }
     .role-group  { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text); }
     .role-sample { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); word-break: break-word; }
+    .role-guess {
+      display: block; margin-top: var(--sp-1);
+      font-family: var(--font-sans); font-size: var(--fs-xs);
+      color: var(--warn); font-weight: 600;
+    }
     .role-table select { min-width: 8rem; }
     .role-scroll { overflow-x: auto; }
 
@@ -924,7 +929,8 @@ document.getElementById('btn-use-text').addEventListener('click', () => {
       'Type or paste some holdings statements first.', 'warn');
     return;
   }
-  showSourceSummary(`${pastedStatements().length} pasted statements`);
+  const n = pastedStatements().length;
+  showSourceSummary(`${n} pasted statement${n !== 1 ? 's' : ''}`);
   revealSteps();
   document.getElementById('step-patterns').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
@@ -975,7 +981,7 @@ async function autoConfirm(groups) {
   const ready = groups.filter(g =>
     !g.too_complex &&
     g.regex &&
-    !(g.suggested_roles || []).some(r => r.level === UNRESOLVED_LEVEL) &&
+    !(g.suggested_roles || []).some(r => r.level === UNRESOLVED_LEVEL || r.suggested) &&
     !dismissed.has(patternIdFor(g)) &&
     !library.some(p => p.id === patternIdFor(g))
   );
@@ -1070,7 +1076,8 @@ function buildPatternCard(group, idx) {
       <span class="pill">${group.count} statement${group.count !== 1 ? 's' : ''}</span>
       <span class="pill ${rate === 100 ? 'has-866' : 'decide'}">${rate}% matched</span>
       <span class="pill confirmed-pill" ${confirmed ? '' : 'hidden'}>Confirmed</span>
-      <span class="pill decide role-warning" ${roles.some(r => r.level === UNRESOLVED_LEVEL) ? '' : 'hidden'}>
+      <span class="pill decide role-warning" ${
+        roles.some(r => r.level === UNRESOLVED_LEVEL || r.suggested) ? '' : 'hidden'}>
         needs a decision</span>
       <button type="button" class="btn btn-secondary btn-sm pc-toggle">Review</button>
     </div>
@@ -1184,7 +1191,9 @@ function buildExamplesHtml(examples) {
 function renderRoleRows(card, roles, values) {
   const body = card.querySelector('.role-rows');
   body.innerHTML = roles.map(role => {
-    const undecided = role.level === UNRESOLVED_LEVEL;
+    // A suggested level is shown chosen but still counts as undecided: the
+    // cataloguer is being offered a reading, not told one.
+    const undecided = role.level === UNRESOLVED_LEVEL || role.suggested;
     const value = (values || {})[role.group] || '';
     const levelOptions = Object.entries(LEVEL_LABELS).map(([lvl, label]) =>
       `<option value="${lvl}" ${role.level === lvl ? 'selected' : ''}>${escHtml(label)}</option>`
@@ -1192,7 +1201,8 @@ function renderRoleRows(card, roles, values) {
     return `
       <tr class="${undecided ? 'needs-decision' : ''}" data-group="${escHtml(role.group)}">
         <td class="role-group">${escHtml(role.group)}</td>
-        <td class="role-sample">${escHtml(value || '—')}</td>
+        <td class="role-sample">${escHtml(value || '—')}${
+          role.suggested ? '<span class="role-guess">likely, please confirm</span>' : ''}</td>
         <td>
           <select class="role-boundary" aria-label="Boundary for ${escHtml(role.group)}">
             <option value="start" ${role.boundary === 'start' ? 'selected' : ''}>Start</option>
@@ -1201,7 +1211,7 @@ function renderRoleRows(card, roles, values) {
         </td>
         <td>
           <select class="role-level" aria-label="Meaning of ${escHtml(role.group)}">
-            <option value="" ${undecided ? 'selected' : ''} disabled>— choose —</option>
+            <option value="" ${role.level === UNRESOLVED_LEVEL ? 'selected' : ''} disabled>— choose —</option>
             ${levelOptions}
             <option value="${IGNORE_LEVEL}" ${role.level === IGNORE_LEVEL ? 'selected' : ''}>
               ${escHtml(IGNORE_LABEL)}</option>
@@ -1217,9 +1227,19 @@ function collectRoles(card) {
     group:    tr.dataset.group,
     boundary: tr.querySelector('.role-boundary').value,
     level:    tr.querySelector('.role-level').value || UNRESOLVED_LEVEL,
+    // Reading the table back is the cataloguer accepting what it shows, so a
+    // suggestion stops being one the moment it is collected.
+    suggested: false,
   }));
 }
 
+/**
+ * Rows with no level chosen at all. A *suggested* level does not count: it is
+ * already a usable answer, and pressing Confirm is how the cataloguer accepts
+ * it. Suggestions keep a pattern out of auto-confirmation, which is what makes
+ * them get looked at, but they must not block the button — re-picking the value
+ * already selected fires no change event, so there would be no way to accept.
+ */
 function undecidedCount(card) {
   return collectRoles(card).filter(r => r.level === UNRESOLVED_LEVEL).length;
 }
@@ -1266,9 +1286,17 @@ function wireCard(card) {
   });
 }
 
+/**
+ * The pill and the Confirm button answer different questions.
+ *
+ * The pill asks "has a cataloguer looked at this yet?", so a suggested level
+ * keeps it lit until the row is touched or the pattern confirmed. The button
+ * asks "is there an answer to act on?", which a suggestion already is.
+ */
 function updateCardWarnings(card) {
   const warn = card.querySelector('.role-warning');
-  if (warn) warn.hidden = undecidedCount(card) === 0;
+  if (!warn) return;
+  warn.hidden = card.querySelectorAll('.role-rows tr.needs-decision').length === 0;
 }
 
 let previewTimer = null;
