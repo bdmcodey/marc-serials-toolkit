@@ -1,4 +1,4 @@
-# Deploying the web tools to tools.matthewcodey.com
+# Deploying the web tools
 
 Hosts the **Holdings Workbench** (`/workbench`), the **Converter**
 (`/converter`) and the **Pattern Detector** (`/patterns`). The workbench imports
@@ -6,13 +6,26 @@ the other two apps' engines rather than duplicating them, so all three are
 served from one checkout and one virtualenv. The PNX Lookup and AI tools are not
 hosted (run locally).
 
+### Placeholders
+
+These files are written for whoever is deploying, not for one particular server.
+Substitute throughout before installing anything:
+
+| Placeholder | Replace with |
+|---|---|
+| `tools.example.com` | the hostname you are serving from |
+| `youruser` | the Linux account the services run as |
+| `/home/youruser/marc-serials-toolkit` | wherever you cloned the repository |
+| `CHANGE_ME_RANDOM_HEX` | a fresh secret per service (step 3) |
+
 ### 1. DNS
-In the Linode DNS manager, add an **A record**: `tools` → `173.255.215.18` (TTL 300).
+In your DNS provider, add an **A record** pointing `tools` at your server's
+IP address (TTL 300).
 
 ### 2. Clone + venv (on the server)
 ```bash
 cd ~
-git clone https://github.com/bdmcodey/marc-serials-toolkit.git   # private: use a token/deploy key
+git clone https://github.com/bdmcodey/marc-serials-toolkit.git
 cd marc-serials-toolkit
 python3 -m venv .venv
 . .venv/bin/activate
@@ -40,13 +53,13 @@ sudo systemctl status mcsite-converter mcsite-patterns mcsite-workbench --no-pag
 sudo cp deploy/nginx-tools.conf /etc/nginx/sites-available/tools
 sudo ln -sf /etc/nginx/sites-available/tools /etc/nginx/sites-enabled/tools
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d tools.matthewcodey.com     # choose Redirect
+sudo certbot --nginx -d tools.example.com          # choose Redirect
 ```
 
 ### 5. Verify
-- https://tools.matthewcodey.com/workbench
-- https://tools.matthewcodey.com/converter
-- https://tools.matthewcodey.com/patterns
+- https://tools.example.com/workbench
+- https://tools.example.com/converter
+- https://tools.example.com/patterns
 
 `/` redirects to `/workbench/`.
 
