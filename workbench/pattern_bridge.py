@@ -255,6 +255,7 @@ def build_parse_result(
     compiled: "re.Pattern",
     roles: Sequence[GroupRole],
     split: bool = True,
+    fallback: bool = True,
 ) -> Optional[ParseResult]:
     """
     Parse `text` with a confirmed pattern, or return None if it does not apply.
@@ -263,11 +264,16 @@ def build_parse_result(
     produces two HoldingsRanges under one ParseResult -- the same shape the
     parser produces, which is what lets the converter take it unchanged.
 
-    A segment the pattern does not match is handed to parse_866() rather than
-    dropped: a pattern that covers most of a statement must not cost the rest of
-    it.  None is returned only when *no* segment matched, so the caller can fall
-    back to the parser for the whole statement -- the block grammar and the
-    degenerate forms are reached that way and must stay reachable.
+    With `fallback`, a segment the pattern does not match is handed to
+    parse_866() rather than dropped: a pattern that covers most of a statement
+    must not cost the rest of it.  None is returned only when *no* segment
+    matched, so the caller can fall back to the parser for the whole statement.
+
+    Without it, a statement converts only when *every* segment matches. Half a
+    statement is the one outcome worse than none: the 866 is removed once
+    anything is written from it, so converting the first range of
+    "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)" and silently discarding the
+    second would delete holdings. All or nothing keeps the field intact.
     """
     text = (text or "").strip()
     if not text:
@@ -281,10 +287,13 @@ def build_parse_result(
         seg = seg.strip()
         m = compiled.fullmatch(seg) or compiled.search(seg)
         if m is None:
-            fallback = parse_866(seg)
-            if fallback.ranges:
-                result.ranges.extend(fallback.ranges)
-                result.warnings.extend(fallback.warnings)
+            if not fallback:
+                # All or nothing: see the note above about half a statement.
+                return None
+            recovered = parse_866(seg)
+            if recovered.ranges:
+                result.ranges.extend(recovered.ranges)
+                result.warnings.extend(recovered.warnings)
                 result.warnings.append(
                     f"'{seg}' did not match the pattern; it was read by the "
                     "standard parser instead."
@@ -313,8 +322,12 @@ def build_parse_result(
 
 PARSER_SOURCE = "parser"
 
+# No pattern matched and the parser was switched off: nothing was written.
+UNMATCHED_SOURCE = "unmatched"
 
-def apply_patterns(text: str, patterns: Sequence) -> tuple[ParseResult, str]:
+
+def apply_patterns(text: str, patterns: Sequence,
+                   fallback: bool = True) -> tuple[ParseResult, str]:
     """
     Convert one statement with the first confirmed pattern that matches it.
 
@@ -322,14 +335,30 @@ def apply_patterns(text: str, patterns: Sequence) -> tuple[ParseResult, str]:
     order they should be tried.  Returns the ParseResult and the id of whatever
     produced it, so the screen can tell the cataloguer which pattern was used --
     or that the standard parser was.
+
+    `fallback` decides what happens to a statement no pattern matches.  With it,
+    the standard parser reads the statement, which is the converter's own
+    behaviour.  Without it nothing is written and the 866 is left exactly as it
+    was -- for a cataloguer who wants only what their own confirmed patterns
+    produce, and nothing decided on their behalf.
     """
     for pattern in patterns:
         try:
             compiled = pattern.compiled()
         except re.error:
             continue                      # validated on entry; never fatal here
-        result = build_parse_result(text, compiled, pattern.roles, pattern.split)
+        result = build_parse_result(text, compiled, pattern.roles,
+                                    pattern.split, fallback)
         if result is not None:
             return result, pattern.id
 
-    return parse_866(text), PARSER_SOURCE
+    if fallback:
+        return parse_866(text), PARSER_SOURCE
+
+    untouched = ParseResult(raw=text)
+    untouched.success = False
+    untouched.warnings.append(
+        "No confirmed pattern matched this statement, and the standard parser "
+        "was not applied. It has been left as it is."
+    )
+    return untouched, UNMATCHED_SOURCE

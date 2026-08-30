@@ -570,6 +570,17 @@ v.6(1995)-"></textarea>
       </div>
 
       <div class="check-row">
+        <input type="checkbox" id="opt-parser-fallback" checked />
+        <label for="opt-parser-fallback">
+          Use the standard parser for holdings no confirmed pattern matches
+        </label>
+      </div>
+      <div class="small dim" style="margin: calc(-1 * var(--sp-2)) 0 var(--sp-3) 2.25rem;">
+        Turned off, only your confirmed patterns convert anything. A statement
+        none of them matches is left exactly as it is, 866 and all.
+      </div>
+
+      <div class="check-row">
         <input type="checkbox" id="batch-remove866" checked />
         <label for="batch-remove866">Remove the 866 once it has been converted</label>
       </div>
@@ -757,10 +768,21 @@ function conventionPayload() {
     indicators: [document.getElementById('batch-ind1').value,
                  document.getElementById('batch-ind2').value],
     chronology: document.getElementById('batch-chronology').value,
+    parser_fallback: document.getElementById('opt-parser-fallback').checked,
     frequency: document.getElementById('batch-freq').value,
     numbering_continuity: document.getElementById('batch-continuity').value,
   };
 }
+
+document.getElementById('opt-parser-fallback').addEventListener('change', () => {
+  // Every preview on screen was computed under the old setting.
+  document.querySelectorAll('.pattern-card').forEach(card => {
+    if (!card.querySelector('.pc-body')?.hidden) refreshPreview(card);
+  });
+  document.querySelectorAll('.rec-row.open').forEach(row =>
+    renderRecordDetail(Number(row.dataset.index)));
+  revealSteps();
+});
 
 (function () {
   const sel = document.getElementById('batch-convention');
@@ -790,9 +812,11 @@ function revealSteps() {
   const summary = document.getElementById('convert-summary');
   if (allRecords.length) {
     const n = library.length;
+    const fallback = document.getElementById('opt-parser-fallback').checked;
     summary.textContent = `${allRecords.length} record${allRecords.length !== 1 ? 's' : ''} · `
-      + (n ? `${n} pattern${n !== 1 ? 's' : ''} confirmed`
-           : 'no patterns confirmed — the standard parser will read everything');
+      + (n ? `${n} pattern${n !== 1 ? 's' : ''} confirmed` : 'no patterns confirmed')
+      + (fallback ? ' · standard parser for the rest'
+                  : ' · nothing else will be converted');
   }
 }
 

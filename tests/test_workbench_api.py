@@ -527,6 +527,53 @@ def test_the_workbench_cannot_clobber_the_converters_session(workbench_client,
     )
 
 
+def test_turning_the_parser_off_leaves_unmatched_holdings_untouched(
+        workbench_client, messy_marc_bytes):
+    """
+    With the parser switched off, a record whose statements no pattern matches
+    converts to nothing and keeps every 866 it started with.
+    """
+    records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
+    idx = record_index_with(records, "1993: (1 [Feb])")
+
+    with_parser = previews_for(workbench_client, idx)
+    assert any(p["fields_863"] for p in with_parser)
+
+    body = workbench_client.post("/api/preview-record", json={
+        "record_index": idx, "parser_fallback": False, **SETTINGS}).get_json()
+    assert all(not p["fields_863"] for p in body["previews"])
+    assert all(p["source"] == "unmatched" for p in body["previews"])
+    assert body["previews"][0]["source_label"].startswith("No pattern matched")
+
+
+def test_turning_the_parser_off_keeps_the_866_on_disk(workbench_client,
+                                                      messy_marc_bytes):
+    """The point of leaving it alone: the holdings are still there afterwards."""
+    import io as _io
+    from pymarc import MARCReader
+
+    upload_marc(workbench_client, messy_marc_bytes)
+    assert workbench_client.post("/api/batch-convert", json={
+        **SETTINGS, "parser_fallback": False}).status_code == 200
+
+    data = workbench_client.get("/api/download-converted").data
+    statements = [
+        (f["a"] or "").strip()
+        for rec in MARCReader(_io.BytesIO(data)) if rec
+        for f in rec.get_fields("866")
+    ]
+    assert "1993: (1 [Feb])" in statements
+    assert "?: 16" in statements
+
+
+def test_the_parser_is_used_unless_it_is_switched_off(workbench_client,
+                                                      messy_marc_bytes):
+    """Default behaviour is unchanged, which every other test depends on."""
+    records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
+    idx = record_index_with(records, "1993: (1 [Feb])")
+    assert any(p["source"] == "parser" for p in previews_for(workbench_client, idx))
+
+
 # ---------------------------------------------------------------------------
 # The promise: nothing is sacrificed
 # ---------------------------------------------------------------------------
