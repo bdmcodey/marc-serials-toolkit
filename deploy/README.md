@@ -60,12 +60,24 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d tools.example.com          # choose Redirect
 ```
 
-### 5. Verify
+### 5. Landing page
+`/` serves a page listing the three tools. It is a single static file with no
+app behind it, but nginx runs as `www-data` and usually cannot traverse a home
+directory, so it is copied out of the checkout rather than read from it:
+
+```bash
+sudo mkdir -p /var/www/tools
+sudo cp deploy/landing/index.html /var/www/tools/
+```
+
+Re-copy it whenever `deploy/landing/index.html` changes; nothing needs
+restarting, as nginx reads it per request.
+
+### 6. Verify
+- https://tools.example.com/ — the landing page
 - https://tools.example.com/workbench
 - https://tools.example.com/converter
 - https://tools.example.com/patterns
-
-`/` redirects to `/workbench/`.
 
 ## Updating a server that is already running
 
@@ -93,6 +105,13 @@ Nothing structural has changed; new code, same three services.
 ```bash
 cd ~/marc-serials-toolkit && git pull
 sudo systemctl restart mcsite-converter mcsite-patterns mcsite-workbench
+```
+
+If the landing page changed, copy it across as well — it is not served from the
+checkout:
+
+```bash
+sudo cp ~/marc-serials-toolkit/deploy/landing/index.html /var/www/tools/
 ```
 
 Then check the version badge in the corner of any of the three tools. A release
@@ -160,6 +179,12 @@ Finally restart the other services, because a release usually changes them too:
 
 ```bash
 sudo systemctl restart mcsite-converter mcsite-patterns
+```
+
+Add it to the landing page too, so the new tool is reachable from `/`:
+
+```bash
+sudo cp ~/marc-serials-toolkit/deploy/landing/index.html /var/www/tools/
 ```
 
 Then check all three respond, as in **Verify** above, and try the new one with a

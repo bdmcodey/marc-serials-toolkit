@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MARC Serials Toolkit</title>
+<style>
+  /* Self-contained on purpose: nginx serves this file directly, with no Flask
+     app behind it, so it must not depend on anything the tools serve. The
+     palette mirrors shared/ui.css so the three tools do not feel like a
+     different site. */
+  :root {
+    --bg: #ffffff; --surface: #f3f5f8; --surface-2: #e6eaef;
+    --text: #16181d; --text-muted: #474d57;
+    --border: #6b7280; --border-soft: #c3cad3;
+    --accent: #0b6b6b; --accent-soft: #e2f2f2;
+    --warn: #7a5200; --warn-soft: #fbf0d8;
+    --focus: #0b57d0;
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1116; --surface: #181b22; --surface-2: #232833;
+      --text: #eef1f6; --text-muted: #b9c1cf;
+      --border: #79818f; --border-soft: #333a46;
+      --accent: #62d0d0; --accent-soft: #16292a;
+      --warn: #f2b93c; --warn-soft: #2a2313;
+      --focus: #8ab8ff;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.25rem 3rem;
+    background: var(--bg); color: var(--text);
+    font-family: var(--font-sans); font-size: 1.125rem; line-height: 1.6;
+  }
+  .wrap { max-width: 52rem; margin: 0 auto; }
+
+  h1 { font-size: 1.75rem; margin: 0 0 .25rem; }
+  .tagline { color: var(--text-muted); font-size: 1rem; margin: 0 0 1.5rem; }
+
+  .status {
+    border: 2px solid var(--warn); background: var(--warn-soft);
+    border-radius: 6px; padding: .75rem 1rem; margin-bottom: 2rem;
+    font-size: 1rem; color: var(--text);
+  }
+
+  .tool {
+    display: block; text-decoration: none; color: inherit;
+    border: 2px solid var(--border-soft); border-radius: 6px;
+    background: var(--surface);
+    padding: 1.25rem; margin-bottom: 1rem;
+  }
+  .tool:hover, .tool:focus-visible {
+    border-color: var(--accent); background: var(--accent-soft);
+  }
+  .tool:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .tool h2 {
+    margin: 0 0 .35rem; font-size: 1.25rem;
+    display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+  }
+  .tool p { margin: 0; color: var(--text-muted); font-size: 1rem; }
+  .badge {
+    font-size: .8125rem; font-weight: 600; letter-spacing: .01em;
+    padding: .1rem .5rem; border-radius: 6px;
+    border: 2px solid var(--accent); background: var(--accent-soft);
+    color: var(--text);
+  }
+  .path {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: .875rem; color: var(--text-muted); font-weight: 400;
+  }
+
+  footer {
+    margin-top: 2.5rem; padding-top: 1.25rem;
+    border-top: 2px solid var(--border-soft);
+    font-size: .9375rem; color: var(--text-muted);
+  }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>MARC Serials Toolkit</h1>
+  <p class="tagline">Tools for turning free-text serials holdings into structured MARC fields.</p>
+
+  <div class="status">
+    <strong>Proof of concept, under active development.</strong>
+    Check the output before loading it into the catalog.
+  </div>
+
+  <a class="tool" href="/workbench/">
+    <h2>Holdings Workbench <span class="badge">start here</span>
+      <span class="path">/workbench</span></h2>
+    <p>
+      Finds the recurring patterns in a file of 866 holdings, asks you to confirm
+      what each part of a pattern means, and converts them to 853 / 863 — showing
+      the fields each record will get before anything is written. Holdings no
+      pattern matches are converted the way the Converter has always converted them.
+    </p>
+  </a>
+
+  <a class="tool" href="/converter/">
+    <h2>Converter <span class="path">/converter</span></h2>
+    <p>
+      Turns a textual 866 holdings statement — or a whole MARC file — into
+      structured 853 caption/pattern and 863 enumeration/chronology fields.
+    </p>
+  </a>
+
+  <a class="tool" href="/patterns/">
+    <h2>Pattern Detector <span class="path">/patterns</span></h2>
+    <p>
+      Groups a collection of 866 statements by their structure and generates a
+      named-group regular expression for each pattern it finds.
+    </p>
+  </a>
+
+  <footer>
+    <p>
+      The Converter and the Pattern Detector each do one half of the job and are
+      still the right tool when that half is all you need. The Workbench is the
+      two joined up: the patterns it finds are what does the converting.
+    </p>
+    <p>
+      Matthew Codey · <a href="mailto:codey@usc.edu">codey@usc.edu</a>
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>
