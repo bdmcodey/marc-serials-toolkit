@@ -122,6 +122,32 @@
     .rec-toggle:hover { background: var(--surface-2); }
     .rec-caret { flex: none; color: var(--text-muted); }
     .rec-detail { padding: var(--sp-3); border-top: 2px solid var(--border-soft); }
+    .rec-row.reviewed { border-left: 6px solid var(--ok); }
+    .rec-row[hidden] { display: none; }
+    .rec-review {
+      display: flex; align-items: center; gap: var(--sp-2);
+      padding: 0 var(--sp-3) var(--sp-3);
+      font-size: var(--fs-xs); color: var(--text-muted);
+    }
+
+    .review-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--sp-3); flex-wrap: wrap;
+      padding-bottom: var(--sp-3);
+      border-bottom: 2px solid var(--border-soft);
+    }
+    .filter-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+    .review-meta { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .chip {
+      font: inherit; font-size: var(--fs-xs); font-weight: 600;
+      padding: var(--sp-1) var(--sp-3);
+      min-height: var(--control-min);
+      border: 2px solid var(--border); border-radius: var(--radius);
+      background: var(--bg); color: var(--text); cursor: pointer;
+    }
+    .chip:hover { background: var(--surface-2); }
+    .chip.active { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+    .chip:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .card {
       background: var(--surface);
@@ -596,7 +622,28 @@ v.6(1995)-"></textarea>
         </div>
       </details>
 
+      <div id="review-bar" class="review-bar mt-2" hidden>
+        <div class="filter-row" role="group" aria-label="Show which records">
+          <button type="button" class="chip active" data-filter="all">All</button>
+          <button type="button" class="chip" data-filter="held">Needs attention</button>
+          <button type="button" class="chip" data-filter="pattern">Read by a pattern</button>
+          <button type="button" class="chip" data-filter="parser">Read by the parser</button>
+          <button type="button" class="chip" data-filter="unreviewed">Not yet reviewed</button>
+        </div>
+        <div class="review-meta">
+          <span id="review-count" class="small dim"></span>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-expand-all">Open all</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-collapse-all">Close all</button>
+        </div>
+      </div>
+
       <div id="records-accordion" class="mt-2"></div>
+
+      <div id="review-pager" class="btn-row" hidden>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-page-prev">‹ Previous</button>
+        <span id="page-label" class="small dim" style="align-self:center;"></span>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-page-next">Next ›</button>
+      </div>
 
       <div class="btn-row">
         <button class="btn btn-primary" id="btn-batch-all">Convert all records</button>
@@ -684,6 +731,13 @@ let lastSplit   = true;  // how the last detection ran; patterns inherit it
 // Patterns the cataloguer has taken out of the library. Auto-confirmation must
 // not put them back on the next detection run -- removing one is a decision.
 let dismissed   = new Set();
+// Review state, for this visit only: which records have been previewed, which
+// the cataloguer has ticked off, and where in the file they are.
+let recordPreviews = new Map();   // record index -> the page entry for it
+let reviewed       = new Set();
+let reviewFilter   = 'all';
+let reviewOffset   = 0;
+const REVIEW_PAGE  = 50;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Utilities
@@ -784,8 +838,7 @@ document.getElementById('opt-parser-fallback').addEventListener('change', () => 
   document.querySelectorAll('.pattern-card').forEach(card => {
     if (!card.querySelector('.pc-body')?.hidden) refreshPreview(card);
   });
-  document.querySelectorAll('.rec-row.open').forEach(row =>
-    renderRecordDetail(Number(row.dataset.index)));
+  if (allRecords.length) refreshReview();
   revealSteps();
 });
 
@@ -879,6 +932,10 @@ async function uploadMarcFile(file) {
     allRecords    = data.records;
     allStatements = data.statements;
     renderRecordList(data.records);
+    recordPreviews.clear();
+    reviewed.clear();
+    reviewOffset = 0;
+    loadReviewPage();
     dropZone.innerHTML = '<span class="icon">📁</span>Drop a MARC file here, or click to browse';
     showSourceSummary(
       `${file.name} — ${data.total} records, ${data.count} holdings statements`);
@@ -896,15 +953,135 @@ function renderRecordList(records) {
       <button type="button" class="rec-toggle" onclick="selectRecord(${i})">
         <span class="rec-caret" aria-hidden="true">▸</span>
         <span class="rec-title">${escHtml(rec.title)}</span>
-        ${rec.fields_866.length
-          ? `<span class="pill has-866">866 ×${rec.fields_866.length}</span>`
-          : '<span class="pill">no 866</span>'}
-        ${rec.has_853 ? '<span class="pill">853✓</span>' : ''}
+        <span class="rec-status"></span>
         <span class="rec-meta">${escHtml(rec.issn || '–')} · ${escHtml(rec.location || 'no location')}</span>
       </button>
       <div class="rec-detail" hidden></div>
+      <label class="rec-review">
+        <input type="checkbox" class="rec-reviewed" data-index="${i}" />
+        Reviewed
+      </label>
     </div>`).join('');
+
+  box.querySelectorAll('.rec-reviewed').forEach(box_ =>
+    box_.addEventListener('change', e => {
+      const idx = Number(e.target.dataset.index);
+      e.target.checked ? reviewed.add(idx) : reviewed.delete(idx);
+      document.querySelector(`.rec-row[data-index="${idx}"]`)
+              .classList.toggle('reviewed', e.target.checked);
+      applyReviewFilter();
+    }));
 }
+
+/**
+ * Preview a page of records in one request, so the whole file can be reviewed.
+ *
+ * The page carries the previews themselves, not just counts, so opening a
+ * record costs nothing further -- and the counts are what the filters run on.
+ */
+async function loadReviewPage() {
+  const bar = document.getElementById('review-bar');
+  try {
+    const data = await postJson('api/preview-records', {
+      offset: reviewOffset, limit: REVIEW_PAGE, ...conventionPayload(),
+    });
+    data.records.forEach(entry => recordPreviews.set(entry.index, entry));
+    bar.hidden = false;
+    paintRecordStatus();
+    applyReviewFilter();
+    renderPager(data);
+  } catch (err) {
+    bar.hidden = true;
+    console.error(err);
+  }
+}
+
+/** What each row says about itself before it is opened. */
+function paintRecordStatus() {
+  document.querySelectorAll('.rec-row').forEach(row => {
+    const entry = recordPreviews.get(Number(row.dataset.index));
+    const slot = row.querySelector('.rec-status');
+    if (!entry) { slot.innerHTML = ''; return; }
+    if (!entry.has_866) {
+      slot.innerHTML = '<span class="pill">no 866</span>';
+      return;
+    }
+    const bits = [];
+    if (entry.converted) bits.push(`<span class="pill has-866">${entry.converted} converted</span>`);
+    if (entry.held) bits.push(`<span class="pill decide">${entry.held} held</span>`);
+    slot.innerHTML = bits.join(' ');
+  });
+}
+
+function recordMatchesFilter(entry, index) {
+  if (!entry) return true;
+  switch (reviewFilter) {
+    case 'held':       return entry.held > 0;
+    case 'pattern':    return entry.sources.some(sc => sc !== 'parser' && sc !== 'unmatched');
+    case 'parser':     return entry.sources.includes('parser');
+    case 'unreviewed': return !reviewed.has(index);
+    default:           return true;
+  }
+}
+
+function applyReviewFilter() {
+  let shown = 0;
+  document.querySelectorAll('.rec-row').forEach(row => {
+    const index = Number(row.dataset.index);
+    const keep = recordMatchesFilter(recordPreviews.get(index), index);
+    row.hidden = !keep;
+    if (keep) shown++;
+  });
+  const total = document.querySelectorAll('.rec-row').length;
+  const done = [...reviewed].filter(i => i < allRecords.length).length;
+  document.getElementById('review-count').textContent =
+    `${shown} of ${total} shown · ${done} of ${allRecords.length} reviewed`;
+}
+
+function renderPager(data) {
+  const pager = document.getElementById('review-pager');
+  const more = data.total > data.limit;
+  pager.hidden = !more;
+  if (!more) return;
+  const last = Math.min(data.offset + data.limit, data.total);
+  document.getElementById('page-label').textContent =
+    `records ${data.offset + 1}–${last} of ${data.total}`;
+  document.getElementById('btn-page-prev').disabled = data.offset === 0;
+  document.getElementById('btn-page-next').disabled = last >= data.total;
+}
+
+document.querySelectorAll('.filter-row .chip').forEach(chip =>
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.filter-row .chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    reviewFilter = chip.dataset.filter;
+    applyReviewFilter();
+  }));
+
+document.getElementById('btn-page-prev').addEventListener('click', () => {
+  reviewOffset = Math.max(0, reviewOffset - REVIEW_PAGE);
+  loadReviewPage();
+});
+document.getElementById('btn-page-next').addEventListener('click', () => {
+  reviewOffset += REVIEW_PAGE;
+  loadReviewPage();
+});
+
+document.getElementById('btn-expand-all').addEventListener('click', () => {
+  document.querySelectorAll('.rec-row:not([hidden])').forEach(row => {
+    if (row.querySelector('.rec-detail').hidden) selectRecord(Number(row.dataset.index));
+  });
+});
+document.getElementById('btn-collapse-all').addEventListener('click', () => {
+  document.querySelectorAll('.rec-row').forEach(row => {
+    const detail = row.querySelector('.rec-detail');
+    if (!detail.hidden) {
+      detail.hidden = true;
+      row.classList.remove('open');
+      row.querySelector('.rec-caret').textContent = '▸';
+    }
+  });
+});
 
 function pastedStatements() {
   return document.getElementById('stmt-input').value
@@ -1493,7 +1670,18 @@ async function saveLibrary(patterns) {
   const data = await res.json();
   library = data.patterns || [];
   renderLibrary();
+  // Every record's conversion depends on the library, so the review page and
+  // any open row are now out of date.
+  if (allRecords.length) refreshReview();
   return data;
+}
+
+/** Re-preview the current page and redraw whatever is open. */
+async function refreshReview() {
+  const open = [...document.querySelectorAll('.rec-row.open')].map(r => Number(r.dataset.index));
+  recordPreviews.clear();
+  await loadReviewPage();
+  for (const idx of open) await renderRecordDetail(idx);
 }
 
 async function loadLibrary() {
@@ -1616,19 +1804,24 @@ async function renderRecordDetail(idx) {
     return;
   }
 
-  detail.innerHTML = '<span class="spinner"></span>';
+  // The review page already fetched this record's preview, so opening a row
+  // usually costs nothing; a record outside the current page still asks.
+  const cached = recordPreviews.get(idx);
+  let previews = cached ? cached.previews : null;
 
-  let previews;
-  try {
-    const data = await postJson('api/preview-record', {
-      record_index: idx,
-      ...conventionPayload(),
-    });
-    previews = data.previews;
-  } catch (err) {
-    detail.innerHTML =
-      `<div class="alert alert-err">Preview failed: ${escHtml(err.message)}</div>`;
-    return;
+  if (!previews) {
+    detail.innerHTML = '<span class="spinner"></span>';
+    try {
+      const data = await postJson('api/preview-record', {
+        record_index: idx,
+        ...conventionPayload(),
+      });
+      previews = data.previews;
+    } catch (err) {
+      detail.innerHTML =
+        `<div class="alert alert-err">Preview failed: ${escHtml(err.message)}</div>`;
+      return;
+    }
   }
 
   // Group by linking number, preserving first-appearance order. Statements held

@@ -93,6 +93,11 @@ MAX_TEST_STATEMENTS = 2000
 # Bounded because a group can hold thousands and each one costs a match.
 EXAMPLE_LIMIT = 25
 
+# How many records one review page previews. Previewing a record costs well
+# under a millisecond, so the ceiling is response size, not time.
+PREVIEW_PAGE = 50
+PREVIEW_PAGE_MAX = 200
+
 # The pattern being confirmed, as it appears to the preview: ahead of everything
 # already in the library, and never written to it.
 CANDIDATE_ID = "__candidate__"
@@ -933,6 +938,93 @@ def api_preview_record():
             "success": True,
             "record_index": record_index,
             "previews": previews,
+        })
+    except Exception as exc:
+        app.logger.exception("Request failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/preview-records", methods=["POST"])
+def api_preview_records():
+    """
+    Preview a page of records in one request, for reviewing a file record by
+    record rather than pattern by pattern.
+
+    Previewing one record costs well under a millisecond; what makes reviewing a
+    whole file impractical is a round trip per record.  This returns a page of
+    them, each with the counts a reviewer filters on, so the work is "show me
+    everything still held for review" rather than "open all 400 and look".
+
+    Nothing is written: this is the read-only twin of /api/batch-convert.
+
+    POST JSON: {"offset": 0, "limit": 50, ...conversion settings}
+    """
+    if not HAS_PYMARC:
+        return jsonify({"error": "pymarc is not installed on the server."}), 500
+
+    data = request.get_json(force=True) or {}
+    all_records = _load_all_records()
+    if all_records is None:
+        return jsonify({"error": "No MARC file found. Please upload a file first."}), 400
+
+    try:
+        offset = max(0, int(data.get("offset", 0)))
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        limit = int(data.get("limit", PREVIEW_PAGE))
+    except (TypeError, ValueError):
+        limit = PREVIEW_PAGE
+    limit = max(1, min(limit, PREVIEW_PAGE_MAX))
+
+    conv_opts, rejections = _convention_opts(data)
+    captions = data.get("captions") or None
+    frequency = data.get("frequency", "")
+    continuity = data.get("numbering_continuity", "r")
+    patterns = _load_library()
+    fallback = _parser_fallback(data)
+
+    try:
+        out = []
+        for index in range(offset, min(offset + limit, len(all_records))):
+            record = all_records[index]
+            existing_853s = list(record.get_fields("853"))
+            statements = [t for t in ((f["a"] or "")
+                                      for f in record.get_fields("866")) if t]
+
+            if not statements:
+                out.append({
+                    "index": index, "title": _record_title(record) or f"Record {index + 1}",
+                    "previews": [], "converted": 0, "held": 0,
+                    "sources": [], "has_866": False,
+                })
+                continue
+
+            parsed, sources = _parse_all(statements, patterns, fallback)
+            rc = convert_record(
+                parsed, existing_853s=existing_853s, captions=captions,
+                frequency=frequency, numbering_continuity=continuity, **conv_opts,
+            )
+            previews = _previews_from(rc, rejections, existing_853s, sources, patterns)
+            for preview, text in zip(previews, statements):
+                preview["source_866"] = text
+
+            out.append({
+                "index": index,
+                "title": _record_title(record) or f"Record {index + 1}",
+                "previews": previews,
+                "converted": sum(1 for p in previews if p["fields_863"]),
+                "held": sum(1 for p in previews if not p["fields_863"]),
+                "sources": sorted({p["source"] for p in previews}),
+                "has_866": True,
+            })
+
+        return jsonify({
+            "records": out,
+            "total": len(all_records),
+            "offset": offset,
+            "limit": limit,
+            "rejections": rejections,
         })
     except Exception as exc:
         app.logger.exception("Request failed")
