@@ -66,6 +66,14 @@
         },
         {
           "tool": "Workbench",
+          "text": "The screen is one page of three numbered steps rather than a sidebar and a pair of tabs. At the start you see only Holdings; finding patterns appears once you have given it a file or pasted some statements, and converting appears once a file is loaded. Each step shows what the one before it produced, so the work reads top to bottom."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Records are listed under Convert and open where they sit, showing what that record converts to without leaving the page. The record list previously lived in the sidebar underneath everything else, where on an ordinary screen it fell below the edge of the panel \u2014 and since choosing a record was the only way into the conversion view, that view looked permanently empty."
+        },
+        {
+          "tool": "Workbench",
           "text": "Holdings matching none of your confirmed patterns are converted exactly as the Converter converts them today, including the ones it holds back for review. Confirming no patterns at all gives output identical to the Converter's, so there is nothing to lose by working here instead."
         }
       ]

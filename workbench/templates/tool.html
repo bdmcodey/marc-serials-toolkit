@@ -46,52 +46,72 @@
     .badge.ok  { border-color: var(--ok);     background: var(--ok-soft); }
     .badge.err { border-color: var(--danger); background: var(--danger-soft); }
 
-    #sidebar {
-      border-right: 2px solid var(--border-soft);
-      display: flex; flex-direction: column;
-      overflow-y: auto;
+    /* One column of steps. Wide enough for the 866-beside-863 pairs, capped so
+       the MARC strings do not run to arm's length on a big monitor. */
+    main { display: block; overflow-y: auto; padding: var(--sp-5) var(--sp-4); }
+    .step {
+      max-width: 78rem;
+      margin: 0 auto var(--sp-5);
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
       background: var(--surface);
-      min-height: 0;
     }
-    #records-list-container { flex-direction: column; }
-
-    /* The record list is the only part of the sidebar that grows freely, so the
-       source panel above and the batch buttons below stay put however many
-       records the file holds.
-
-       The sidebar itself scrolls rather than hiding its overflow: with
-       overflow:hidden a growing list of confirmed patterns pushed the Convert
-       buttons into the clipped region, where they could only be reached by
-       tabbing to them. The bounded library list below makes that unlikely; this
-       makes it impossible. */
-    @media (min-width: 60rem) {
-      #sidebar { overflow-y: auto; }
-      #source-section { flex: none; }
-      #library-section { flex: none; }
-      #records-list-container { min-height: 0; flex: 1 1 0; overflow: hidden; }
-      #records-list { overflow-y: auto; flex: 1 1 0; }
-      #batch-actions { flex: none; border-top: 2px solid var(--border-soft); }
+    .step[hidden] { display: none; }
+    .step-head {
+      display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+      padding: var(--sp-3) var(--sp-4);
+      border-bottom: 2px solid var(--border-soft);
+      background: var(--surface-2);
     }
+    .step-head h2 { font-size: var(--fs-lg); margin: 0; }
+    .step-number {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 2rem; height: 2rem; flex: none;
+      border-radius: 50%;
+      background: var(--accent); color: var(--bg);
+      font-weight: 700; font-size: var(--fs-sm);
+    }
+    .step-head .btn { margin-left: auto; }
+    .step-body { padding: var(--sp-4); }
+    .step-body > .btn-row:first-child { margin-top: 0; }
 
-    /* Confirmed patterns accumulate -- auto-confirmation can add a dozen in one
-       click -- so the list scrolls within a bound instead of pushing whatever
-       follows it off the end of the sidebar. */
-    #library-list { max-height: 14rem; overflow-y: auto; }
+    /* Step 1 collapses to a line once it has done its job. */
+    .source-summary {
+      display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-3) var(--sp-4);
+      font-size: var(--fs-sm); color: var(--text);
+    }
+    .source-summary .icon { color: var(--ok); font-weight: 700; }
 
-    .sidebar-section { padding: var(--sp-4) var(--sp-4) 0; }
-    .sidebar-section + .sidebar-section {
-      border-top: 2px solid var(--border-soft);
+    .library-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--sp-3); flex-wrap: wrap;
       margin-top: var(--sp-4);
-      padding-top: var(--sp-4);
+      padding-top: var(--sp-3);
+      border-top: 2px solid var(--border-soft);
     }
 
-    #workspace {
-      display: flex; flex-direction: column;
-      overflow-y: auto;
-      padding: var(--sp-5);
-      gap: var(--sp-4);
-      min-height: 0;
+    /* Records: a row per record, expanding in place. Nothing can be pushed
+       out of view, which is what made the old two-pane arrangement fail. */
+    .rec-row {
+      border: 2px solid var(--border-soft);
+      border-radius: var(--radius);
+      margin-bottom: var(--sp-2);
+      background: var(--bg);
+      overflow: hidden;
     }
+    .rec-row.open { border-color: var(--accent); }
+    .rec-toggle {
+      display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+      width: 100%;
+      padding: var(--sp-3);
+      min-height: var(--control-min);
+      background: none; border: none; cursor: pointer;
+      text-align: left; color: var(--text); font: inherit;
+    }
+    .rec-toggle:hover { background: var(--surface-2); }
+    .rec-caret { flex: none; color: var(--text-muted); }
+    .rec-detail { padding: var(--sp-3); border-top: 2px solid var(--border-soft); }
 
     .card {
       background: var(--surface);
@@ -156,18 +176,7 @@
     #drop-zone.loaded .icon { font-size: var(--fs-md); display: inline; margin: 0; }
     #file-input, #import-input { display: none; }
 
-    /* Record list */
-    .record-item {
-      padding: var(--sp-3);
-      border: 2px solid var(--border-soft);
-      border-radius: var(--radius);
-      margin-bottom: var(--sp-2);
-      cursor: pointer;
-      background: var(--bg);
-      min-height: var(--control-min);
-    }
-    .record-item:hover  { border-color: var(--border); background: var(--surface-2); }
-    .record-item.active { border-color: var(--accent); background: var(--accent-soft); }
+    /* Record rows */
     .rec-title { font-weight: 600; font-size: var(--fs-sm); color: var(--text); }
     .rec-meta  { font-size: var(--fs-xs); color: var(--text-muted); margin-top: var(--sp-1); }
     .pill.has-866 { border-color: var(--ok); background: var(--ok-soft); }
@@ -350,7 +359,7 @@
   </style>
 </head>
 <body>
-<a class="skip-link" href="#workspace">Skip to workspace</a>
+<a class="skip-link" href="#step-source">Skip to content</a>
 
 <!-- ── Header ──────────────────────────────────────────────────────────── -->
 <header>
@@ -382,17 +391,27 @@
 <!-- ── Main ────────────────────────────────────────────────────────────── -->
 <main>
 
-  <aside id="sidebar">
+  <!-- One column, three steps, each appearing when the one before it has given
+       it something to do. The record list used to live in a sidebar alongside
+       four other things and was pushed below the fold on an ordinary screen,
+       which made the conversion view look permanently empty: its only way in
+       was clicking a record nobody could see. -->
 
-    <!-- ── 1. Holdings ── -->
-    <div class="sidebar-section" id="source-section">
-      <div class="section-label">1 · Holdings</div>
+  <!-- ── 1 · Holdings ──────────────────────────────────────────────────── -->
+  <section class="step" id="step-source">
+    <div class="step-head">
+      <span class="step-number">1</span>
+      <h2>Holdings</h2>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-change-source"
+              hidden>Change</button>
+    </div>
+
+    <div class="step-body" id="source-body">
       <div id="drop-zone">
         <span class="icon">📁</span>
         Drop a MARC file here, or click to browse
       </div>
       <input type="file" id="file-input" accept=".mrc,.marc" />
-      <div id="file-status" class="mt-1 small dim"></div>
 
       <div class="form-group mt-2">
         <label for="stmt-input">Or paste 866 statements, one per line</label>
@@ -400,88 +419,160 @@
                   placeholder="v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)
 v.6(1995)-"></textarea>
         <div class="small dim mt-05">
-          Pasted statements can be used to work out patterns. Converting a file
+          Pasted statements are enough to work out patterns. Converting a file
           needs the file itself.
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-use-text">
+            Use these statements
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- ── 2. Pattern library ── -->
-    <div class="sidebar-section" id="library-section">
-      <div class="section-label">2 · Confirmed patterns</div>
-      <div id="library-summary" class="small dim">No patterns confirmed yet.</div>
-      <div id="library-list" class="mt-1"></div>
-      <div class="btn-row">
-        <a class="btn btn-secondary btn-sm" href="api/patterns/export"
-           title="Save these patterns to a file you can load again later">Export</a>
-        <button type="button" class="btn btn-secondary btn-sm" id="btn-import"
-                title="Load patterns from a file exported earlier">Import</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="btn-clear-library">Clear</button>
-      </div>
-      <input type="file" id="import-input" accept=".json,application/json" />
-      <div id="library-status" class="mt-1"></div>
+    <div id="source-summary" class="source-summary" hidden></div>
+  </section>
+
+  <!-- ── 2 · Patterns ──────────────────────────────────────────────────── -->
+  <section class="step" id="step-patterns" hidden>
+    <div class="step-head">
+      <span class="step-number">2</span>
+      <h2>Patterns</h2>
     </div>
 
-    <!-- ── 3. Convert ── -->
-    <div class="sidebar-section" id="batch-actions" style="display:none;">
-      <div class="section-label">3 · Convert</div>
+    <div class="step-body">
+      <p class="small dim">
+        Every group of holdings that shares a structure gets one expression.
+        Patterns whose captured values could all be read are confirmed for you;
+        the rest ask what a value means. Confirmed patterns are used when you
+        convert, and anything they do not match is converted the way it always was.
+      </p>
+
+      <div class="check-row mt-2">
+        <input type="checkbox" id="opt-split" checked />
+        <label for="opt-split">Split multi-range statements on top-level commas, semicolons or slashes</label>
+      </div>
+      <div class="check-row">
+        <input type="checkbox" id="opt-dedup" />
+        <label for="opt-dedup">Ignore duplicate statements</label>
+      </div>
       <div class="btn-row">
-        <button class="btn btn-secondary" id="btn-open-settings">Conversion settings</button>
+        <button class="btn btn-primary" id="btn-detect">
+          <span id="detect-label">⟳ Find patterns</span>
+        </button>
+      </div>
+      <div id="detect-error" class="mt-1"></div>
+
+      <div id="library-bar" hidden>
+        <div class="library-head">
+          <span id="library-summary" class="small"></span>
+          <div class="btn-row" style="margin-top:0;">
+            <a class="btn btn-secondary btn-sm" href="api/patterns/export"
+               title="Save these patterns to a file you can load again later">Export</a>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-import"
+                    title="Load patterns from a file exported earlier">Import</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-clear-library">Clear</button>
+          </div>
+        </div>
+        <div id="library-list" class="mt-1"></div>
+        <input type="file" id="import-input" accept=".json,application/json" />
+        <div id="library-status" class="mt-1"></div>
+      </div>
+
+      <div id="patterns-area"></div>
+    </div>
+  </section>
+
+  <!-- ── 3 · Convert ───────────────────────────────────────────────────── -->
+  <section class="step" id="step-convert" hidden>
+    <div class="step-head">
+      <span class="step-number">3</span>
+      <h2>Convert</h2>
+      <span id="convert-summary" class="small dim"></span>
+    </div>
+
+    <div class="step-body">
+      <details id="settings-details">
+        <summary class="small">Conversion settings</summary>
+        <div class="settings-body mt-2">
+<div class="form-row">
+        <div class="form-group">
+          <label for="batch-freq">Frequency (853 $w)</label>
+          <select id="batch-freq">
+            {% for code, label in frequency_codes.items() %}
+            <option value="{{ code }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="batch-continuity">Numbering (853 $v)</label>
+          <select id="batch-continuity">
+            <option value="">(not specified)</option>
+            <option value="r" selected>Restarts each volume</option>
+            <option value="c">Continuous</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="batch-convention">Caption convention</label>
+        <select id="batch-convention">
+          <option value="standard" selected>Standard (MARC 21)</option>
+          <option value="house">House practice</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Subfields and captions</label>
+        <div class="conv-grid mt-1" id="conv-grid-batch">
+          <div class="conv-head">Level</div>
+          <div class="conv-head">$</div>
+          <div class="conv-head">Caption</div>
+          {% for level in convention_levels %}
+          <div class="conv-level">{{ level }}</div>
+          <input type="text" class="conv-sf" id="bsf-{{ level }}" maxlength="1"
+                 aria-label="{{ level }} subfield" />
+          <input type="text" id="bcap-{{ level }}" aria-label="{{ level }} caption" />
+          {% endfor %}
+        </div>
+        <div class="form-row mt-2">
+          <div class="form-group">
+            <label>853 indicators</label>
+            <div style="display:flex; gap:var(--sp-2);">
+              <input type="text" id="batch-ind1" maxlength="1" style="width:50%;" aria-label="First indicator" />
+              <input type="text" id="batch-ind2" maxlength="1" style="width:50%;" aria-label="Second indicator" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="batch-chronology">Chronology written as</label>
+            <select id="batch-chronology">
+              <option value="code">MARC codes (03)</option>
+              <option value="text">Text (Mar)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="check-row">
+        <input type="checkbox" id="batch-remove866" checked />
+        <label for="batch-remove866">Remove the 866 once it has been converted</label>
+      </div>
+      <div class="check-row">
+        <input type="checkbox" id="batch-clear853863" />
+        <label for="batch-clear853863">Clear existing 853 / 863 first</label>
+      </div>
+        </div>
+      </details>
+
+      <div id="records-accordion" class="mt-2"></div>
+
+      <div class="btn-row">
         <button class="btn btn-primary" id="btn-batch-all">Convert all records</button>
         <a href="api/download-converted" class="btn btn-success" id="btn-download"
            style="display:none;">Download .mrc</a>
       </div>
       <div id="batch-status" class="mt-2"></div>
     </div>
-
-  </aside>
-
-  <!-- ── Workspace ─────────────────────────────────────────────────────── -->
-  <section id="workspace">
-
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="ws-patterns">Patterns</button>
-      <button class="tab-btn" data-tab="ws-convert">Convert</button>
-    </div>
-
-    <!-- ── Patterns ── -->
-    <div id="ws-patterns" class="tab-panel active">
-      <div class="card">
-        <div class="card-title">Find patterns</div>
-        <p class="small dim">
-          Every group of holdings that shares a structure gets one expression.
-          Open a group to say what each captured value means, check the 853 / 863
-          it would produce, and confirm it. Confirmed patterns are used when you
-          convert; anything they do not match is converted the way it always was.
-        </p>
-        <div class="check-row mt-2">
-          <input type="checkbox" id="opt-split" checked />
-          <label for="opt-split">Split multi-range statements on top-level commas, semicolons or slashes</label>
-        </div>
-        <div class="check-row">
-          <input type="checkbox" id="opt-dedup" />
-          <label for="opt-dedup">Ignore duplicate statements</label>
-        </div>
-        <div class="btn-row">
-          <button class="btn btn-primary" id="btn-detect">
-            <span id="detect-label">⟳ Find patterns</span>
-          </button>
-        </div>
-        <div id="detect-error" class="mt-1"></div>
-      </div>
-
-      <div id="patterns-area"></div>
-    </div>
-
-    <!-- ── Convert ── -->
-    <div id="ws-convert" class="tab-panel">
-      <div id="record-detail">
-        <div class="empty-state">
-          <p>Upload a MARC file, then choose a record to see what it converts to.</p>
-        </div>
-      </div>
-    </div>
-
   </section>
 
 </main>
@@ -536,91 +627,6 @@ v.6(1995)-"></textarea>
   </div>
 </dialog>
 {% endif %}
-
-<!-- ── Conversion settings ─────────────────────────────────────────────── -->
-<dialog id="batch-options" aria-labelledby="batch-options-title">
-  <div class="dialog-title" id="batch-options-title">Conversion settings</div>
-
-  <div class="form-row">
-    <div class="form-group">
-      <label for="batch-freq">Frequency (853 $w)</label>
-      <select id="batch-freq">
-        {% for code, label in frequency_codes.items() %}
-        <option value="{{ code }}">{{ label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="form-group">
-      <label for="batch-continuity">Numbering (853 $v)</label>
-      <select id="batch-continuity">
-        <option value="">(not specified)</option>
-        <option value="r" selected>Restarts each volume</option>
-        <option value="c">Continuous</option>
-      </select>
-    </div>
-  </div>
-
-  <div class="form-group">
-    <label for="batch-convention">Caption convention</label>
-    <select id="batch-convention">
-      <option value="standard" selected>Standard (MARC 21)</option>
-      <option value="house">House practice</option>
-    </select>
-  </div>
-
-  <div class="form-group">
-    <label>Subfields and captions</label>
-    <div class="conv-grid mt-1" id="conv-grid-batch">
-      <div class="conv-head">Level</div>
-      <div class="conv-head">$</div>
-      <div class="conv-head">Caption</div>
-      {% for level in convention_levels %}
-      <div class="conv-level">{{ level }}</div>
-      <input type="text" class="conv-sf" id="bsf-{{ level }}" maxlength="1"
-             aria-label="{{ level }} subfield" />
-      <input type="text" id="bcap-{{ level }}" aria-label="{{ level }} caption" />
-      {% endfor %}
-    </div>
-    <div class="form-row mt-2">
-      <div class="form-group">
-        <label>853 indicators</label>
-        <div style="display:flex; gap:var(--sp-2);">
-          <input type="text" id="batch-ind1" maxlength="1" style="width:50%;" aria-label="First indicator" />
-          <input type="text" id="batch-ind2" maxlength="1" style="width:50%;" aria-label="Second indicator" />
-        </div>
-      </div>
-      <div class="form-group">
-        <label for="batch-chronology">Chronology written as</label>
-        <select id="batch-chronology">
-          <option value="code">MARC codes (03)</option>
-          <option value="text">Text (Mar)</option>
-        </select>
-      </div>
-    </div>
-  </div>
-
-  <div class="check-row">
-    <input type="checkbox" id="batch-remove866" checked />
-    <label for="batch-remove866">Remove the 866 once it has been converted</label>
-  </div>
-  <div class="check-row">
-    <input type="checkbox" id="batch-clear853863" />
-    <label for="batch-clear853863">Clear existing 853 / 863 first</label>
-  </div>
-
-  <div class="dialog-actions">
-    <button type="button" class="btn btn-primary" id="btn-settings-done">Done</button>
-  </div>
-</dialog>
-
-<!-- ── Record list (injected into the sidebar once a file is loaded) ───── -->
-<div id="records-list-container" style="display:none;">
-  <div class="sidebar-section" style="padding-bottom:0; display:flex; align-items:center; justify-content:space-between;">
-    <div class="section-label" style="margin-bottom:0;">Records</div>
-    <span id="record-count" class="dim small"></span>
-  </div>
-  <div id="records-list"></div>
-</div>
 
 <script>
 // ─────────────────────────────────────────────────────────────────────────
@@ -749,18 +755,48 @@ function conventionPayload() {
 })();
 
 // ─────────────────────────────────────────────────────────────────────────
-// Tabs
+// Steps
 // ─────────────────────────────────────────────────────────────────────────
 
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll('#workspace .tab-panel')
-            .forEach(p => p.classList.remove('active'));
-    document.getElementById(btn.dataset.tab).classList.add('active');
-  });
-});
+/**
+ * Show each step once the one before it has given it something to do.
+ *
+ * Patterns need statements, from a file or pasted; converting needs a file,
+ * whether or not any pattern was confirmed — converting with none is the
+ * standard parser, which is a real thing to want and produces exactly what the
+ * converter on its own produces.
+ */
+function revealSteps() {
+  const haveStatements = allStatements.length > 0 || pastedStatements().length > 0;
+  document.getElementById('step-patterns').hidden = !haveStatements;
+  document.getElementById('step-convert').hidden  = allRecords.length === 0;
+
+  const summary = document.getElementById('convert-summary');
+  if (allRecords.length) {
+    const n = library.length;
+    summary.textContent = `${allRecords.length} record${allRecords.length !== 1 ? 's' : ''} · `
+      + (n ? `${n} pattern${n !== 1 ? 's' : ''} confirmed`
+           : 'no patterns confirmed — the standard parser will read everything');
+  }
+}
+
+/** Collapse step 1 to a line once it has a file; "Change" puts it back. */
+function showSourceSummary(text) {
+  const body = document.getElementById('source-body');
+  const summary = document.getElementById('source-summary');
+  const change = document.getElementById('btn-change-source');
+  if (!text) {
+    body.hidden = false; summary.hidden = true; change.hidden = true;
+    return;
+  }
+  body.hidden = true;
+  summary.hidden = false;
+  change.hidden = false;
+  summary.innerHTML = `<span class="icon">✓</span> ${escHtml(text)}`;
+}
+
+document.getElementById('btn-change-source').addEventListener('click',
+  () => showSourceSummary(null));
 
 // ─────────────────────────────────────────────────────────────────────────
 // 1 · Holdings — upload once, both halves use it
@@ -798,10 +834,10 @@ async function uploadMarcFile(file) {
     allRecords    = data.records;
     allStatements = data.statements;
     renderRecordList(data.records);
-    document.getElementById('batch-actions').style.display = 'block';
-    dropZone.classList.add('loaded');
-    dropZone.innerHTML =
-      `<span class="icon">✓</span> ${escHtml(file.name)} — ${data.total} records, ${data.count} holdings statements`;
+    dropZone.innerHTML = '<span class="icon">📁</span>Drop a MARC file here, or click to browse';
+    showSourceSummary(
+      `${file.name} — ${data.total} records, ${data.count} holdings statements`);
+    revealSteps();
   } catch (err) {
     dropZone.innerHTML = '<span class="icon">❌</span>Upload failed.';
     console.error(err);
@@ -809,29 +845,30 @@ async function uploadMarcFile(file) {
 }
 
 function renderRecordList(records) {
-  const container = document.getElementById('records-list-container');
-  const list  = document.getElementById('records-list');
-  const count = document.getElementById('record-count');
-  container.style.display = 'flex';
-  count.textContent = `${records.length} records`;
-
-  const sidebar = document.getElementById('sidebar');
-  sidebar.insertBefore(container, document.getElementById('batch-actions'));
-
-  list.innerHTML = records.map((rec, i) => `
-    <div class="record-item" data-index="${i}" onclick="selectRecord(${i})">
-      <div class="rec-title">${escHtml(rec.title)}
-        ${rec.fields_866.length ? `<span class="pill has-866">866 ×${rec.fields_866.length}</span>` : ''}
+  const box = document.getElementById('records-accordion');
+  box.innerHTML = records.map((rec, i) => `
+    <div class="rec-row" data-index="${i}">
+      <button type="button" class="rec-toggle" onclick="selectRecord(${i})">
+        <span class="rec-caret" aria-hidden="true">▸</span>
+        <span class="rec-title">${escHtml(rec.title)}</span>
+        ${rec.fields_866.length
+          ? `<span class="pill has-866">866 ×${rec.fields_866.length}</span>`
+          : '<span class="pill">no 866</span>'}
         ${rec.has_853 ? '<span class="pill">853✓</span>' : ''}
-      </div>
-      <div class="rec-meta">${escHtml(rec.issn || '–')} · ${escHtml(rec.location || 'no location')}</div>
+        <span class="rec-meta">${escHtml(rec.issn || '–')} · ${escHtml(rec.location || 'no location')}</span>
+      </button>
+      <div class="rec-detail" hidden></div>
     </div>`).join('');
+}
+
+function pastedStatements() {
+  return document.getElementById('stmt-input').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
 }
 
 /** The statements pattern detection runs over: the file, or what was pasted. */
 function statementsForDetection() {
-  const pasted = document.getElementById('stmt-input').value
-    .split('\n').map(s => s.trim()).filter(Boolean);
+  const pasted = pastedStatements();
   const source = pasted.length ? pasted : allStatements;
   if (!document.getElementById('opt-dedup').checked) return source;
   return [...new Set(source)];
@@ -840,6 +877,17 @@ function statementsForDetection() {
 // ─────────────────────────────────────────────────────────────────────────
 // 2 · Patterns
 // ─────────────────────────────────────────────────────────────────────────
+
+document.getElementById('btn-use-text').addEventListener('click', () => {
+  if (!pastedStatements().length) {
+    showAlert(document.getElementById('detect-error'),
+      'Type or paste some holdings statements first.', 'warn');
+    return;
+  }
+  showSourceSummary(`${pastedStatements().length} pasted statements`);
+  revealSteps();
+  document.getElementById('step-patterns').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 
 document.getElementById('btn-detect').addEventListener('click', runDetect);
 
@@ -1392,15 +1440,18 @@ async function loadLibrary() {
 function renderLibrary() {
   const summary = document.getElementById('library-summary');
   const list    = document.getElementById('library-list');
+  revealSteps();          // the confirmed count is shown on step 3's header
 
   if (!library.length) {
-    summary.textContent = 'No patterns confirmed yet. Holdings will be converted the way they always were.';
+    document.getElementById('library-bar').hidden = true;
+    summary.textContent = '';
     list.innerHTML = '';
     return;
   }
 
   summary.textContent =
     `${library.length} pattern${library.length !== 1 ? 's' : ''} will be tried before the standard parser.`;
+  document.getElementById('library-bar').hidden = false;
   list.innerHTML = library.map(p => `
     <div class="lib-item">
       <span class="lib-label">${escHtml(p.label)}
@@ -1468,30 +1519,33 @@ document.getElementById('import-input').addEventListener('change', async e => {
 // ─────────────────────────────────────────────────────────────────────────
 
 async function selectRecord(idx) {
-  document.querySelectorAll('.record-item').forEach(el => el.classList.remove('active'));
-  document.querySelector(`.record-item[data-index="${idx}"]`)?.classList.add('active');
-  // Looking at a record is asking to see its conversion, so show that tab.
-  document.querySelector('.tab-btn[data-tab="ws-convert"]').click();
+  const row = document.querySelector(`.rec-row[data-index="${idx}"]`);
+  const detail = row.querySelector('.rec-detail');
+
+  if (!detail.hidden) {                      // second click closes it
+    detail.hidden = true;
+    row.classList.remove('open');
+    row.querySelector('.rec-caret').textContent = '▸';
+    return;
+  }
+  detail.hidden = false;
+  row.classList.add('open');
+  row.querySelector('.rec-caret').textContent = '▾';
   await renderRecordDetail(idx);
 }
 
 async function renderRecordDetail(idx) {
   const rec = allRecords[idx];
-  const detail = document.getElementById('record-detail');
-  const heading = `
-    <div class="card-title">
-      ${escHtml(rec.title)}
-      ${rec.issn ? `<span class="tag">ISSN ${escHtml(rec.issn)}</span>` : ''}
-      ${rec.location ? `<span class="tag">${escHtml(rec.location)}</span>` : ''}
-    </div>`;
+  // The title is already on the row's own button, so the detail does not repeat it.
+  const detail = document.querySelector(`.rec-row[data-index="${idx}"] .rec-detail`);
 
   if (!rec.fields_866.length) {
-    detail.innerHTML = `<div class="card">${heading}
-      <div class="alert alert-info">No 866 fields found in this record.</div></div>`;
+    detail.innerHTML =
+      '<div class="alert alert-info">No 866 fields found in this record.</div>';
     return;
   }
 
-  detail.innerHTML = `<div class="card">${heading}<span class="spinner"></span></div>`;
+  detail.innerHTML = '<span class="spinner"></span>';
 
   let previews;
   try {
@@ -1501,8 +1555,8 @@ async function renderRecordDetail(idx) {
     });
     previews = data.previews;
   } catch (err) {
-    detail.innerHTML = `<div class="card">${heading}
-      <div class="alert alert-err">Preview failed: ${escHtml(err.message)}</div></div>`;
+    detail.innerHTML =
+      `<div class="alert alert-err">Preview failed: ${escHtml(err.message)}</div>`;
     return;
   }
 
@@ -1569,18 +1623,15 @@ async function renderRecordDetail(idx) {
     </div>` : '';
 
   detail.innerHTML = `
-    <div class="card">
-      ${heading}
-      ${groupsHtml}
-      ${reviewHtml}
-      <div class="btn-row">
-        <button class="btn btn-primary" onclick="applyAllInRecord(${idx})"
-                title="Linking numbers are shared across a record, so conversion applies to every 866 here">
-          Convert record
-        </button>
-      </div>
-      <div id="record-status-${idx}" class="mt-2"></div>
-    </div>`;
+    ${groupsHtml}
+    ${reviewHtml}
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="applyAllInRecord(${idx})"
+              title="Linking numbers are shared across a record, so conversion applies to every 866 here">
+        Convert this record
+      </button>
+    </div>
+    <div id="record-status-${idx}" class="mt-2"></div>`;
 }
 
 async function applyAllInRecord(recIdx) {
@@ -1633,17 +1684,6 @@ document.getElementById('btn-batch-all').addEventListener('click', async () => {
     showAlert(status, err.message, 'err');
   }
 });
-
-// ── Conversion settings dialog ────────────────────────────────────────────
-(function () {
-  const dlg  = document.getElementById('batch-options');
-  const open = document.getElementById('btn-open-settings');
-  const done = document.getElementById('btn-settings-done');
-  if (!dlg || !open) return;
-  open.addEventListener('click', () => dlg.showModal());
-  done && done.addEventListener('click', () => dlg.close());
-  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
-})();
 
 // ── Accessibility controls: text size and theme ───────────────────────────
 (function () {
