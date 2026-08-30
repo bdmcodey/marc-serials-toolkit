@@ -29,7 +29,7 @@ WORKBENCH_ROUTES = {
     "/api/upload-marc", "/api/detect", "/api/test-regex",
     "/api/pattern-preview", "/api/patterns",
     "/api/patterns/export", "/api/patterns/import",
-    "/api/preview-record", "/api/convert-record",
+    "/api/preview-record", "/api/preview-records", "/api/convert-record",
     "/api/batch-convert", "/api/download-converted",
 }
 

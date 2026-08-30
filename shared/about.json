@@ -82,6 +82,18 @@
         },
         {
           "tool": "Workbench",
+          "text": "Each record under Convert says what it will produce before you open it \u2014 how many of its statements convert, and how many are held \u2014 so a file can be looked over as a list rather than a record at a time. Tick Reviewed as you work through it; the count beside the filters says how far you have got."
+        },
+        {
+          "tool": "Workbench",
+          "text": "The record list can be narrowed to what you want to look at: only records with something held back, only those a confirmed pattern read, only those the standard parser read, or only those you have not reviewed yet. Open all and Close all work on whatever is showing."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Long files are read fifty records at a time, with Previous and Next to walk them."
+        },
+        {
+          "tool": "Workbench",
           "text": "Records are listed under Convert and open where they sit, showing what that record converts to without leaving the page. The record list previously lived in the sidebar underneath everything else, where on an ordinary screen it fell below the edge of the panel \u2014 and since choosing a record was the only way into the conversion view, that view looked permanently empty."
         },
         {

@@ -575,6 +575,98 @@ def test_the_parser_is_used_unless_it_is_switched_off(workbench_client,
 
 
 # ---------------------------------------------------------------------------
+# Reviewing a file record by record
+# ---------------------------------------------------------------------------
+
+def test_a_page_of_records_previews_in_one_request(workbench_client,
+                                                   example_marc_bytes):
+    """
+    Reviewing a file a record at a time needs the whole file, and a round trip
+    per record is what makes that impractical -- previewing one costs well under
+    a millisecond.
+    """
+    upload_marc(workbench_client, example_marc_bytes)
+    body = workbench_client.post("/api/preview-records", json=SETTINGS).get_json()
+
+    assert body["total"] == 5
+    assert [r["index"] for r in body["records"]] == [0, 1, 2, 3, 4]
+    assert all(r["title"] for r in body["records"])
+    assert any(r["previews"] for r in body["records"])
+
+
+def test_the_page_agrees_with_previewing_records_one_at_a_time(workbench_client,
+                                                               example_marc_bytes):
+    """
+    The bulk route exists to save round trips, not to be a second opinion. It
+    shares convert_record() with the single route, and this pins that.
+    """
+    upload_marc(workbench_client, example_marc_bytes)
+    bulk = workbench_client.post("/api/preview-records", json=SETTINGS).get_json()
+
+    for entry in bulk["records"]:
+        if not entry["has_866"]:
+            continue
+        one = previews_for(workbench_client, entry["index"])
+        assert [p["fields_863"] for p in entry["previews"]] == \
+               [p["fields_863"] for p in one], entry["index"]
+        assert [p["source"] for p in entry["previews"]] == [p["source"] for p in one]
+
+
+def test_each_record_carries_the_counts_a_reviewer_filters_on(workbench_client,
+                                                              messy_marc_bytes):
+    """
+    'Show me what is still held for review' has to be answerable without
+    reopening every record, so the counts come back with the page.
+    """
+    upload_marc(workbench_client, messy_marc_bytes)
+    body = workbench_client.post("/api/preview-records", json=SETTINGS).get_json()
+
+    held = [r for r in body["records"] if r["held"]]
+    assert held, "the messy corpus has statements no engine converts"
+    assert all(r["converted"] + r["held"] == len(r["previews"])
+               for r in body["records"])
+
+    # The record carrying only unreadable statements converts none of them.
+    unreadable = next(r for r in body["records"]
+                      if any(p["source_866"] == "? 106" for p in r["previews"]))
+    assert unreadable["converted"] < len(unreadable["previews"])
+
+    # A record with no 866 at all is reported rather than omitted, so the page
+    # stays in step with the file.
+    empty = [r for r in body["records"] if not r["has_866"]]
+    assert empty and all(r["previews"] == [] for r in empty)
+
+
+def test_the_page_is_bounded_and_can_be_walked(workbench_client,
+                                               messy_marc_bytes):
+    upload_marc(workbench_client, messy_marc_bytes)
+    first = workbench_client.post("/api/preview-records", json={
+        **SETTINGS, "offset": 0, "limit": 4}).get_json()
+    second = workbench_client.post("/api/preview-records", json={
+        **SETTINGS, "offset": 4, "limit": 4}).get_json()
+
+    assert [r["index"] for r in first["records"]] == [0, 1, 2, 3]
+    assert [r["index"] for r in second["records"]] == [4, 5, 6, 7]
+    assert first["total"] == second["total"]
+
+
+def test_the_page_writes_nothing(workbench_client, example_marc_bytes):
+    """The read-only twin of batch-convert: reviewing must not convert."""
+    upload_marc(workbench_client, example_marc_bytes)
+    before = workbench_client.get("/api/download-converted").data
+    workbench_client.post("/api/preview-records", json=SETTINGS)
+    assert workbench_client.get("/api/download-converted").data == before
+
+
+def test_the_page_honours_the_parser_switch(workbench_client, messy_marc_bytes):
+    upload_marc(workbench_client, messy_marc_bytes)
+    off = workbench_client.post("/api/preview-records", json={
+        **SETTINGS, "parser_fallback": False}).get_json()
+    assert all(p["source"] == "unmatched"
+               for r in off["records"] for p in r["previews"])
+
+
+# ---------------------------------------------------------------------------
 # The promise: nothing is sacrificed
 # ---------------------------------------------------------------------------
 
