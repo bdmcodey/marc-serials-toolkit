@@ -193,9 +193,19 @@ def _find_range_sep(stripped: list[Token]) -> Optional[int]:
     Rules:
     • Must be at paren depth 0 (not inside a chronology block).
     • Must be followed by at least one more token (not the trailing open-ended hyphen).
+    • Must actually look like a unit separator, not a range *within* one caption
+      level.  The hyphen in "v.1-5(1990-1994)" joins two volumes; it does not
+      divide the statement into a start unit and an end unit, and treating it as
+      though it did put every later value on the wrong side of the range.
 
-    Returns None for open-ended statements ("v.6(1995)-") and single-unit
-    statements ("1990-1994" inside-paren style gets depth > 0 protection).
+    The third rule mirrors holdings_parser._smart_split_range, which has always
+    made the same distinction: a digit-to-digit hyphen is a compressed range at
+    one level, so a separator needs a closing paren before it, a caption after
+    it, or years on both sides (the bare "1990-1994" form).
+
+    Returns None for open-ended statements ("v.6(1995)-"), for single-unit
+    statements, and for statements whose only top-level hyphen is a compressed
+    range -- all three genuinely have no start/end division.
     """
     depth = 0
     for i, tok in enumerate(stripped):
@@ -203,10 +213,15 @@ def _find_range_sep(stripped: list[Token]) -> Optional[int]:
             depth += 1
         elif tok.kind == PAREN_CLOSE:
             depth -= 1
-        elif tok.kind == SEP_HYPHEN and depth == 0:
-            # Has meaningful content after the hyphen?
-            if i + 1 < len(stripped):
-                return i
+        elif tok.kind == SEP_HYPHEN and depth == 0 and i + 1 < len(stripped):
+            prev = stripped[i - 1] if i else None
+            nxt = stripped[i + 1]
+            if prev is not None and prev.kind == PAREN_CLOSE:
+                return i                      # "...(1990)-v.5(1994)"
+            if nxt.kind in _CAPTION_KINDS:
+                return i                      # "...-v.5", "...-no.4"
+            if prev is not None and prev.kind == YEAR and nxt.kind == YEAR:
+                return i                      # bare "1990-1994"
     return None
 
 
@@ -264,36 +279,46 @@ def _compact_label(stripped: list[Token], range_sep_idx: Optional[int]) -> str:
     """
     Build a short human-readable description from the token sequence, e.g.:
       "VOL:ISS(YEAR:MON) — VOL:ISS(YEAR:MON)"
-      "VOL(YEAR) — VOL(YEAR)"
+      "VOL-VOL(YEAR-YEAR)"
       "YEAR — YEAR"
     Caption + NUMBER pairs are collapsed to just "VOL", "ISS", "PT".
+
+    A compressed range keeps its hyphen and repeats the caption governing it:
+    the second number in "v.1-5" is a volume, so the label says so rather than
+    dropping the hyphen and reading "VOL#".  This is the heading a cataloguer
+    picks a pattern out by, so it has to describe the shape they are looking at.
     """
     parts: list[str] = []
     i = 0
+    last_cap: Optional[str] = None    # caption governing the current range
     while i < len(stripped):
         tok = stripped[i]
         if i == range_sep_idx:
             parts.append(" \u2014 ")       # em-dash
+            last_cap = None               # captions do not cross the separator
             i += 1
             continue
         kind = tok.kind
         if kind in _CAP_SHORT:
-            parts.append(_CAP_SHORT[kind])
+            last_cap = _CAP_SHORT[kind]
+            parts.append(last_cap)
             # Silently consume the following NUMBER (it's implied)
             if i + 1 < len(stripped) and stripped[i + 1].kind == NUMBER:
                 i += 2
                 continue
         elif kind == NUMBER:
-            parts.append("#")
+            # The far side of a compressed range inherits the caption before it;
+            # a number with no caption anywhere is genuinely just a number.
+            following_hyphen = i and stripped[i - 1].kind == SEP_HYPHEN
+            parts.append(last_cap if (following_hyphen and last_cap) else "#")
         elif kind in _VAL_SHORT:
             parts.append(_VAL_SHORT[kind])
         elif kind in _SEP_SHORT:
             parts.append(_SEP_SHORT[kind])
         elif kind == SEP_HYPHEN:
-            # Non-range hyphens (e.g. year-year inside parens, trailing open)
-            if i == len(stripped) - 1:
-                parts.append("\u2013")     # trailing open-ended
-            # else: internal hyphen in compressed range, skip
+            # Keep it: an intra-level range ("v.1-5", "1990-1994" inside parens)
+            # is part of the shape, and eliding it ran the two values together.
+            parts.append("\u2013" if i == len(stripped) - 1 else "-")
         i += 1
     return "".join(parts)
 
@@ -330,8 +355,22 @@ def _build_regex(
     cap_variants: dict[str, list]  = {}
     used_names: set[str]           = set()
 
-    context   = "start"
     prev_cap: Optional[str] = None    # last caption kind: "vol" | "iss" | "part"
+
+    # Which boundary a value sits on is a property of its own level, not of the
+    # statement as a whole.  "v.1-5(1990-1994)" has no single point dividing a
+    # start half from an end half -- it has two compressed ranges, one per
+    # level, each with its own start and end.  Counting per level describes both
+    # that shape and "v.1(1990)-v.5(1994)", where the two happen to coincide.
+    #
+    # A third value at one level has no boundary left to take, so it falls back
+    # to _unique_name's suffix ("end_year_2") and is treated as unencodable.
+    level_seen: dict[str, int] = {}
+
+    def boundary_name(slot: str) -> str:
+        n = level_seen.get(slot, 0)
+        level_seen[slot] = n + 1
+        return _unique_name(f"{'start' if n == 0 else 'end'}_{slot}", used_names)
 
     for i, tok in enumerate(template):
         kind  = tok.kind
@@ -340,7 +379,8 @@ def _build_regex(
 
         # ── Range separator ───────────────────────────────────────────────────
         if i == range_sep_idx:
-            context  = "end"
+            # Captions do not carry across the separator: the "5" in
+            # "v.1(1990)-5(1994)" is not covered by the "v." before the hyphen.
             prev_cap = None
             parts.append(r"\s*-\s*")
             continue
@@ -369,15 +409,14 @@ def _build_regex(
 
         # ── Value tokens — named capture groups ───────────────────────────────
         if kind == NUMBER:
-            slot = prev_cap or "num"
-            name = _unique_name(f"{context}_{slot}", used_names)
+            name = boundary_name(prev_cap or "num")
             named_groups.append(name)
             parts.append(rf"(?P<{name}>\d+[a-zA-Z]?)")
             parts.append(r"\s*")
             continue
 
         if kind == YEAR:
-            name = _unique_name(f"{context}_year", used_names)
+            name = boundary_name("year")
             named_groups.append(name)
             # Allow 4-digit years in the realistic range; keep flexible
             parts.append(rf"(?P<{name}>(?:1[89]|20)\d{{2}})")
@@ -385,7 +424,7 @@ def _build_regex(
             continue
 
         if kind == MON:
-            name = _unique_name(f"{context}_month", used_names)
+            name = boundary_name("month")
             named_groups.append(name)
             # Use the general month pattern so future statements with any
             # standard month abbreviation will also be matched.
@@ -394,7 +433,7 @@ def _build_regex(
             continue
 
         if kind == SEASON:
-            name = _unique_name(f"{context}_month", used_names)
+            name = boundary_name("month")
             named_groups.append(name)
             parts.append(rf"(?P<{name}>{_SEASON_RE})")
             parts.append(r"\s*")

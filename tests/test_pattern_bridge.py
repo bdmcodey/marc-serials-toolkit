@@ -82,23 +82,27 @@ def test_plain_range_infers_start_and_end():
     }
 
 
-def test_compressed_range_does_not_leave_two_end_years():
+def test_a_compressed_range_names_both_of_its_boundaries():
     """
-    The case the confirmation screen exists for.
-
-    "v.1-5(1990-1994)" makes the detector flip to its 'end' context at the
-    volume hyphen, so it names *both* years end_year. Position says otherwise:
-    the first year of a statement opens the range, the second closes it.
+    "v.1-5(1990-1994)" has no single point dividing a start half from an end
+    half: it has two compressed ranges, one per level. Both levels must still
+    come out with a start and an end -- the detector once named both years
+    end_year, and every value after the volume hyphen landed on the wrong side.
     """
-    roles = roles_for("v.1-5(1990-1994)")
-    assert roles["end_year"]   == (BOUNDARY_START, LEVEL_YEAR)
-    assert roles["end_year_2"] == (BOUNDARY_END,   LEVEL_YEAR)
+    assert roles_for("v.1-5(1990-1994)") == {
+        "start_vol":  (BOUNDARY_START, LEVEL_VOL),
+        "end_vol":    (BOUNDARY_END,   LEVEL_VOL),
+        "start_year": (BOUNDARY_START, LEVEL_YEAR),
+        "end_year":   (BOUNDARY_END,   LEVEL_YEAR),
+    }
 
 
 def test_chronology_only_at_the_end_still_spans_the_range():
     roles = roles_for("v.1:no.1-v.2:no.4(1990-1991)")
-    assert roles["end_year"]   == (BOUNDARY_START, LEVEL_YEAR)
-    assert roles["end_year_2"] == (BOUNDARY_END,   LEVEL_YEAR)
+    assert roles["start_year"] == (BOUNDARY_START, LEVEL_YEAR)
+    assert roles["end_year"]   == (BOUNDARY_END,   LEVEL_YEAR)
+    assert roles["start_vol"]  == (BOUNDARY_START, LEVEL_VOL)
+    assert roles["end_vol"]    == (BOUNDARY_END,   LEVEL_VOL)
 
 
 def test_a_number_with_no_caption_is_left_for_the_cataloguer():
@@ -106,9 +110,13 @@ def test_a_number_with_no_caption_is_left_for_the_cataloguer():
     A bare number carries no evidence of its level, and the parser already
     refuses to guess at one. Inference must refuse too, rather than defaulting
     it to a volume and being quietly wrong.
+
+    "v.1(1990)-5(1994)" is the awkward form: a real separator divides it, so the
+    "v." does not reach across to the 5, and nothing else says what the 5 is.
     """
-    roles = roles_for("v.1-5(1990-1994)")
-    assert roles["end_num"][1] == LEVEL_UNRESOLVED
+    roles = roles_for("v.1(1990)-5(1994)")
+    assert roles["start_num"][1] == LEVEL_UNRESOLVED
+    assert roles["start_vol"][1] == LEVEL_VOL      # the captioned side is fine
 
 
 def test_seasons_are_inferred_as_chronology():
@@ -189,12 +197,12 @@ def test_open_ended_statements_stay_open():
 
 def test_a_corrected_role_changes_the_parsed_result():
     """The whole point of the confirmation screen, at the data level."""
-    group = detect_one("v.1-5(1990-1994)")
+    group = detect_one("v.1(1990)-5(1994)")
     roles = infer_roles(group.named_groups)
-    decide(roles, "end_num", BOUNDARY_END, LEVEL_VOL)
+    decide(roles, "start_num", BOUNDARY_END, LEVEL_VOL)
 
     hr = build_parse_result(
-        "v.1-5(1990-1994)", re.compile(group.regex, re.IGNORECASE), roles, False
+        "v.1(1990)-5(1994)", re.compile(group.regex, re.IGNORECASE), roles, False
     ).ranges[0]
 
     assert (hr.start.vol, hr.start.year) == ("1", "1990")
@@ -202,12 +210,12 @@ def test_a_corrected_role_changes_the_parsed_result():
 
 
 def test_a_value_set_to_not_encoded_is_reported_rather_than_dropped():
-    group = detect_one("v.1-5(1990-1994)")
-    roles = decide(infer_roles(group.named_groups), "end_num",
+    group = detect_one("v.1(1990)-5(1994)")
+    roles = decide(infer_roles(group.named_groups), "start_num",
                    BOUNDARY_START, LEVEL_IGNORE)
 
     result = build_parse_result(
-        "v.1-5(1990-1994)", re.compile(group.regex, re.IGNORECASE), roles, False
+        "v.1(1990)-5(1994)", re.compile(group.regex, re.IGNORECASE), roles, False
     )
     assert any("'5'" in w for w in result.warnings)
 

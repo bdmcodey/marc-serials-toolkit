@@ -145,14 +145,13 @@ def infer_roles(named_groups: Sequence[str]) -> list[GroupRole]:
     """
     Propose a role for every capture group, for the cataloguer to confirm.
 
-    The level comes from the detector's own naming.  The boundary does not:
-    within a level, the *first* group to appear in the statement is the start
-    boundary and the second is the end boundary, whatever the detector called
-    them.  The detector flips its "start"/"end" context at the first top-level
-    hyphen, which is right for "v.1(1990)-v.5(1994)" and wrong for
-    "v.1-5(1990-1994)", where the hyphen it flips on is the volume range and
-    both years are consequently named end_year.  Position is the more reliable
-    signal, and it is what makes the common corrections unnecessary.
+    Both the level and the boundary are read from the group's name, but the
+    boundary is recomputed rather than trusted: within a level, the *first*
+    group to appear is the start boundary and the second is the end.  The
+    detector names groups by the same rule, so on its own output the two agree
+    everywhere -- but a cataloguer may edit the expression by hand, and a
+    library exported before the detector counted per level may still name two
+    values end_year.  Recomputing costs nothing and makes both cases right.
 
     A third or later group at the same level has no defensible default, so it
     is offered as "not encoded" rather than guessed at.

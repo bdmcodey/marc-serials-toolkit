@@ -125,17 +125,18 @@ MARC_TEST_DATA_DIR=/path/to/mounted/share python -m pytest -m calibration
 
 ## How the Workbench joins the two tools
 
-The Pattern Detector generates a regex whose capture groups are named by
-position — `start_vol`, `end_year`, `end_year_2`. What it cannot know is what
-those values *mean*: which number is a volume rather than an issue, and which
-year opens a range rather than closing it. The Workbench asks, once per pattern,
-and then converts every matching statement with the answer.
+The Pattern Detector generates a regex whose capture groups are named for the
+level and boundary they hold — `start_vol`, `end_year`. What it cannot know is
+whether that reading is *right*: which number is a volume rather than an issue,
+and whether a value belongs to the holdings at all. The Workbench asks, once per
+pattern, and then converts every matching statement with the answer.
 
-That confirmation step is not ceremony. A regex built from `v.1-5(1990-1994)`
-names both years `end_year`, because the detector flips to its "end" context at
-the volume hyphen; and a bare number in `?: 16` carries nothing at all to say
-which level it belongs to, which is why the Converter refuses to guess and holds
-the statement for review. A cataloguer can answer both questions in a moment.
+That confirmation step is not ceremony. A bare number — the `16` in `?: 16`, or
+the `5` in `v.1(1990)-5(1994)` where no caption reaches across the separator —
+carries nothing at all to say which level it belongs to. That is why the
+Converter refuses to guess and holds such statements for review, and no amount
+of better parsing can fix it: the information is not in the statement. A
+cataloguer who knows the collection can supply it in a moment, once.
 
 Statements no confirmed pattern matches are parsed by
 `holdings_parser.parse_866()` exactly as the Converter parses them, so an empty
