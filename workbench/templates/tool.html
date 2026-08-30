@@ -55,16 +55,28 @@
     }
     #records-list-container { flex-direction: column; }
 
-    /* The record list is the only part of the sidebar that scrolls, so the
+    /* The record list is the only part of the sidebar that grows freely, so the
        source panel above and the batch buttons below stay put however many
-       records the file holds. */
+       records the file holds.
+
+       The sidebar itself scrolls rather than hiding its overflow: with
+       overflow:hidden a growing list of confirmed patterns pushed the Convert
+       buttons into the clipped region, where they could only be reached by
+       tabbing to them. The bounded library list below makes that unlikely; this
+       makes it impossible. */
     @media (min-width: 60rem) {
-      #sidebar { overflow: hidden; }
+      #sidebar { overflow-y: auto; }
       #source-section { flex: none; }
+      #library-section { flex: none; }
       #records-list-container { min-height: 0; flex: 1 1 0; overflow: hidden; }
       #records-list { overflow-y: auto; flex: 1 1 0; }
       #batch-actions { flex: none; border-top: 2px solid var(--border-soft); }
     }
+
+    /* Confirmed patterns accumulate -- auto-confirmation can add a dozen in one
+       click -- so the list scrolls within a bound instead of pushing whatever
+       follows it off the end of the sidebar. */
+    #library-list { max-height: 14rem; overflow-y: auto; }
 
     .sidebar-section { padding: var(--sp-4) var(--sp-4) 0; }
     .sidebar-section + .sidebar-section {
@@ -277,6 +289,29 @@
     .role-table select { min-width: 8rem; }
     .role-scroll { overflow-x: auto; }
 
+    /* The 866 under examination: the top of the reading order that runs
+       statement -> table -> output. */
+    .example-bar {
+      display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-3);
+      border: 2px solid var(--border-soft);
+      border-left: 6px solid var(--text-muted);
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+    .example-text {
+      flex: 1; min-width: 0;
+      font-family: var(--font-mono); font-size: var(--fs-sm);
+      color: var(--text); word-break: break-word;
+    }
+    .example-bar .btn { flex: none; }
+    .example-count { flex: none; white-space: nowrap; }
+    .mb-1 { margin-bottom: var(--sp-2); }
+
+    /* The example's own row, among the record's other statements. */
+    .pair-row.is-example { background: var(--accent-soft); }
+    .pair-row.is-example .pair-col-label { color: var(--text); }
+
     .preview-pair {
       display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3);
       padding: var(--sp-3);
@@ -372,7 +407,7 @@ v.6(1995)-"></textarea>
     </div>
 
     <!-- ── 2. Pattern library ── -->
-    <div class="sidebar-section">
+    <div class="sidebar-section" id="library-section">
       <div class="section-label">2 · Confirmed patterns</div>
       <div id="library-summary" class="small dim">No patterns confirmed yet.</div>
       <div id="library-list" class="mt-1"></div>
@@ -608,6 +643,9 @@ let allStatements = [];  // every 866 $a in that file, in order
 let detected    = [];    // the last detection run's groups
 let library     = [];    // confirmed patterns, mirroring the server's copy
 let lastSplit   = true;  // how the last detection ran; patterns inherit it
+// Patterns the cataloguer has taken out of the library. Auto-confirmation must
+// not put them back on the next detection run -- removing one is a decision.
+let dismissed   = new Set();
 
 // ─────────────────────────────────────────────────────────────────────────
 // Utilities
@@ -825,6 +863,7 @@ async function runDetect() {
       split_multi_range: lastSplit,
     });
     detected = data.groups;
+    await autoConfirm(data.groups);
     renderPatterns(data);
   } catch (err) {
     showAlert(errBox, err.message, 'err');
@@ -833,17 +872,62 @@ async function runDetect() {
   }
 }
 
+/**
+ * Confirm every pattern that needs no decision.
+ *
+ * Match rate is not the filter it looks like: the detector tests each
+ * expression against its own cluster, so every group scores 100%. What actually
+ * separates a pattern that is ready from one that is not is whether every
+ * captured value got a meaning — an unresolved one cannot be stored at all.
+ *
+ * Patterns the cataloguer has removed are never re-added; taking one out is a
+ * decision, and a detection run should not undo it.
+ */
+async function autoConfirm(groups) {
+  const ready = groups.filter(g =>
+    !g.too_complex &&
+    g.regex &&
+    !(g.suggested_roles || []).some(r => r.level === UNRESOLVED_LEVEL) &&
+    !dismissed.has(patternIdFor(g)) &&
+    !library.some(p => p.id === patternIdFor(g))
+  );
+  if (!ready.length) return;
+
+  const additions = ready.map(g => ({
+    id: patternIdFor(g),
+    label: g.human_label,
+    regex: g.regex,
+    roles: g.suggested_roles,
+    split: lastSplit,
+    priority: g.count,
+    notes: (g.examples || [])[0] || '',
+  }));
+
+  const data = await saveLibrary(library.concat(additions));
+  if (data.rejected && data.rejected.length) {
+    showAlert(document.getElementById('library-status'),
+      'Some patterns could not be confirmed automatically: ' + data.rejected.join(' '),
+      'warn');
+  }
+}
+
 function renderPatterns(data) {
   const area = document.getElementById('patterns-area');
   area.innerHTML = '';
 
+  const undecided = data.groups.filter(g => g.needs_decision && !g.too_complex).length;
   const summary = document.createElement('div');
   summary.className = 'card';
   summary.innerHTML = `
     <div class="card-title">${data.total_patterns} pattern${data.total_patterns !== 1 ? 's' : ''}
       <span class="tag">${data.total_statements} statements</span></div>
-    <p class="small dim">Largest groups first. Confirm a pattern to have it used
-      when you convert.</p>`;
+    <p class="small dim">${
+      undecided
+        ? `Patterns that could be read on their own are already confirmed.
+           <strong>${undecided}</strong> still ${undecided === 1 ? 'needs' : 'need'}
+           you to say what a value means.`
+        : 'All patterns are confirmed and will be used when you convert.'
+    }</p>`;
   area.appendChild(summary);
 
   data.groups.forEach((group, idx) => area.appendChild(buildPatternCard(group, idx)));
@@ -903,20 +987,22 @@ function buildPatternCard(group, idx) {
       <button type="button" class="btn btn-secondary btn-sm pc-toggle">Review</button>
     </div>
     <div class="pc-body" hidden>
-      <div>
-        <div class="section-label">What each value means</div>
-        <p class="small dim">
-          The tool reads a statement's structure, not its meaning. Check each row
-          against the values it caught, and correct anything wrong before confirming.
-        </p>
-        <div class="role-scroll">
-          <table class="role-table">
-            <thead>
-              <tr><th>Captured</th><th>Values found</th><th>Boundary</th><th>Means</th></tr>
-            </thead>
-            <tbody class="role-rows"></tbody>
-          </table>
-        </div>
+      <div class="example-bar">
+        <button type="button" class="btn btn-ghost btn-sm ex-prev"
+                aria-label="Previous example">‹</button>
+        <div class="example-text"></div>
+        <button type="button" class="btn btn-ghost btn-sm ex-next"
+                aria-label="Next example">›</button>
+        <span class="example-count small dim"></span>
+      </div>
+
+      <div class="role-scroll">
+        <table class="role-table">
+          <thead>
+            <tr><th>Captured</th><th>Value</th><th>Boundary</th><th>Means</th></tr>
+          </thead>
+          <tbody class="role-rows"></tbody>
+        </table>
       </div>
 
       <div>
@@ -949,9 +1035,42 @@ function buildPatternCard(group, idx) {
 
   card._group = group;
   card._id = id;
-  renderRoleRows(card, roles, group.sample_values || {});
+  card._example = 0;            // which example drives the table and preview
+  card._roles = roles;
+  showExample(card);
   wireCard(card);
   return card;
+}
+
+/**
+ * Put one example on screen: the statement, its captured values, its preview.
+ *
+ * Everything the cataloguer reads top to bottom describes the same 866 — the
+ * statement, then what was caught from it, then what that becomes in MARC.
+ */
+function showExample(card) {
+  const group = card._group;
+  const examples = group.examples || [];
+  const shown = group.examples_shown ?? examples.length;
+  const i = Math.min(card._example, Math.max(shown - 1, 0));
+  card._example = i;
+
+  card.querySelector('.example-text').textContent = examples[i] || '';
+  const total = examples.length;
+  card.querySelector('.example-count').textContent =
+    shown < total ? `${i + 1} of ${shown} shown (${total} in group)`
+                  : `${i + 1} of ${total}`;
+  card.querySelector('.ex-prev').disabled = shown <= 1;
+  card.querySelector('.ex-next').disabled = shown <= 1;
+
+  renderRoleRows(card, card._roles, (group.example_values || [])[i] || {});
+  updateCardWarnings(card);
+  refreshPreview(card);
+}
+
+/** Where the example on screen came from, when it came from a file at all. */
+function exampleSource(card) {
+  return (card._group.example_sources || [])[card._example] || null;
 }
 
 function buildExamplesHtml(examples) {
@@ -966,24 +1085,26 @@ function buildExamplesHtml(examples) {
 }
 
 /**
- * Draw one row per captured value.
+ * Draw one row per captured value, for the example currently on screen.
  *
- * The samples column is what makes the screen worth having: seeing "1990" and
+ * The value column is what makes the screen worth having: seeing "1990" and
  * "1994" under two rows the tool both called an end year is how a cataloguer
- * notices that the first is really the start.
+ * notices that the first is really the start. It shows this statement's values
+ * only — pooling them across examples produced a column that lined up against
+ * nothing.
  */
-function renderRoleRows(card, roles, samples) {
+function renderRoleRows(card, roles, values) {
   const body = card.querySelector('.role-rows');
   body.innerHTML = roles.map(role => {
     const undecided = role.level === UNRESOLVED_LEVEL;
-    const values = (samples[role.group] || []).slice(0, 4).join('  ·  ');
+    const value = (values || {})[role.group] || '';
     const levelOptions = Object.entries(LEVEL_LABELS).map(([lvl, label]) =>
       `<option value="${lvl}" ${role.level === lvl ? 'selected' : ''}>${escHtml(label)}</option>`
     ).join('');
     return `
       <tr class="${undecided ? 'needs-decision' : ''}" data-group="${escHtml(role.group)}">
         <td class="role-group">${escHtml(role.group)}</td>
-        <td class="role-sample">${escHtml(values || '—')}</td>
+        <td class="role-sample">${escHtml(value || '—')}</td>
         <td>
           <select class="role-boundary" aria-label="Boundary for ${escHtml(role.group)}">
             <option value="start" ${role.boundary === 'start' ? 'selected' : ''}>Start</option>
@@ -1030,6 +1151,7 @@ function wireCard(card) {
   // out afterwards.
   card.querySelector('.role-rows').addEventListener('change', e => {
     e.target.closest('tr')?.classList.remove('needs-decision');
+    card._roles = collectRoles(card);
     updateCardWarnings(card);
     refreshPreview(card);
   });
@@ -1038,9 +1160,21 @@ function wireCard(card) {
   card.querySelector('.pc-confirm').addEventListener('click', () => confirmPattern(card));
   card.querySelector('.pc-remove').addEventListener('click', () => removePattern(card));
   card.querySelector('.pc-reset').addEventListener('click', () => {
-    renderRoleRows(card, card._group.suggested_roles, card._group.sample_values || {});
-    updateCardWarnings(card);
-    refreshPreview(card);
+    card._roles = card._group.suggested_roles;
+    showExample(card);
+  });
+
+  card.querySelector('.ex-prev').addEventListener('click', () => {
+    const shown = card._group.examples_shown ?? (card._group.examples || []).length;
+    // Wrap, so stepping back from the first lands on the last rather than
+    // dead-ending on a disabled button.
+    card._example = (card._example - 1 + shown) % shown;
+    showExample(card);
+  });
+  card.querySelector('.ex-next').addEventListener('click', () => {
+    const shown = card._group.examples_shown ?? (card._group.examples || []).length;
+    card._example = (card._example + 1) % shown;
+    showExample(card);
   });
 }
 
@@ -1069,52 +1203,99 @@ async function runPreview(card) {
 
   target.innerHTML = '<span class="spinner"></span> Working out the fields…';
 
+  const source = exampleSource(card);
   try {
     const data = await postJson('api/pattern-preview', {
       regex: card.querySelector('.regex-box').value,
       roles,
-      statements: card._group.examples,
       split: lastSplit,
+      // With a record, the preview can show the linking numbers conversion
+      // would really write; without one it can only show the statement alone.
+      record_index: source ? source.record_index : null,
+      field_index:  source ? source.field_index  : null,
+      statements: [card._group.examples[card._example]],
       ...conventionPayload(),
     });
-    target.innerHTML = data.previews.map(renderPreviewPair).join('') ||
-      '<div class="alert alert-info">Nothing to preview.</div>';
+    target.innerHTML = data.scope === 'record'
+      ? renderRecordPreview(data)
+      : data.previews.map(renderPreviewPair).join('');
   } catch (err) {
     showAlert(target, err.message, 'err');
   }
 }
 
-function renderPreviewPair(pv) {
-  const side = (fields, label, cls) => {
-    if (!fields) {
-      return `<div><div class="pair-col-label">${label}</div>
-        <div class="alert alert-warn">The pattern does not match this statement.</div></div>`;
+/**
+ * The whole record the example sits in, so $8 can be read rather than trusted.
+ *
+ * Numbering is a record-level decision: statements sharing a publication
+ * pattern share an 853 and run 1.1, 1.2, and a different pattern starts 2.1.
+ * Showing the example alone always read "1.1" whatever it would really get.
+ */
+function renderRecordPreview(data) {
+  const groups = new Map();
+  const review = [];
+  data.previews.forEach(pv => {
+    if (pv.needs_review || !pv.fields_863.length) { review.push(pv); return; }
+    if (!groups.has(pv.link)) {
+      groups.set(pv.link, { field_853: pv.field_853, existing: pv.existing, rows: [] });
     }
-    const lines = [
-      fields.field_853 ? fieldHtml(fields.field_853, 'f853') : '',
-      ...fields.fields_863.map(f => fieldHtml(f, 'f863')),
-    ].filter(Boolean).join('');
-    return `<div>
-      <div class="pair-col-label">${label}</div>
-      ${lines || '<div class="alert alert-warn">Nothing converted.</div>'}
-      ${(fields.warnings || []).length
-        ? `<div class="small dim mt-1">${fields.warnings.map(escHtml).join('<br>')}</div>` : ''}
-    </div>`;
-  };
+    groups.get(pv.link).rows.push(pv);
+  });
 
-  return `
-    <div class="preview-pair">
-      <div style="grid-column:1/-1;">
-        <div class="preview-head">
-          <span class="preview-stmt">${escHtml(pv.statement)}</span>
-          ${pv.differs
-            ? '<span class="pill decide">differs from the standard parser</span>'
-            : '<span class="pill has-866">same as the standard parser</span>'}
+  const row = pv => `
+    <div class="pair-row ${pv.is_example ? 'is-example' : ''}">
+      <div>
+        <div class="pair-col-label">866${pv.is_example ? ' — the example above' : ''}</div>
+        <div class="field-display f866">${escHtml(pv.source_866)}</div>
+        <div class="small dim mt-1">read by
+          <span class="pill ${pv.from_pattern ? 'from-pattern' : ''}">${escHtml(pv.source_label)}</span>
         </div>
       </div>
-      ${side(pv.pattern, 'With this pattern', 'f863')}
-      ${side(pv.parser, 'Standard parser (used today)', 'f863')}
+      <div>
+        <div class="pair-col-label">863 — generated</div>
+        ${pv.fields_863.map(f => fieldHtml(f, 'f863')).join('')}
+      </div>
     </div>`;
+
+  const blocks = [...groups.entries()].map(([link, g]) => `
+    <div class="pattern-group">
+      <div class="pg-header">
+        <div class="pg-header-meta">
+          <span class="pg-title">Pattern $8 ${escHtml(link)}</span>
+          <span class="pill ${g.existing ? '' : 'has-866'}">${
+            g.existing ? 'already on this record' : 'generated'}</span>
+          <span class="dim small">${g.rows.length} statement${g.rows.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="field-display f853">${highlightField(escHtml(g.field_853 || ''))}</div>
+      </div>
+      ${g.rows.map(row).join('')}
+    </div>`).join('');
+
+  const held = review.length ? `
+    <div class="pattern-group">
+      <div class="pg-header">
+        <div class="pg-header-meta">
+          <span class="pg-title">Held for review</span>
+          <span class="pill">${review.length} statement${review.length !== 1 ? 's' : ''}</span>
+        </div>
+      </div>
+      ${review.map(pv => `
+        <div class="pair-row ${pv.is_example ? 'is-example' : ''}">
+          <div>
+            <div class="pair-col-label">866</div>
+            <div class="field-display f866">${escHtml(pv.source_866)}</div>
+          </div>
+          <div>
+            <div class="pair-col-label">Reason</div>
+            <div class="alert alert-warn">${escHtml(pv.warnings[0] || 'Not converted.')}</div>
+          </div>
+        </div>`).join('')}
+    </div>` : '';
+
+  return `
+    <div class="small dim mb-1">In <strong>${escHtml(data.record.title)}</strong> —
+      every holdings statement on the record, with the linking numbers it would receive.</div>
+    ${blocks}${held}`;
 }
 
 async function testPattern(card) {
@@ -1131,9 +1312,9 @@ async function testPattern(card) {
       ${data.matched} of ${data.matched + data.failed} matched (${pct}%).</div>`;
     // The edit may have added or removed capture groups, so the table is
     // rebuilt from the roles the server worked out, keeping earlier decisions.
-    renderRoleRows(card, data.roles, data.sample_values || {});
-    updateCardWarnings(card);
-    refreshPreview(card);
+    card._roles = data.roles;
+    card._group.example_values = data.example_values || [];
+    showExample(card);
   } catch (err) {
     showAlert(box, err.message, 'err');
   }
@@ -1162,6 +1343,7 @@ async function confirmPattern(card) {
     notes:    (card._group.examples || [])[0] || '',
   };
 
+  dismissed.delete(entry.id);
   const next = library.filter(p => p.id !== entry.id).concat([entry]);
   const data = await saveLibrary(next);
   if (data.rejected && data.rejected.length) {
@@ -1177,6 +1359,7 @@ async function confirmPattern(card) {
 }
 
 async function removePattern(card) {
+  dismissed.add(card._id);
   await saveLibrary(library.filter(p => p.id !== card._id));
   card.classList.remove('confirmed');
   card.querySelector('.confirmed-pill').hidden = true;
@@ -1228,9 +1411,15 @@ function renderLibrary() {
 }
 
 async function dropPattern(id) {
+  if (id) dismissed.add(id);
   await saveLibrary(library.filter(p => p.id !== id));
-  // Re-render the cards so a removed pattern stops showing as confirmed.
-  if (detected.length) renderPatterns({
+  redrawPatterns();      // so a removed pattern stops showing as confirmed
+}
+
+/** Re-render the cards from the last detection run, without re-detecting. */
+function redrawPatterns() {
+  if (!detected.length) return;
+  renderPatterns({
     total_patterns: detected.length,
     total_statements: detected.reduce((n, g) => n + g.count, 0),
     groups: detected,
@@ -1238,9 +1427,14 @@ async function dropPattern(id) {
 }
 
 document.getElementById('btn-clear-library').addEventListener('click', async () => {
+  // Clearing is as deliberate as removing one, so nothing cleared comes back on
+  // the next detection run. Confirming a card by hand undoes that for it.
+  library.forEach(p => dismissed.add(p.id));
   await saveLibrary([]);
-  showAlert(document.getElementById('library-status'), 'Library cleared.', 'info');
-  if (detected.length) dropPattern('');
+  showAlert(document.getElementById('library-status'),
+    'Library cleared. These patterns will not be confirmed again automatically.',
+    'info');
+  if (detected.length) redrawPatterns();
 });
 
 document.getElementById('btn-import').addEventListener('click', () =>
