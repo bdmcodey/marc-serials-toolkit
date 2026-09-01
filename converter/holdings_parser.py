@@ -481,10 +481,17 @@ def _smart_split_range(text: str) -> List[str]:
     # Prefer the split that produces two non-trivial units.
     # Heuristic: prefer positions where the character before is ")" or digit
     # and after is alpha (start of caption) or "(" or digit.
+    #
+    # The neighbours are the nearest *non-space* characters, not the adjacent
+    # ones. "v. 1 (2001) - v. 5 (2005)" is written with spaces around its
+    # separator at least as often as without, and reading the spaces themselves
+    # matched no rule: the statement parsed as a single unit, the end of the
+    # range was dropped, an 863 was produced for the start alone, and the 866
+    # was then removed as converted -- losing the holdings with no warning.
     best = None
     for pos in candidate_positions:
-        before = text[pos - 1] if pos > 0 else ""
-        after = text[pos + 1] if pos + 1 < len(text) else ""
+        before = text[:pos].rstrip()[-1:]
+        after = text[pos + 1:].lstrip()[:1]
         if before in (")", ) or (before.isdigit() and after.isalpha()):
             best = pos
             break

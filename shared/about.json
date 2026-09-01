@@ -34,6 +34,10 @@
         },
         {
           "tool": "Converter",
+          "text": "A range written with spaces around its dash \u2014 \"v. 1 (2001) - v. 5 (2005)\" \u2014 now keeps its end. It previously read only as far as the first half: an 863 was written for \"v. 1 (2001)\" alone, and because something had been converted the original 866 was then removed, so the rest of the range was deleted with nothing on screen to say so. The same statement written without the spaces was always read correctly. Please re-check any file converted before this version for holdings that end earlier than they should."
+        },
+        {
+          "tool": "Converter",
           "text": "Holdings that begin with a number carrying no caption of its own \u2014 \"39 no 1 (Spring 1995)\" \u2014 are now read, with that number taken as the volume. A number sitting a level above an issue is a volume, so \"39 no 1\" means the same as \"v.39 no 1\", which already worked. These statements were previously not converted at all."
         },
         {
