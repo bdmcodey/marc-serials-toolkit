@@ -162,22 +162,49 @@ class Outcome:
 
     __slots__ = ("entry", "result", "conversion", "status", "dropped_numbers",
                  "dropped_chron", "undeclared", "end_only", "uncoded",
-                 "collapsed", "phantom_start")
+                 "collapsed", "phantom_start", "end_only_silent")
+
+    def _announced(self, value: str) -> bool:
+        """
+        True when a converter warning names this value as not encoded.
+
+        The warnings quote the value they dropped in parentheses, so those are
+        the spans to search -- and the value inside can itself be a range, as in
+        "Only the end of this range gives an issue (1-2)". A bare "2" from the
+        digit audit has to match inside that, or a value the record *does*
+        account for would still be counted as lost.
+        """
+        for warning in self.conversion.warnings:
+            for span in re.findall(r"\(([^)]*)\)", warning):
+                if value == span or value in re.findall(r"\w+", span):
+                    return True
+        return False
 
     def __init__(self, entry: Entry):
         self.entry = entry
         self.result = parse_866(entry.statement)
         self.conversion = convert_holdings(self.result)
 
+        # conversion.warnings starts as a copy of the parse warnings and gains
+        # the converter's own, so it covers both. A statement that says what it
+        # could not encode is "warn", not "ok": the value is accounted for
+        # rather than lost, which is a different outcome from a clean one and
+        # is the whole point of the third bucket.
         produced = bool(self.conversion.fields_863)
         if not produced:
             self.status = "fail"
-        elif self.result.warnings:
+        elif self.conversion.warnings:
             self.status = "warn"
         else:
             self.status = "ok"
 
         # Values the statement asserts that reach none of the generated fields.
+        #
+        # A value the converter *named* in a warning is accounted for, not lost.
+        # That distinction is the point: the failure is bounded once the record
+        # says which value it could not encode, and only an unannounced drop
+        # counts against the clean rate. The converter's warnings quote the
+        # value in parentheses, which is what is matched here.
         self.dropped_numbers: list[str] = []
         self.dropped_chron: list[str] = []
         if produced:
@@ -186,7 +213,9 @@ class Outcome:
             numbers, chron = _asserted_values(entry.statement)
             self.dropped_numbers = [n for n in numbers if n not in in_output]
             self.dropped_chron = [c for c in chron if c not in in_output]
-            if self.dropped_numbers or self.dropped_chron:
+            unannounced = [v for v in self.dropped_numbers + self.dropped_chron
+                           if not self._announced(v)]
+            if unannounced:
                 self.status = "loss"
 
         # Levels the 853 declares that its own 863s never fill. A caption with
@@ -211,6 +240,7 @@ class Outcome:
         # in the field would not do: "v. 1-v. 2 no. 2" drops its issue, and a
         # "2" is still there in the "$a 1-2" beside it.
         self.end_only: list[str] = []
+        self.end_only_silent = False
         slots = read_853_slots(f853) if f853 else {}
         for seq, hr in enumerate(self.result.ranges):
             if hr.end is None or seq >= len(self.conversion.fields_863):
@@ -224,7 +254,17 @@ class Outcome:
                     continue
                 code = slots.get(level)
                 if code and code not in present:
-                    self.end_only.append(f"{level}={end_v} (${code} never written)")
+                    # Announced or silent? The converter now names the value it
+                    # could not encode, which moves it from "lost" to "accounted
+                    # for" -- the difference the whole bounded-error idea turns
+                    # on. Still reported either way, but only a silent one is a
+                    # loss, so removing that warning would show up here.
+                    announced = self._announced(end_v)
+                    self.end_only.append(
+                        f"{level}={end_v} (${code} never written"
+                        f"{', announced' if announced else ', SILENTLY'})")
+                    if not announced:
+                        self.end_only_silent = True
 
         # Text where a code belongs. The 853 labels these subfields (month) or
         # (season) and an 863 under them should hold 01-12 or 21-24; a season
@@ -269,6 +309,10 @@ class Outcome:
                         ranged = True
                         continue
                     code = slots.get(level)
+                    # A value that is already a range is left alone: "no. 3-4 -
+                    # no. 3-4" would become the unreadable "3-4-3-4".
+                    if "-" in start_v:
+                        continue
                     if ranged and code and emitted.get(code) == start_v:
                         self.collapsed.append(
                             f"${code} {start_v} should be {start_v}-{end_v}")
@@ -301,7 +345,7 @@ class Outcome:
                     self.phantom_start.append(
                         f"${code} {end_v} is the end's {level}, written as the start's")
 
-        if produced and (self.end_only or self.uncoded
+        if produced and (self.end_only_silent or self.uncoded
                          or self.collapsed or self.phantom_start):
             self.status = "loss"
 
@@ -420,7 +464,7 @@ def _converts_on_partial_match(statement: str, compiled: "re.Pattern") -> bool:
 
 DEFECTS = {
     "D1": "discontinuous list truncated at the first comma",
-    "D2": "enumeration carried only by the end boundary is dropped",
+    "D2": "enumeration only the end boundary states (dropped, now named)",
     "D3": "a designation between enumeration and chronology truncates the parse",
     "D4": "a day inside the date voids that boundary's chronology",
     "D5": "unrecognised chronology wording written into a coded subfield",
@@ -434,7 +478,7 @@ DEFECTS = {
     "D13": "detector: free text invisible in the pattern label",
     "D14": "detector/converter disagree on a shape both accept",
     "D15": "compressed range collapsed when both endpoints are equal",
-    "D16": "the end's chronology written as if it were the start's",
+    "D16": "chronology only the end boundary states (dropped, now named)",
     "D17": "workbench: a pattern claims a substring, discarding the rest",
     "D18": "863 second indicator says uncompressed for a compressed field",
 }
@@ -526,7 +570,7 @@ def report(detail: bool = False, drift_only: bool = False) -> int:
                     print(f"       range collapsed: {'; '.join(o.collapsed)}")
                 if o.phantom_start:
                     print(f"       invented start: {'; '.join(o.phantom_start)}")
-                for w in o.result.warnings:
+                for w in o.conversion.warnings:
                     print(f"       warn: {w}")
 
     # ── Detector ──

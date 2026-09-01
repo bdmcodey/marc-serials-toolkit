@@ -8,9 +8,10 @@ This is a log of what the corpus exposes, so that fixing any of it is a
 deliberate, separately reviewable decision. Everything here was found before
 anything was changed.
 
-**D17 and D18 are fixed** as of 0.6.1 (1 September 2026); their sections below
-are kept and marked, because the reasoning is the record of why the code looks
-the way it does now. Everything else is open.
+**D17 and D18 are fixed** as of 0.6.1, and **D2, D15 and D16** as of 0.6.2
+(1 September 2026). Their sections below are kept and marked, because the
+reasoning is the record of why the code looks the way it does now. Everything
+else is open.
 
 Reproduce every number below with:
 
@@ -22,24 +23,29 @@ python scripts/corpus_report.py --drift    # only the tags that no longer hold
 
 ## Headline
 
-| | |
-|---|---|
-| statements | 112 unique (127 before de-duplication), 10 sections |
-| converted cleanly | **67 (60%)** |
-| converted with values silently dropped | **36 (32%)**, 35 of them defects |
-| converted with a warning | 3 |
-| produced no fields at all | 6 (5%) |
-| detector clusters | 55 for 112 statements, 39 of them singletons |
-| statements a pattern can claim only part of | **37 (33%)** |
+| | at 0.6.0 | now (0.6.2) |
+|---|---|---|
+| statements | 112 unique (127 before de-duplication), 10 sections | — |
+| converted cleanly | 67 (60%) | **79 (71%)** |
+| converted with values **silently** dropped | 36 (32%) | **15 (13%)** |
+| converted, and told the cataloguer what it dropped | 3 | **12** |
+| produced no fields at all | 6 (5%) | 6 (5%) |
+| detector clusters | 55, 39 of them singletons | unchanged |
+| statements a pattern could claim only part of | 37 (33%) | 0 convert on one |
 
-The number that matters is not the 6 refusals. It is the **36 silent losses**.
+The silent-loss column is the one to watch. Half of the drop is values now
+*encoded* (D15); the rest are values still not encoded but now **named in a
+warning**, which moves them from lost to accounted for.
+
+The number that matters is not the 6 refusals. It was the **36 silent losses**;
+15 remain.
 
 A refusal is safe: the Converter writes nothing, the 866 survives, and the
 statement lands in the cataloguer's review queue. A silent loss is not.
 `converter/app.py` defaults `remove_866` to `True`, so once *anything* has been
 written from a statement the source text is deleted from the record — and for
-these 36 the generated 853/863 does not carry everything the 866 said. The
-holdings are gone, and nothing on screen says so.
+these the generated 853/863 does not carry everything the 866 said. The holdings
+are gone, and nothing on screen says so.
 
 The Workbench is safer here: since "Keep the original 866s by default" it
 defaults `remove_866` to `False`. The Converter still does not.
@@ -91,7 +97,7 @@ once anything is written from it, so the second issue and both seasons would go
 with it") suggests the case was understood and the guard simply landed one
 condition too deep.
 
-### D2 — enumeration stated only at the end of a range never reaches the 863 · 8 statements
+### D2 — enumeration stated only at the end of a range never reaches the 863 · 8 statements · **FIXED in 0.6.2**
 
 ```
 v. 1 - v. 55 no. 3 (1927-1982)
@@ -124,6 +130,14 @@ Note the last one: its issue is `2` and its volume range renders as `1-2`, so a
 digit-counting audit sees a "2" in the output and reports nothing. Only checking
 whether the subfield was written at all finds it — `scripts/corpus_report.py`
 does both, and this is why.
+
+**Fixed in 0.6.2, but not the way this section proposed.** Giving enumeration
+the same end-boundary fallback chronology had would have been wrong: working
+through D16 showed that fallback is itself the bug in the other direction. The
+value is still not written — there is no MARC notation for half a range, and
+inventing a start would be worse than omitting the level — but the conversion
+now **names the issue it could not place**, so it is accounted for instead of
+vanishing. See "One rule for both ends" below.
 
 ### D3 — a designation between enumeration and chronology truncates the parse · 3 statements
 
@@ -309,7 +323,7 @@ Two smaller ones:
 Two records raised these; the corpus then showed how common they are. Both
 premises checked out against MARC 21 — see "Checking against the standard".
 
-### D15 — a compressed range collapses when both endpoints are equal · 12 statements
+### D15 — a compressed range collapses when both endpoints are equal · 12 statements · **FIXED in 0.6.2**
 
 ```
 v. 41 no. 1-v. 43 no. 1 (Jun 1984-Jan/Apr 1986)
@@ -334,7 +348,23 @@ recoverable from `$a 43 $b 6-7`, because the volume does not range — so it is
 not flagged. Twelve statements are, including `$j 01` under `$i 2014-2022`,
 where the same ambiguity hits chronology.
 
-### D16 — the end's chronology written as if it were the start's · 1 statement
+**Fixed in 0.6.2** in two places, because the collapse happens twice. The
+obvious one is `_enum_value()`. The second only showed up while testing: when a
+single chronology group spans the range — `(Jan 1956 - Jan 1957)` — the parser
+folds it onto the end boundary, so `_parse_chron()` is the *only* code that ever
+sees both months, and it was collapsing them there. Four of the twelve were
+being half-fixed until that was found.
+
+That second site also shows why the rule cannot be applied later: by the time
+`_build_863_for_range()` sees a lone `09`, "Sep 1956 - Sep 1957" and
+"1981 - Sep 1996" look identical, and repeating the second would invent a month
+the statement never gave. `_parse_chron()` can still tell them apart, so that is
+where it belongs.
+
+A value that is already a range is left alone — `no. 3-4 - no. 3-4` would
+otherwise become the unreadable `3-4-3-4`.
+
+### D16 — the end's chronology written as if it were the start's · 1 statement · **FIXED in 0.6.2**
 
 ```
 v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)
@@ -359,7 +389,10 @@ a group of their own.
 
 This is the exact mirror of D2. There the end-only fallback is *missing* for
 enumeration; here it is *too eager* for chronology. Both come from the same
-asymmetry and should be fixed together.
+asymmetry and were fixed together.
+
+**Fixed in 0.6.2.** `$j` is omitted and a warning names the December it could
+not place.
 
 ### D17 — a confirmed pattern claims a substring and discards the rest · 37 statements (33%) · **FIXED in 0.6.1**
 
@@ -452,6 +485,59 @@ both reasonable defaults. Note that `853` first indicator `3` and an `863`
 claiming to be uncompressed are at least consistent in being uninformative —
 setting the 863 indicator to `0` without revisiting the 853's would be a partial
 fix.
+
+## One rule for both ends
+
+D2, D15 and D16 were three symptoms of one thing: `_build_863_for_range()` had
+no single answer to "what does a level's pair of endpoints become". Chronology
+had an end-boundary fallback and enumeration had none; equal endpoints collapsed
+in both. 0.6.2 replaces all of it with `_hierarchy_values()`, which walks one
+hierarchy at a time — enumeration `vol → issue → part`, chronology
+`year → month`, independent of each other — and answers four cases:
+
+| what the range states | what is written |
+|---|---|
+| both ends, different | `41-43` |
+| both ends, equal, something above it ranges | `1-1` — the pairing is the point |
+| both ends, equal, nothing above it ranges | `43` — nothing to pair with |
+| the start only | the start's value |
+| the end only, start says nothing at all in this hierarchy | the end's value — one group covering the whole range |
+| the end only, start states other levels | **omitted, and named in a warning** |
+
+The last row is the one that took the thinking. Both boundaries were written
+out and only one names this level, so there is no range to express and no
+notation for half of one. Writing it asserts something false about the other
+end; dropping it silently loses a value the cataloguer gave. Naming it does
+neither:
+
+```
+v. 1 - v. 55 no. 3 (1927-1982)
+  863 40 $8 1.1 $a 1-55 $i 1927-1982
+  "Only the end of this range gives an issue (3); a compressed 863 records the
+   first and last part held, so with no issue at the start it was left out."
+```
+
+This is the third bucket from the bounded-error proposal, working. The value is
+neither encoded nor lost — it is **accounted for**, and the cataloguer can act
+on a specific claim rather than wondering what else went missing.
+
+The corpus report follows the same distinction: a value a warning names no
+longer counts as a silent loss, which is why the clean rate moved from 60% to
+71% while six statements moved from "lost" to "warned". If that warning were
+ever removed, the report would count them as losses again.
+
+### What this deliberately did not change
+
+Two shapes were left alone, and both are worth knowing about:
+
+- **The start-only mirror.** `v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)`
+  writes `$i 2012-2016 $j 21`, where the start names a season and the end does
+  not. That is the same ambiguity as the fixed cases, pointing the other way,
+  and dropping it would lose a value the statement does give. Left as it is; not
+  yet decided.
+- **`(1981 - Sep 1996)`** still writes `$j 09`. Only one side of the group named
+  a month, so `09-09` would invent one, and there is no way to say "the end
+  only". Same category as the row above.
 
 ## Checking against the standard
 
@@ -550,16 +636,15 @@ everything correctly" is not.
 
 0. ~~**D17 first, before anything else.**~~ Done in 0.6.1.
 1. ~~**D18** — set the 863 second indicator to `0`.~~ Done in 0.6.1.
-2. **D15 and D16 together** — both are `_build_863_for_range()` boundary logic,
-   and D16 is the mirror of D2, so all three are one change to how a level's two
-   endpoints become a subfield value.
+2. ~~**D15 and D16 together**~~ Done in 0.6.2, with D2 — one rule for how a
+   level's two endpoints become a subfield value. See "One rule for both ends".
 3. **D1 and D3 together** — move the partial-match guard in `_parse_unit()` out of
    the captionless branch so it applies whenever the match does not account for
    the whole unit. That alone converts 10 silent losses into visible refusals,
    which is a strict improvement even before either shape is properly parsed.
    Handling the comma list properly is the larger, separate job.
-4. **D2** — give enumeration the same end-boundary fallback chronology already
-   has, with D16's guard so it does not become too eager in turn. 8 statements.
+4. ~~**D2**~~ Done in 0.6.2. The fix was not the fallback proposed above —
+   see D2's section for why that would have been wrong.
 5. **D6** — let the enumeration block match an issue-first unit. No guessing
    required; three statements here and a common real shape.
 6. **D5** — refuse to write text into a subfield declared as coded; hold for

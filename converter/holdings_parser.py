@@ -332,6 +332,8 @@ def _parse_chron(raw: str) -> Tuple[Optional[str], Optional[str]]:
       '1990:Mar.'     -> ('1990', '03')
       'Jan-Jun 1984'  -> ('1984', '01-06')     # year shared across range
       'Jan 1990-Dec 1994' -> ('1990-1994', '01-12')
+      'Jan 1956-Jan 1957' -> ('1956-1957', '01-01')   # both ends named, kept
+      '1981-Sep 1996' -> ('1981-1996', '09')   # only one end named a month
       '1990-1994'     -> ('1990-1994', None)
     Months and seasons are returned as MARC chronology codes
     (01-12, seasons 21-24) for use in 863 $j.
@@ -344,15 +346,25 @@ def _parse_chron(raw: str) -> Tuple[Optional[str], Optional[str]]:
         l_year, l_month = _parse_chron_single(left)
         r_year, r_month = _parse_chron_single(right)
 
-        # Year: share the right-hand year if the left boundary omits it
+        # Year: share the right-hand year if the left boundary omits it.
+        # Equal years collapse: the year is the most significant chronology
+        # level, so there is nothing above it whose endpoints a repeat would
+        # be pairing with.
         if l_year and r_year:
             year = l_year if l_year == r_year else f"{l_year}-{r_year}"
         else:
             year = l_year or r_year
 
-        # Month/season range
+        # Month/season range.  Two ends naming the same month keep both --
+        # "Jan 1956 - Jan 1957" is '01-01', not '01'.  Collapsing it lost the
+        # pairing with the years either side, leaving "$i 1956-1957 $j 01",
+        # which reads as one January spanning two years.  Only here is it
+        # knowable that both ends named a month: further down, a lone '01' from
+        # this branch would be indistinguishable from the '09' that
+        # "1981 - Sep 1996" produces below, where one end genuinely says
+        # nothing and a repeat would invent it.
         if l_month and r_month:
-            month = l_month if l_month == r_month else f"{l_month}-{r_month}"
+            month = f"{l_month}-{r_month}"
         else:
             month = l_month or r_month
 

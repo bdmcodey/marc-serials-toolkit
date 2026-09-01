@@ -446,3 +446,114 @@ def test_keeping_patterns_separate_does_not_disturb_runs():
     for merge in (True, False):
         rc = convert_record([parse_866(s) for s in stmts], merge_patterns=merge)
         assert rc.links_written == ["1", "2", "3"], merge
+
+
+# ---------------------------------------------------------------------------
+# A compressed range carries both of its endpoints
+# ---------------------------------------------------------------------------
+
+def test_equal_endpoints_under_a_ranging_level_keep_both_ends():
+    """
+    "$a 41-43 $b 1" cannot be read back as v.41:no.1 - v.43:no.1.
+
+    It describes issue 1 of each of volumes 41 to 43 just as well, and the
+    pairing of the two endpoints is what a compressed 863 exists to carry.
+    _enum_value() collapsed equal endpoints to a single value until 0.6.2.
+    """
+    result = convert_holdings(parse_866("v. 41 no. 1-v. 43 no. 1 (Jun 1984-Jan/Apr 1986)"))
+    assert sub(result.fields_863[0], "b") == "1-1"
+    assert sub(result.fields_863[0], "a") == "41-43"
+
+
+def test_equal_endpoints_with_nothing_ranging_above_stay_single():
+    """
+    The converse, and the reason the rule is not "always repeat".
+
+    "v. 43 no. 6 - v. 43 no. 7" is fully recoverable from "$a 43 $b 6-7": the
+    volume does not range, so there is no pairing to lose and "$a 43-43" would
+    be noise. Only a level *under* a ranging one repeats.
+    """
+    result = convert_holdings(
+        parse_866("v. 43 no. 6 - v. 43 no. 7 (June 2022 - July/August 2022)"))
+    assert sub(result.fields_863[0], "a") == "43"
+    assert sub(result.fields_863[0], "b") == "6-7"
+    assert sub(result.fields_863[0], "i") == "2022"
+
+
+def test_a_value_that_is_already_a_range_is_not_repeated():
+    """"no. 3-4 - no. 3-4" must not become the unreadable "3-4-3-4"."""
+    result = convert_holdings(
+        parse_866("v. 23 no. 3-4-v. 29 no. 3-4 (Fall 1985-Fall/Winter 1991)"))
+    assert sub(result.fields_863[0], "b") == "3-4"
+
+
+def test_both_ends_naming_the_same_month_keep_both():
+    """
+    The same rule one layer down, where a single chronology group spans the
+    range: "(Jan 1956 - Jan 1957)" parses onto the end boundary alone, so
+    _parse_chron is the only place that can still see both months. Collapsing
+    there produced "$i 1956-1957 $j 01", one January across two years.
+    """
+    result = convert_holdings(parse_866("v. 62 no. 1 - v. 63 no. 1 (Jan 1956 - Jan 1957)"))
+    assert sub(result.fields_863[0], "i") == "1956-1957"
+    assert sub(result.fields_863[0], "j") == "01-01"
+
+
+def test_a_month_only_one_end_names_is_not_repeated():
+    """
+    "(1981 - Sep 1996)" says nothing about a month at the start, so "$j 09-09"
+    would invent one. Distinguishable from the test above only inside
+    _parse_chron, which is why the fix lives there.
+    """
+    result = convert_holdings(parse_866("v. 78 - v. 93 no. 3 (1981 - Sep 1996)"))
+    assert sub(result.fields_863[0], "j") == "09"
+
+
+# ---------------------------------------------------------------------------
+# A level only one boundary states is left out, and said so
+# ---------------------------------------------------------------------------
+
+def test_a_month_only_the_end_states_is_dropped_not_written_as_the_start():
+    """
+    Both boundaries are written out and only the second names a month, so
+    December belongs to the end alone. Writing it asserted that the holdings
+    *begin* in December 2006; there is no notation for half a range, so the
+    level is left out -- and named, so the value is accounted for.
+    """
+    result = convert_holdings(parse_866("v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)"))
+    f863 = result.fields_863[0]
+
+    assert sub(f863, "a") == "1-12"
+    assert sub(f863, "b") == "1-4"
+    assert sub(f863, "i") == "1995-2006"
+    assert sub(f863, "j") is None
+    assert any("(12)" in w for w in result.warnings), result.warnings
+
+
+def test_an_issue_only_the_end_states_is_dropped_and_named():
+    """
+    The same case for enumeration, which had no fallback at all and dropped the
+    value in silence. The 853 still declares a `no.` caption, because the level
+    is genuinely part of this publication's numbering -- what changed is that
+    the record now says which issue it could not place.
+    """
+    result = convert_holdings(parse_866("v. 1 - v. 55 no. 3 (1927-1982)"))
+    f863 = result.fields_863[0]
+
+    assert sub(f863, "a") == "1-55"
+    assert sub(f863, "b") is None
+    assert any("(3)" in w and "issue" in w for w in result.warnings), result.warnings
+
+
+def test_a_single_chronology_group_still_covers_the_whole_range():
+    """
+    The end-boundary fallback that D16 narrowed, still working where it should.
+
+    "v.1:no.1-v.2:no.4(1990-1991)" has one chronology group for the whole
+    statement, which the parser hangs on the end boundary. The start states no
+    chronology at all, so those years describe both ends and are used as they
+    stand -- no warning, nothing dropped.
+    """
+    result = convert_holdings(parse_866("v.1:no.1-v.2:no.4(1990-1991)"))
+    assert sub(result.fields_863[0], "i") == "1990-1991"
+    assert result.warnings == []

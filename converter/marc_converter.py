@@ -411,33 +411,106 @@ def _build_853(
 # 863 builder helpers
 # ---------------------------------------------------------------------------
 
-def _enum_value(start: Optional[str], end: Optional[str],
-                open_ended: bool) -> Optional[str]:
-    """
-    Produce the subfield value for an enumeration level:
-      single item → "3"
-      closed range → "3-7"
-      open range  → "3-"
-    """
-    if start is None:
-        return None
-    if end is None and not open_ended:
-        return start
-    if open_ended:
-        return f"{start}-"
-    return f"{start}-{end}" if end != start else start
+# The two level hierarchies an 863 carries, each most significant first.
+# Enumeration and chronology are independent: a volume ranging says nothing
+# about whether the year does.
+_ENUM_LEVELS = ("vol", "issue", "part")
+_CHRON_LEVELS = ("year", "month")
+
+# Cataloguer-facing names, with their article, for warnings about a level that
+# could not be written.
+_LEVEL_WORDS = {
+    "vol":   ("a", "volume"),
+    "issue": ("an", "issue"),
+    "part":  ("a", "part"),
+    "year":  ("a", "year"),
+    "month": ("a", "month or season"),
+}
 
 
-def _chron_value(start: Optional[str], end: Optional[str],
-                 open_ended: bool) -> Optional[str]:
-    """Same as _enum_value but for chronology strings."""
-    if start is None:
-        return None
-    if end is None and not open_ended:
-        return start
-    if open_ended:
-        return f"{start}-"
-    return f"{start}-{end}" if end != start else start
+def _hierarchy_values(
+    hr: HoldingsRange,
+    level_names: tuple,
+    warnings: Optional[List[str]] = None,
+) -> Dict[str, str]:
+    """
+    The 863 value for every level of one hierarchy, as {level: value}.
+
+    A compressed 863 records the first part held and the last part held, so
+    each level should carry both of its endpoints.  Four situations arise, and
+    the awkward one is the last.
+
+    Both endpoints known
+        Different values give the obvious "41-43".  *Equal* values give "1-1"
+        rather than "1" whenever a more significant level ranges: "$a 41-43
+        $b 1" cannot be read back as v.41:no.1 - v.43:no.1, because it equally
+        describes issue 1 of each of volumes 41 to 43, and the pairing of the
+        endpoints is exactly what a compressed field exists to carry.  Where
+        nothing above the level ranges there is no pairing to lose, so
+        "v. 43 no. 6 - v. 43 no. 7" stays "$a 43 $b 6-7".  A value that is
+        itself already a range is left alone: "no. 3-4 - no. 3-4" would become
+        the unreadable "3-4-3-4".
+
+    Only the start knows it
+        Its value stands.  An open-ended range writes the trailing hyphen.
+
+    Only the end knows it, and the start boundary states nothing at all in this
+    hierarchy
+        One group is covering the whole range -- "v.1:no.1-v.2:no.4(1990-1991)"
+        parses with the years on the end boundary alone -- so that value
+        describes both ends and is used as it stands.
+
+    Only the end knows it, and the start boundary states other levels
+        Both boundaries were written out and only one of them names this level:
+        the "December" in "v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)"
+        belongs to the end alone.  There is no notation for half a range, so
+        writing it would assert that the holdings *begin* in December.  The
+        level is left out and a warning names what was dropped -- the value is
+        accounted for rather than silently discarded.
+    """
+    s, e = hr.start, hr.end
+    oe = hr.open_ended
+
+    # Whether the start boundary was written out at all at this hierarchy.
+    # This is what separates a single group covering the range from two
+    # groups where only the second names the level.
+    start_speaks = any(getattr(s, name) is not None for name in level_names)
+
+    out: Dict[str, str] = {}
+    ranged_above = False
+
+    for name in level_names:
+        s_val = getattr(s, name)
+        e_val = getattr(e, name) if e is not None else None
+        value: Optional[str] = None
+
+        if s_val is not None and e_val is not None:
+            if s_val != e_val:
+                value = f"{s_val}-{e_val}"
+                ranged_above = True
+            elif ranged_above and "-" not in s_val:
+                value = f"{s_val}-{s_val}"
+            else:
+                value = s_val
+        elif s_val is not None:
+            value = f"{s_val}-" if oe else s_val
+        elif e_val is not None:
+            if not start_speaks:
+                value = e_val
+            elif warnings is not None:
+                article, word = _LEVEL_WORDS.get(name, ("a", name))
+                note = (
+                    f"Only the end of this range gives {article} {word} "
+                    f"({e_val}); a compressed 863 records the first and last "
+                    f"part held, so with no {word} at the start it was left out."
+                )
+                if note not in warnings:
+                    warnings.append(note)
+
+        if value:
+            out[name] = value
+
+    return out
 
 
 def _build_863_for_range(
@@ -447,56 +520,35 @@ def _build_863_for_range(
     levels: dict,
     smap: Optional[Dict[str, str]] = None,
     chron_as_text: bool = False,
+    warnings: Optional[List[str]] = None,
 ) -> FieldData:
     """
     Build a single 863 field for one HoldingsRange.
 
     `smap` maps semantic levels to subfield codes, so the 863 lands in the same
     subfields the governing 853 declares.  `chron_as_text` writes chronology as
-    text ("Mar") instead of MARC codes ("03").
+    text ("Mar") instead of MARC codes ("03").  `warnings`, when given, collects
+    notes about values the range states that could not be encoded -- see
+    _hierarchy_values, which decides what those are.
     """
     smap = smap or _SUBFIELD_MAPS[CONVENTION_STANDARD]
-    s = hr.start
-    e = hr.end  # may be None (open-ended)
-    oe = hr.open_ended
 
     sfs: List[SubfieldData] = []
     sfs.append(SubfieldData("8", f"{linking_number}.{sequence}"))
 
+    values = _hierarchy_values(hr, _ENUM_LEVELS, warnings)
+    values.update(_hierarchy_values(hr, _CHRON_LEVELS, warnings))
+
     planned: List[tuple] = []
-
-    # Enumeration
-    if levels.get("vol"):
-        val = _enum_value(s.vol, e.vol if e else None, oe)
-        if val:
-            planned.append((smap["vol"], val))
-
-    if levels.get("issue"):
-        val = _enum_value(s.issue, e.issue if e else None, oe)
-        if val:
-            planned.append((smap["issue"], val))
-
-    if levels.get("part"):
-        val = _enum_value(s.part, e.part if e else None, oe)
-        if val:
-            planned.append((smap["part"], val))
-
-    # Chronology.  In "chron at end only" patterns such as
-    # "v.1:no.1-v.2:no.4(1990-1991)" the single chronology group covers
-    # the whole range, so fall back to the end boundary's values.
-    if levels.get("year"):
-        start_year = s.year if s.year is not None else (e.year if e else None)
-        end_year = e.year if (e and s.year is not None) else None
-        val = _chron_value(start_year, end_year, oe)
-        if val:
-            planned.append((smap["year"], val))
-
-    if levels.get("month"):
-        start_month = s.month if s.month is not None else (e.month if e else None)
-        end_month = e.month if (e and s.month is not None) else None
-        val = _chron_value(start_month, end_month, oe)
-        if val:
-            planned.append((smap["month"], _chron_text(val) if chron_as_text else val))
+    for name in _ENUM_LEVELS + _CHRON_LEVELS:
+        if not levels.get(name):
+            continue
+        value = values.get(name)
+        if not value:
+            continue
+        if name == "month" and chron_as_text:
+            value = _chron_text(value)
+        planned.append((smap[name], value))
 
     for code, value in sorted(planned, key=lambda p: p[0]):
         sfs.append(SubfieldData(code, value))
@@ -595,8 +647,8 @@ def convert_holdings(
         # not this statement's position in the record.
         link = _existing_link(existing_853) or linking_number
         fields_863 = [
-            _build_863_for_range(hr, link, seq, levels,
-                                 smap=declared, chron_as_text=chron_as_text)
+            _build_863_for_range(hr, link, seq, levels, smap=declared,
+                                 chron_as_text=chron_as_text, warnings=warnings)
             for seq, hr in enumerate(parse_result.ranges, start=1)
         ]
         return ConversionResult(
@@ -630,8 +682,8 @@ def convert_holdings(
 
     fields_863: List[FieldData] = []
     for seq, hr in enumerate(parse_result.ranges, start=1):
-        f863 = _build_863_for_range(hr, linking_number, seq, levels,
-                                    smap=smap, chron_as_text=chron_as_text)
+        f863 = _build_863_for_range(hr, linking_number, seq, levels, smap=smap,
+                                    chron_as_text=chron_as_text, warnings=warnings)
         fields_863.append(f863)
 
     return ConversionResult(
