@@ -49,7 +49,7 @@
 # The opening set: an unlabelled mix, the widest variety in the file.
 # Source heading: (opening set, unlabelled). 22 unique statements.
 v. 23 no. 3-4-v. 29 no. 3-4 (Fall 1985-Fall/Winter 1991)
-v. 24 nos. 2-5, 8-10 (Apr-Jul, Oct-Dec 1920)                        # loss:D1
+v. 24 nos. 2-5, 8-10 (Apr-Jul, Oct-Dec 1920)                        # fail:D1
 v. 24 nos. 2-5 (Apr-Jul 1920)
 v. 24 nos. 8-10 (Oct-Dec 1920)
 v.1-10 (1963-1968)
@@ -67,7 +67,7 @@ no. 41 (May 2002)                                                   # fail:D6
 v. 59 No. 1 (Jan 2014)-v. 67 No 1 (Jan 2022)
 v. 1 - v. 55 no. 3 (1927-1982)                                      # warn:D2
 v. 15 no. 6 - v. 23 nos. 2/3 (Nov/Dec 1994 - Late Summer 2002)      # loss:D5
-v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)              # [x2] loss:D1
+v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)              # [x2] fail:D1
 v. 34 no. 8/9-v. 35 no. 23/24 (Apr 18, 1996-Dec 1997)               # loss:D4
 v. 92 no. 1/2-v. 95 no. 1/2 (1993-1996)                             # [x2]
 
@@ -99,13 +99,13 @@ v.9-23 (1922-1936)
 v. 1-v. 17 no. 3 (1981-October 1997)                                # warn:D2
 v. 18-v. 19 no. 2 (1998-Summer 1999)                                # warn:D2
 v. 52 (1981)
-v. 40-45 no. 4 (1974-Apr 1979)                                      # [x2]
-v. 1 no. 1 (1956)-v.51 (2006)                                       # [x3]
+v. 40-45 no. 4 (1974-Apr 1979)                                      # [x2]  # warn:D16
+v. 1 no. 1 (1956)-v.51 (2006)                                       # [x3]  # warn:D2
 v. 1 (1956)-v.51 nos.1-2 (2006)                                     # [x3] warn:D2
-v. 1 nos. 1-2 (1956)-v.51 (2006)
+v. 1 nos. 1-2 (1956)-v.51 (2006)                                    # warn:D2
 v.1 (1880)
 Series 1, v. 6 no. 1 (Summer/Fall 1992)                             # warn:D8
-v. 1 no. 8-v. 2 (Aug 1984-1985)                                     # [x2]
+v. 1 no. 8-v. 2 (Aug 1984-1985)                                     # [x2]  # warn:D2
 
 [section: list-ref]
 # Headed "list_ref examples"; all but one repeat earlier lines.
@@ -116,18 +116,18 @@ v. 1-v. 2 no. 2 (1984-Mar/Apr 1985)                                 # warn:D2
 # One title's real run. Six of its seven statements use the
 #   discontinuous "nos. a-b, c-d" list that D1 truncates.
 # Source heading: Australian journal of dentistry. 7 unique statements.
-v. 20 nos. 1, 3, 9-10 (Jan, Mar, Sep-Oct 1916)                      # loss:D1
-v. 21 nos. 6, 8 (Jun, Aug 1917)                                     # loss:D1
-v. 22 nos. 1-6, 10 (Jan-Jun, Oct 1918)                              # loss:D1
-v. 24 nos 2-5, 8-10 (Apr-Jul, Oct-Dec 1920)                         # loss:D1
-v. 25 no. 2-v. 33 (Feb 1921-1929)
-v. 34 nos. 2-3, 6-10 (Feb-Mar, Jun-Oct 1930)                        # loss:D1
+v. 20 nos. 1, 3, 9-10 (Jan, Mar, Sep-Oct 1916)                      # fail:D1
+v. 21 nos. 6, 8 (Jun, Aug 1917)                                     # fail:D1
+v. 22 nos. 1-6, 10 (Jan-Jun, Oct 1918)                              # fail:D1
+v. 24 nos 2-5, 8-10 (Apr-Jul, Oct-Dec 1920)                         # fail:D1
+v. 25 no. 2-v. 33 (Feb 1921-1929)                                   # warn:D2
+v. 34 nos. 2-3, 6-10 (Feb-Mar, Jun-Oct 1930)                        # fail:D1
 v. 35-59 (1931-1955)
 
 [section: supplements]
 # Supplement and anniversary issues.
 # Source heading: Suppls. 2 unique statements.
-v. 58 Suppl. (Sep 2003)                                             # loss:D3
+v. 58 Suppl. (Sep 2003)                                             # fail:D3
 50th Anniversary Issue (2017)                                       # fail:D7
 
 [section: desmos]
@@ -166,7 +166,7 @@ v. 94 no. 1 - v. 101 no. 4 (Jan 1988 - Fall 1995)
 v. 102 no. 2 - v. 103 no. 3 (Spring 1996 - Summer 1997)
 v. 104 no. 1 - v. 116 no. 2 (Winter 1998 - Summer 2010)
 v. 116 no. 4 (Winter 2010)-v. 117 no. 3 (Fall 2011)
-v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)
+v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)                      # warn:D16
 v. 122 no. 3 (2016)-v. 128 no. 4 (2022)
 
 [section: compendium]
@@ -181,8 +181,8 @@ v. 43 no. 6 - v. 43 no. 7 (June 2022 - July/August 2022)
 # The same title's supplements.
 # Source heading: Compendium [suppls]. 3 unique statements.
 Special Issue (October/November 1995)                               # fail:D7
-v. 19 no. 2 Suppl. (1998)                                           # loss:D3
-v. 20 no. 1 Suppl. (1999)                                           # loss:D3
+v. 19 no. 2 Suppl. (1998)                                           # fail:D3
+v. 20 no. 1 Suppl. (1999)                                           # fail:D3
 
 [section: block-grammar]
 # Chronology-first statements, parsed by the separate block

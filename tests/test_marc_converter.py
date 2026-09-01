@@ -499,14 +499,46 @@ def test_both_ends_naming_the_same_month_keep_both():
     assert sub(result.fields_863[0], "j") == "01-01"
 
 
-def test_a_month_only_one_end_names_is_not_repeated():
+def test_a_month_only_one_end_names_is_dropped():
     """
-    "(1981 - Sep 1996)" says nothing about a month at the start, so "$j 09-09"
-    would invent one. Distinguishable from the test above only inside
-    _parse_chron, which is why the fix lives there.
+    "(1981 - Sep 1996)" says nothing about a month at the start.
+
+    "$j 09-09" would invent one, and "$j 09" is no better: a reader pairs the
+    subfields positionally, so "$i 1981-1996 $j 09" says the run begins in
+    September 1981. There is no notation for a chronology belonging to one end
+    only, so it is dropped and named. Distinguishable from the test above only
+    inside _parse_chron, which is why the rule lives there.
     """
     result = convert_holdings(parse_866("v. 78 - v. 93 no. 3 (1981 - Sep 1996)"))
+    assert sub(result.fields_863[0], "i") == "1981-1996"
+    assert sub(result.fields_863[0], "j") is None
+    assert any("(09)" in w for w in result.warnings), result.warnings
+
+
+def test_a_season_only_the_start_names_is_dropped():
+    """
+    The same rule pointing the other way, and the reason it is symmetric.
+
+    "v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)": both boundaries carry
+    their own parenthesis and only the first names a season, so "$j 21" under
+    "$i 2012-2016" would read as the whole run being Spring.
+    """
+    result = convert_holdings(
+        parse_866("v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)"))
+    assert sub(result.fields_863[0], "i") == "2012-2016"
+    assert sub(result.fields_863[0], "j") is None
+    assert any("(21)" in w for w in result.warnings), result.warnings
+
+
+def test_a_start_value_still_stands_when_there_is_no_second_boundary():
+    """
+    The guard above must not swallow an ordinary single-unit statement, where
+    there is no other end for the value to disagree with.
+    """
+    result = convert_holdings(parse_866("v. 58 (Sep 2003)"))
+    assert sub(result.fields_863[0], "i") == "2003"
     assert sub(result.fields_863[0], "j") == "09"
+    assert result.warnings == []
 
 
 # ---------------------------------------------------------------------------
@@ -557,3 +589,31 @@ def test_a_single_chronology_group_still_covers_the_whole_range():
     result = convert_holdings(parse_866("v.1:no.1-v.2:no.4(1990-1991)"))
     assert sub(result.fields_863[0], "i") == "1990-1991"
     assert result.warnings == []
+
+
+def test_a_year_stated_once_for_a_run_within_it_is_kept():
+    """
+    The block grammar's end boundary carries only a closing month, so every
+    statement it produces looks like "the start states a year the end does not".
+    Nothing above the year ranges, though, so "$i 1983 $j 01-12" is exactly
+    right and dropping the year would be a regression -- which is what an
+    earlier draft of this rule did.
+    """
+    result = convert_holdings(parse_866("1983: 5 (7-30 [Jan 28-Dec 29])"))
+    f863 = result.fields_863[0]
+    assert sub(f863, "i") == "1983"
+    assert sub(f863, "j") == "01-12"
+
+
+def test_a_range_inside_one_boundary_is_not_mistaken_for_a_pair():
+    """
+    "nos. 1-2" sits inside the end boundary and says nothing about where the run
+    starts, so it is dropped like any other one-sided value -- unlike the
+    "01-01" of "(Jan 1956 - Jan 1957)", which really is both endpoints. Both
+    arrive as a lone hyphenated string; what separates them is whether the other
+    boundary states anything at all at that level.
+    """
+    result = convert_holdings(parse_866("v. 1 (1956) - v. 51 nos. 1-2 (2006)"))
+    assert sub(result.fields_863[0], "a") == "1-51"
+    assert sub(result.fields_863[0], "b") is None
+    assert any("(1-2)" in w for w in result.warnings), result.warnings

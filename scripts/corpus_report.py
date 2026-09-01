@@ -464,7 +464,7 @@ def _converts_on_partial_match(statement: str, compiled: "re.Pattern") -> bool:
 
 DEFECTS = {
     "D1": "discontinuous list truncated at the first comma",
-    "D2": "enumeration only the end boundary states (dropped, now named)",
+    "D2": "enumeration only one boundary states (dropped, now named)",
     "D3": "a designation between enumeration and chronology truncates the parse",
     "D4": "a day inside the date voids that boundary's chronology",
     "D5": "unrecognised chronology wording written into a coded subfield",
@@ -478,7 +478,7 @@ DEFECTS = {
     "D13": "detector: free text invisible in the pattern label",
     "D14": "detector/converter disagree on a shape both accept",
     "D15": "compressed range collapsed when both endpoints are equal",
-    "D16": "chronology only the end boundary states (dropped, now named)",
+    "D16": "chronology only one boundary states (dropped, now named)",
     "D17": "workbench: a pattern claims a substring, discarding the rest",
     "D18": "863 second indicator says uncompressed for a compressed field",
 }

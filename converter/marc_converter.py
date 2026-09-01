@@ -428,6 +428,29 @@ _LEVEL_WORDS = {
 }
 
 
+def _note_unplaceable(warnings: Optional[List[str]], which: str,
+                      level: str, value: str) -> None:
+    """
+    Record that one boundary states a level the other does not.
+
+    A compressed 863 pairs its subfields positionally, so a value written for
+    one end is read as covering both.  With nothing at the other end there is no
+    range to express and no notation for half of one, so the level is left out
+    -- and named here, which is what keeps it accounted for rather than lost.
+    """
+    if warnings is None:
+        return
+    article, word = _LEVEL_WORDS.get(level, ("a", level))
+    other = "end" if which == "start" else "start"
+    note = (
+        f"Only the {which} of this range gives {article} {word} ({value}); a "
+        f"compressed 863 records the first and last part held, so with no "
+        f"{word} at the {other} it was left out."
+    )
+    if note not in warnings:
+        warnings.append(note)
+
+
 def _hierarchy_values(
     hr: HoldingsRange,
     level_names: tuple,
@@ -436,45 +459,62 @@ def _hierarchy_values(
     """
     The 863 value for every level of one hierarchy, as {level: value}.
 
-    A compressed 863 records the first part held and the last part held, so
-    each level should carry both of its endpoints.  Four situations arise, and
-    the awkward one is the last.
+    A compressed 863 records the first part held and the last part held, and a
+    reader pairs the subfields positionally: the first value of every subfield
+    describes the first part, the second value the last part.  Everything below
+    follows from that one fact, and from a single question asked per level --
+    *does anything above this level range?*
 
-    Both endpoints known
-        Different values give the obvious "41-43".  *Equal* values give "1-1"
-        rather than "1" whenever a more significant level ranges: "$a 41-43
-        $b 1" cannot be read back as v.41:no.1 - v.43:no.1, because it equally
-        describes issue 1 of each of volumes 41 to 43, and the pairing of the
-        endpoints is exactly what a compressed field exists to carry.  Where
-        nothing above the level ranges there is no pairing to lose, so
-        "v. 43 no. 6 - v. 43 no. 7" stays "$a 43 $b 6-7".  A value that is
-        itself already a range is left alone: "no. 3-4 - no. 3-4" would become
-        the unreadable "3-4-3-4".
+    No second boundary at all
+        A single unit ("v. 58 (Sep 2003)") has nothing to disagree with, so
+        every value stands.  An open-ended range writes the trailing hyphen.
 
-    Only the start knows it
-        Its value stands.  An open-ended range writes the trailing hyphen.
+    Both ends known, different
+        The obvious "41-43".
 
-    Only the end knows it, and the start boundary states nothing at all in this
+    Both ends known, equal
+        "1-1" when a more significant level ranges, because "$a 41-43 $b 1"
+        cannot be read back as v.41:no.1 - v.43:no.1 -- it describes issue 1 of
+        each of volumes 41 to 43 just as well.  Plain "1" when nothing above
+        ranges: "v. 43 no. 6 - v. 43 no. 7" loses nothing as "$a 43 $b 6-7".  A
+        value already containing a range is left alone, since "no. 3-4 - no. 3-4"
+        would become the unreadable "3-4-3-4".
+
+    One end only, and the other boundary states nothing at all in this
     hierarchy
-        One group is covering the whole range -- "v.1:no.1-v.2:no.4(1990-1991)"
-        parses with the years on the end boundary alone -- so that value
-        describes both ends and is used as it stands.
+        One group is describing the whole range and the parser has hung it on
+        whichever boundary carried it.  "v.1:no.1-v.2:no.4(1990-1991)" puts both
+        years on the end; "(Jan 1956 - Jan 1957)" puts an already-paired
+        "01-01" there.  The value covers both ends and is used as it stands.
 
-    Only the end knows it, and the start boundary states other levels
-        Both boundaries were written out and only one of them names this level:
-        the "December" in "v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)"
-        belongs to the end alone.  There is no notation for half a range, so
-        writing it would assert that the holdings *begin* in December.  The
-        level is left out and a warning names what was dropped -- the value is
-        accounted for rather than silently discarded.
+    One end only, and nothing above it ranges
+        Nothing to pair with, so the value is unambiguous:
+        "1983: 5 (7-30 [Jan 28-Dec 29])" states its year once for a run whose
+        months range within it.
+
+    One end only, and something above it ranges
+        Then the pairing matters and there is no notation for half of it.  The
+        "December" in "v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)" belongs to
+        the end alone; writing it asserts the holdings *begin* in December.  The
+        "Spring" in "v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)" is the same
+        thing pointing the other way.  The level is left out, and a warning names
+        the value -- accounted for rather than silently discarded.
     """
     s, e = hr.start, hr.end
     oe = hr.open_ended
 
-    # Whether the start boundary was written out at all at this hierarchy.
-    # This is what separates a single group covering the range from two
-    # groups where only the second names the level.
-    start_speaks = any(getattr(s, name) is not None for name in level_names)
+    # Whether each boundary was written out at all at this hierarchy.  A value
+    # found on one boundary while the other is silent throughout came from a
+    # group covering the whole range, not from one end of it -- which is what
+    # separates the "01-01" of "(Jan 1956 - Jan 1957)", already a pair, from the
+    # "1-2" of "v. 1 (1956) - v. 51 nos. 1-2 (2006)", which is a range inside
+    # the end boundary and says nothing about where the run starts.
+    speaks = {
+        "start": any(getattr(s, name) is not None for name in level_names),
+        "end": e is not None and any(
+            getattr(e, name) is not None for name in level_names
+        ),
+    }
 
     out: Dict[str, str] = {}
     ranged_above = False
@@ -484,31 +524,34 @@ def _hierarchy_values(
         e_val = getattr(e, name) if e is not None else None
         value: Optional[str] = None
 
-        if s_val is not None and e_val is not None:
+        if e is None:
+            # Single unit: no other end to disagree with.
+            if s_val is not None:
+                value = f"{s_val}-" if oe else s_val
+        elif s_val is not None and e_val is not None:
             if s_val != e_val:
                 value = f"{s_val}-{e_val}"
-                ranged_above = True
             elif ranged_above and "-" not in s_val:
                 value = f"{s_val}-{s_val}"
             else:
                 value = s_val
-        elif s_val is not None:
-            value = f"{s_val}-" if oe else s_val
-        elif e_val is not None:
-            if not start_speaks:
-                value = e_val
-            elif warnings is not None:
-                article, word = _LEVEL_WORDS.get(name, ("a", name))
-                note = (
-                    f"Only the end of this range gives {article} {word} "
-                    f"({e_val}); a compressed 863 records the first and last "
-                    f"part held, so with no {word} at the start it was left out."
-                )
-                if note not in warnings:
-                    warnings.append(note)
+        elif s_val is not None or e_val is not None:
+            lone = s_val if s_val is not None else e_val
+            which = "start" if s_val is not None else "end"
+            other = "end" if which == "start" else "start"
+            if speaks[other] and ranged_above:
+                _note_unplaceable(warnings, which, name, lone)
+            else:
+                value = lone
 
         if value:
             out[name] = value
+            # A written value that is itself a range is what makes the levels
+            # under it need both of their endpoints. Reading it back off the
+            # output covers every branch above at once, including the one where
+            # the range arrived pre-compressed from the parser ("1990-1991").
+            if "-" in value.rstrip("-"):
+                ranged_above = True
 
     return out
 

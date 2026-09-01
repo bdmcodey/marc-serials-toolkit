@@ -121,10 +121,11 @@ python scripts/corpus_report.py --drift    # only outcomes that have changed
 ```
 
 [`CORPUS-FINDINGS.md`](CORPUS-FINDINGS.md) records what it revealed and what has
-been fixed since. Five findings are fixed so far, taking silent losses from 32%
-of statements to 13%; what remains is 71% converting cleanly, 13% still losing a
-value without saying so, and a detector that splits four cataloguer-visible
-shapes across fifteen patterns.
+been fixed since. Seven findings are fixed so far, taking silent losses from 32%
+of statements to 4%: 65% now convert cleanly, 16% convert while naming a value
+they could not place, and 14% are held for review rather than half-converted.
+The detector still splits four cataloguer-visible shapes across fifteen
+patterns.
 
 ## Running the tests
 

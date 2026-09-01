@@ -8,8 +8,8 @@ This is a log of what the corpus exposes, so that fixing any of it is a
 deliberate, separately reviewable decision. Everything here was found before
 anything was changed.
 
-**D17 and D18 are fixed** as of 0.6.1, and **D2, D15 and D16** as of 0.6.2
-(1 September 2026). Their sections below are kept and marked, because the
+**Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
+(0.6.3, 1 September 2026). Their sections below are kept and marked, because the
 reasoning is the record of why the code looks the way it does now. Everything
 else is open.
 
@@ -23,22 +23,24 @@ python scripts/corpus_report.py --drift    # only the tags that no longer hold
 
 ## Headline
 
-| | at 0.6.0 | now (0.6.2) |
+| | at 0.6.0 | now (0.6.3) |
 |---|---|---|
 | statements | 112 unique (127 before de-duplication), 10 sections | — |
-| converted cleanly | 67 (60%) | **79 (71%)** |
-| converted with values **silently** dropped | 36 (32%) | **15 (13%)** |
-| converted, and told the cataloguer what it dropped | 3 | **12** |
-| produced no fields at all | 6 (5%) | 6 (5%) |
+| converted cleanly | 67 (60%) | 73 (65%) |
+| converted with values **silently** dropped | 36 (32%) | **5 (4%)** |
+| converted, and told the cataloguer what it dropped | 3 | **18** |
+| produced no fields at all | 6 (5%) | **16 (14%)** |
 | detector clusters | 55, 39 of them singletons | unchanged |
 | statements a pattern could claim only part of | 37 (33%) | 0 convert on one |
 
-The silent-loss column is the one to watch. Half of the drop is values now
-*encoded* (D15); the rest are values still not encoded but now **named in a
-warning**, which moves them from lost to accounted for.
+The silent-loss column is the one to watch, and the clean rate is not. Statements
+have moved *out* of "clean" in both directions on purpose: ten now refuse
+outright rather than convert a third of themselves (D1, D3), and fifteen more
+convert while naming a value they could not place. Both are the same trade —
+less written, and what is written is true.
 
-The number that matters is not the 6 refusals. It was the **36 silent losses**;
-15 remain.
+The number that matters is not the refusals. It was the **36 silent losses**;
+5 remain, and 3 of those are one open defect (D5).
 
 A refusal is safe: the Converter writes nothing, the 866 survives, and the
 statement lands in the cataloguer's review queue. A silent loss is not.
@@ -61,7 +63,7 @@ to 60% purely because the audit got sharper — no code changed.
 
 ## Converter and parser
 
-### D1 — a discontinuous list is truncated at its first comma · 7 statements · **worst per statement**
+### D1 — a discontinuous list is truncated at its first comma · 7 statements · **FIXED in 0.6.3**
 
 ```
 v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)
@@ -96,6 +98,19 @@ That the guard's own comment describes exactly this failure ("the 866 is removed
 once anything is written from it, so the second issue and both seasons would go
 with it") suggests the case was understood and the guard simply landed one
 condition too deep.
+
+**Fixed in 0.6.3** by moving that guard out of the captionless branch, so it
+applies whenever the match does not account for the whole unit. The statement
+now refuses, and says how far it got:
+
+> Read 'v. 19 nos. 1' but could not account for ', 3, 5, 7-12 (Jan, Mar, May,
+> Jul-Dec 1915)' — nothing was converted from this statement rather than convert
+> part of it.
+
+This does not *parse* a discontinuous list — that is still open, and a bigger
+job. It stops the tool destroying one. A refusal keeps the 866 and puts the
+statement in the review queue, which is where a shape the parser cannot read
+belongs.
 
 ### D2 — enumeration stated only at the end of a range never reaches the 863 · 8 statements · **FIXED in 0.6.2**
 
@@ -139,7 +154,7 @@ inventing a start would be worse than omitting the level — but the conversion
 now **names the issue it could not place**, so it is accounted for instead of
 vanishing. See "One rule for both ends" below.
 
-### D3 — a designation between enumeration and chronology truncates the parse · 3 statements
+### D3 — a designation between enumeration and chronology truncates the parse · 3 statements · **FIXED in 0.6.3**
 
 ```
 v. 58 Suppl. (Sep 2003)   ->  853 $a v.
@@ -154,6 +169,18 @@ present — and the same fix would cover both.
 This is the entire `supplements` and `compendium-suppl` shape. Supplements are
 common, and a supplement's chronology is often the only thing distinguishing it
 from the main run.
+
+**Fixed in 0.6.3** by the same one-line move as D1: these now refuse and name
+the text they could not account for, rather than writing `$a 58` and deleting
+the 866.
+
+Widening the guard also surfaced a fourth statement nobody had noticed.
+`v.7/8(1996:Jul./Aug.)` in `data/messy_holdings.mrc` was matching only `v.7` and
+dropping the rest in silence, because `vol_num` accepted a hyphenated range but
+not a combined volume — while `iss_num` had always accepted both. Giving
+`vol_num` the same character class converts it properly: `$a 7/8 $i 1996
+$j 07/08`. It took a test failure to find, which is the argument for the
+committed fixtures.
 
 ### D4 — a day inside the date voids that boundary's chronology · 1 statement
 
@@ -526,18 +553,31 @@ longer counts as a silent loss, which is why the clean rate moved from 60% to
 71% while six statements moved from "lost" to "warned". If that warning were
 ever removed, the report would count them as losses again.
 
-### What this deliberately did not change
+### Both remaining shapes closed in 0.6.3
 
-Two shapes were left alone, and both are worth knowing about:
+The two cases left open above were decided the same way, on the cataloguer's
+reading: *if it cannot be told whether a value belongs to the start or the end,
+drop it.* A MARC reader pairs the subfields positionally, so a lone value is
+read as covering both ends whatever was meant by it.
 
 - **The start-only mirror.** `v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)`
-  writes `$i 2012-2016 $j 21`, where the start names a season and the end does
-  not. That is the same ambiguity as the fixed cases, pointing the other way,
-  and dropping it would lose a value the statement does give. Left as it is; not
-  yet decided.
-- **`(1981 - Sep 1996)`** still writes `$j 09`. Only one side of the group named
-  a month, so `09-09` would invent one, and there is no way to say "the end
-  only". Same category as the row above.
+  now writes `$i 2012-2016` with no `$j`, and names the Spring it dropped. The
+  rule is symmetric: it no longer matters which end holds the lone value.
+- **`(1981 - Sep 1996)`** now drops its month in `_parse_chron`, where the two
+  halves of the group are still visible. Same for `Aug 1984-1985`,
+  `Feb 1921-1929`, `1981-October 1997` and `1974-Apr 1979`.
+
+Two guards keep this from over-firing, and both were found by a test going red:
+
+- **Nothing above it ranges → keep.** `1983: 5 (7-30 [Jan 28-Dec 29])` states its
+  year once, and the block grammar's end boundary carries only a closing month,
+  so every block statement looks one-sided. But nothing above the year ranges,
+  so `$i 1983 $j 01-12` is unambiguous. An earlier draft dropped the year here.
+- **A lone value can already be a pair.** `(Jan 1956 - Jan 1957)` reaches the
+  converter as a single `01-01` hanging off the end boundary, which looks
+  one-sided and is not. What separates it from the `1-2` of
+  `v. 1 (1956) - v. 51 nos. 1-2 (2006)` — a range *inside* one boundary — is
+  whether the other boundary states anything at all at that level.
 
 ## Checking against the standard
 
@@ -638,11 +678,9 @@ everything correctly" is not.
 1. ~~**D18** — set the 863 second indicator to `0`.~~ Done in 0.6.1.
 2. ~~**D15 and D16 together**~~ Done in 0.6.2, with D2 — one rule for how a
    level's two endpoints become a subfield value. See "One rule for both ends".
-3. **D1 and D3 together** — move the partial-match guard in `_parse_unit()` out of
-   the captionless branch so it applies whenever the match does not account for
-   the whole unit. That alone converts 10 silent losses into visible refusals,
-   which is a strict improvement even before either shape is properly parsed.
-   Handling the comma list properly is the larger, separate job.
+3. ~~**D1 and D3 together**~~ Done in 0.6.3. Ten silent losses became visible
+   refusals; *parsing* a discontinuous list or a supplement designation is the
+   larger, separate job and is still open.
 4. ~~**D2**~~ Done in 0.6.2. The fix was not the fallback proposed above —
    see D2's section for why that would have been wrong.
 5. **D6** — let the enumeration block match an issue-first unit. No guessing

@@ -196,7 +196,11 @@ _ENUM_CHRON_RE = re.compile(
       # _parse_unit() guards that case; on its own this alternative would also
       # claim a bare year as a volume.
       (?:(?P<vol_cap>v(?:ol(?:ume)?)?)\s*[.\s]*\s*)?
-      (?P<vol_num>\d+[a-zA-Z]?(?:\s*-\s*\d+[a-zA-Z]?)?)
+      # A volume may be a range ("v.1-5") or a combined issue ("v.7/8"), the
+      # same two forms iss_num below has always accepted.  Without the slash,
+      # "v.7/8(1996:Jul./Aug.)" matched only "v.7" and the rest of the
+      # statement was dropped.
+      (?P<vol_num>\d+[a-zA-Z]?(?:\s*[-/]\s*\d+[a-zA-Z]?)?)
       (?:
         [\s:,]\s*
         (?P<iss_cap>(?:nos?|n|nr|num(?:ber)?s?|iss(?:ue)?s?|pt|part))\s*[.\s]*\s*
@@ -325,7 +329,9 @@ def _parse_chron_single(raw: str) -> Tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def _parse_chron(raw: str) -> Tuple[Optional[str], Optional[str]]:
+def _parse_chron(raw: str,
+                 warnings: Optional[List[str]] = None,
+                 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Parse a chronology string, including ranges within a single group:
       '1990'          -> ('1990', None)
@@ -333,7 +339,7 @@ def _parse_chron(raw: str) -> Tuple[Optional[str], Optional[str]]:
       'Jan-Jun 1984'  -> ('1984', '01-06')     # year shared across range
       'Jan 1990-Dec 1994' -> ('1990-1994', '01-12')
       'Jan 1956-Jan 1957' -> ('1956-1957', '01-01')   # both ends named, kept
-      '1981-Sep 1996' -> ('1981-1996', '09')   # only one end named a month
+      '1981-Sep 1996' -> ('1981-1996', None)   # one end only: cannot be placed
       '1990-1994'     -> ('1990-1994', None)
     Months and seasons are returned as MARC chronology codes
     (01-12, seasons 21-24) for use in 863 $j.
@@ -355,18 +361,34 @@ def _parse_chron(raw: str) -> Tuple[Optional[str], Optional[str]]:
         else:
             year = l_year or r_year
 
-        # Month/season range.  Two ends naming the same month keep both --
+        # Month/season.  Two ends naming the same month keep both --
         # "Jan 1956 - Jan 1957" is '01-01', not '01'.  Collapsing it lost the
         # pairing with the years either side, leaving "$i 1956-1957 $j 01",
-        # which reads as one January spanning two years.  Only here is it
-        # knowable that both ends named a month: further down, a lone '01' from
-        # this branch would be indistinguishable from the '09' that
-        # "1981 - Sep 1996" produces below, where one end genuinely says
-        # nothing and a repeat would invent it.
+        # which reads as one January spanning two years.
+        #
+        # One end naming a month and the other not -- "1981 - Sep 1996",
+        # "Aug 1984-1985" -- cannot be recorded at all.  A reader pairs the
+        # subfields positionally, so "$i 1981-1996 $j 09" says the run *begins*
+        # in September 1981, which the statement never claimed.  There is no
+        # notation for a chronology that belongs to one end only, so the month
+        # is dropped and named.  This is the only place that can tell the two
+        # cases apart: by the time the converter sees a lone '09' it cannot know
+        # whether the other end said the same thing or said nothing.
         if l_month and r_month:
             month = f"{l_month}-{r_month}"
+        elif l_month or r_month:
+            month = None
+            if warnings is not None:
+                lone = l_month or r_month
+                note = (
+                    f"Only one end of '{raw}' gives a month or season ({lone}); "
+                    "with nothing at the other end it cannot be recorded as a "
+                    "range, so it was left out."
+                )
+                if note not in warnings:
+                    warnings.append(note)
         else:
-            month = l_month or r_month
+            month = None
 
         if year or month:
             return year, month
@@ -380,7 +402,9 @@ def _parse_chron(raw: str) -> Tuple[Optional[str], Optional[str]]:
     return raw, None
 
 
-def _parse_unit(text: str) -> Optional[EnumChron]:
+def _parse_unit(text: str,
+                warnings: Optional[List[str]] = None,
+                ) -> Optional[EnumChron]:
     """
     Parse a single enumeration+chronology unit (one boundary of a range).
     Returns None if nothing meaningful is found.
@@ -399,22 +423,35 @@ def _parse_unit(text: str) -> Optional[EnumChron]:
     if not m or (not m.group("vol_num") and not m.group("chron_raw")):
         return None
 
-    if m.group("vol_num") and not m.group("vol_cap"):
+    # The match has to account for the whole unit, whether or not a caption is
+    # present.  In "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" it
+    # reaches only as far as "v. 19 nos. 1", and in "v. 58 Suppl. (Sep 2003)"
+    # only as far as "v. 58"; converting either alone is worse than converting
+    # nothing, because the 866 is removed once anything is written from it and
+    # the rest of the statement goes with it.
+    #
+    # This guard used to sit inside the captionless branch below, so it fired
+    # only for "34 no 3, 4 (...)" and never for the same shape with a "v." in
+    # front -- which is the common one.
+    if m.end() != len(text):
+        if warnings is not None:
+            note = (
+                f"Read '{text[:m.end()].strip()}' but could not account for "
+                f"'{text[m.end():].strip()}' — nothing was converted from this "
+                "statement rather than convert part of it."
+            )
+            if note not in warnings:
+                warnings.append(note)
+        return None
+
+    if m.group("vol_num") and not m.group("vol_cap") and not m.group("iss_cap"):
         # A number with no caption of its own is only a volume when something
-        # else in the statement says so.  Two things have to hold.
-        #
-        # An issue caption must follow it: "39 no 1" is v.39 no.1, because a
-        # number sitting a level above an issue is a volume.  Without that
-        # anchor there is nothing to read the level from, and "2016?" would
-        # become volume 2016 instead of an uncertain year.
-        #
-        # And the match must account for the whole unit.  In
-        # "34 no 3, 4 (Summer, Autumn 1990)" it reaches only as far as "34 no 3",
-        # and converting that alone would be worse than converting nothing: the
-        # 866 is removed once anything is written from it, so the second issue
-        # and both seasons would go with it.
-        if not m.group("iss_cap") or m.end() != len(text):
-            return None
+        # else in the statement says so: an issue caption must follow it.
+        # "39 no 1" is v.39 no.1, because a number sitting a level above an
+        # issue is a volume.  Without that anchor there is nothing to read the
+        # level from, and "2016?" would become volume 2016 rather than an
+        # uncertain year.
+        return None
 
     ec = EnumChron()
 
@@ -426,12 +463,14 @@ def _parse_unit(text: str) -> Optional[EnumChron]:
         ec.part = m.group("pt_num")
 
     if m.group("chron_raw"):
-        ec.year, ec.month = _parse_chron(m.group("chron_raw"))
+        ec.year, ec.month = _parse_chron(m.group("chron_raw"), warnings)
 
     return ec if (ec.has_enum() or ec.has_chron()) else None
 
 
-def _parse_one_range(raw: str) -> HoldingsRange:
+def _parse_one_range(raw: str,
+                     warnings: Optional[List[str]] = None,
+                     ) -> HoldingsRange:
     """
     Parse a single range string like:
       "v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)"
@@ -460,11 +499,11 @@ def _parse_one_range(raw: str) -> HoldingsRange:
     parts = _smart_split_range(raw_trimmed)
 
     if len(parts) == 1:
-        start = _parse_unit(parts[0])
+        start = _parse_unit(parts[0], warnings)
         hr.start = start or EnumChron()
     elif len(parts) >= 2:
-        start = _parse_unit(parts[0])
-        end = _parse_unit(parts[1])
+        start = _parse_unit(parts[0], warnings)
+        end = _parse_unit(parts[1], warnings)
         hr.start = start or EnumChron()
         hr.end = end
 
@@ -718,9 +757,19 @@ def parse_866(text: str) -> ParseResult:
     if _looks_like_block(text):
         return _parse_block_format(text)
 
+    # Notes from the unit parser are kept apart from the segment-level ones.
+    # They say *why* a unit was refused, which is worth carrying onto the
+    # degenerate path -- a truncated statement otherwise reports only "no
+    # recognisable holdings ranges", which does not say that most of one was
+    # read and deliberately not converted. The generic per-segment line is not
+    # worth carrying: on that path it only repeats what the degenerate result
+    # already says.
     segments = _split_ranges(text)
+    notes: List[str] = []
     for seg in segments:
-        hr = _parse_one_range(seg)
+        seg_notes: List[str] = []
+        hr = _parse_one_range(seg, seg_notes)
+        notes.extend(w for w in seg_notes if w not in notes)
         if not hr.start.has_enum() and not hr.start.has_chron():
             result.warnings.append(
                 f"Could not parse segment: '{seg}' — it will be skipped."
@@ -728,8 +777,13 @@ def parse_866(text: str) -> ParseResult:
             continue
         result.ranges.append(hr)
 
+    result.warnings.extend(w for w in notes if w not in result.warnings)
+
     if not result.ranges:
-        return _parse_degenerate(text)
+        degenerate = _parse_degenerate(text)
+        degenerate.warnings.extend(w for w in notes
+                                   if w not in degenerate.warnings)
+        return degenerate
 
     return result
 
