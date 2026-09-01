@@ -86,6 +86,16 @@ EXAMPLES = [
     ], None),
 
     # No holdings at all: batch conversion must skip it without raising.
+    # Ranges written with spaces around the separator, which is at least as
+    # common as writing them tight. Nothing in this corpus had them, which is
+    # how a bug that silently dropped the end of such a range went unnoticed:
+    # it produced an 863 for the start alone, so the 866 was removed as
+    # converted and the rest of the holdings went with it.
+    ("Journal of Spaced Separators", [
+        "v. 1 (2001) - v. 5 (2005)",
+        "v. 7 (2007) - v. 9 (2009)",
+    ], None),
+
     ("Index of Absent Holdings", [], None),
 ]
 

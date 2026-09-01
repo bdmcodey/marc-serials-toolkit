@@ -313,3 +313,66 @@ def test_a_captioned_volume_is_unaffected_by_the_relaxed_caption():
     r = parse_866("v.39 no 1 (Spring 1995)")
     start = r.ranges[0].start
     assert (start.vol, start.issue, start.year, start.month) == ("39", "1", "1995", "21")
+
+
+# ---------------------------------------------------------------------------
+# Spacing around the range separator
+# ---------------------------------------------------------------------------
+
+def _shape(result):
+    """A comparable summary of what a statement parsed to."""
+    return [
+        (r.start.vol, r.start.issue, r.start.year, r.start.month,
+         None if r.end is None else (r.end.vol, r.end.issue, r.end.year, r.end.month),
+         r.open_ended)
+        for r in result.ranges
+    ]
+
+
+@pytest.mark.parametrize("tight, spaced", [
+    ("v.1(1990)-v.5(1994)", "v. 1 (1990) - v. 5 (1994)"),
+    ("v.1(1990)-v.5(1994)", "v.1(1990) - v.5(1994)"),
+    ("v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)",
+     "v.1:no.1 (1990:Jan.) - v.5:no.4 (1994:Dec.)"),
+    ("v.1(1990)-", "v. 1 (1990) -"),
+])
+def test_spacing_around_the_separator_does_not_change_the_parse(tight, spaced):
+    """
+    The bug this pins was silent and destructive. _smart_split_range() compared
+    the characters immediately either side of a candidate hyphen; with " - "
+    both are spaces, no rule matched, and the statement parsed as a single unit.
+    The end of the range was dropped, an 863 was produced for the start alone,
+    and the source 866 was then removed as converted -- so the holdings were
+    deleted with nothing on screen to say so.
+
+    Writing a range with spaces around its separator is at least as common as
+    writing it without.
+    """
+    assert _shape(parse_866(spaced)) == _shape(parse_866(tight))
+
+
+def test_a_spaced_range_keeps_its_end():
+    """The specific statement that surfaced it, asserted directly."""
+    r = parse_866("v. 1 (2001) - v. 5 (2005)")
+    assert len(r.ranges) == 1
+    start, end = r.ranges[0].start, r.ranges[0].end
+    assert (start.vol, start.year) == ("1", "2001")
+    assert end is not None, "the end of the range was dropped"
+    assert (end.vol, end.year) == ("5", "2005")
+
+
+@pytest.mark.parametrize("text, vol, year", [
+    ("v.1-5(1990-1994)", "1-5", "1990-1994"),
+    ("v. 1-14 (1953-1966)", "1-14", "1953-1966"),
+])
+def test_a_compressed_range_is_still_one_unit(text, vol, year):
+    """
+    The other half of the rule. A hyphen between two digits joins two values at
+    one level; it does not divide the statement. Reading the nearest non-space
+    neighbours must not start splitting these.
+    """
+    r = parse_866(text)
+    assert len(r.ranges) == 1
+    assert r.ranges[0].start.vol == vol
+    assert r.ranges[0].start.year == year
+    assert r.ranges[0].end is None

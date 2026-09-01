@@ -118,7 +118,8 @@ def test_uploads_do_not_leak_between_clients(converter_app, example_marc_bytes,
     upload_marc(second, messy_marc_bytes)
 
     assert first.post("/api/batch-convert", json={}).get_json()["records_processed"] == 5
-    assert second.post("/api/batch-convert", json={}).get_json()["records_processed"] == 9
+    # 11 records in the messy corpus, one of which carries no 866 and is skipped.
+    assert second.post("/api/batch-convert", json={}).get_json()["records_processed"] == 10
 
 
 # ---------------------------------------------------------------------------
@@ -216,10 +217,12 @@ def test_messy_corpus_converts_without_error(converter_client, messy_marc_bytes)
     body = converter_client.post("/api/batch-convert", json={}).get_json()
 
     assert body["success"] is True
-    # Nine of ten: "Index of Absent Holdings" carries no 866 at all and is
+    # Ten of eleven: "Index of Absent Holdings" carries no 866 at all and is
     # skipped before conversion rather than summarised as a zero-field record.
-    assert body["records_processed"] == 9
-    assert len(_records(converter_client.get("/api/download-converted").data)) == 10
+    assert body["records_processed"] == 10
+    # Every record still comes back, including the one that was skipped --
+    # nothing is dropped from the file just because it had nothing to convert.
+    assert len(_records(converter_client.get("/api/download-converted").data)) == 11
 
 
 # ---------------------------------------------------------------------------
