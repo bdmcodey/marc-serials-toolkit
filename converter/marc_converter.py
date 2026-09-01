@@ -639,6 +639,10 @@ class RecordConversion:
     fields_863: List[FieldData] = field(default_factory=list)
     links_written: List[str] = field(default_factory=list)
     results: List[ConversionResult] = field(default_factory=list)  # per statement
+    # Links whose run merged statements recording different amounts of detail.
+    # The cataloguer may disagree that those are one publication, so the screen
+    # marks them rather than presenting the merge as a finding.
+    merged_links: List[str] = field(default_factory=list)
 
     @property
     def needs_review(self) -> int:
@@ -710,6 +714,7 @@ def convert_record(
     frequency: str = "",
     numbering_continuity: str = "",
     convention_spec: Optional[Dict[str, Any]] = None,
+    merge_patterns: bool = True,
 ) -> RecordConversion:
     """
     Convert every 866 statement on one record, sharing 853s across statements
@@ -744,9 +749,17 @@ def convert_record(
     grouped by that field rather than by run, since it is one field already on
     the record and cannot be duplicated.  Any link number written to is
     reported in `links_written` so the caller can drop superseded 863s.
+
+    `merge_patterns` False requires runs to agree exactly, so statements
+    recording different amounts of detail stay apart.  Whether "v.5(1994)" beside
+    "v.1:no.1(1990)" is one publication or two is a judgement about the serial,
+    not about the strings, so a cataloguer who knows it is two can say so.
     """
+
     existing = list(existing_853s or [])
     out = RecordConversion()
+    _compatible = (_same_publication_pattern if merge_patterns
+                   else (lambda a, b: a == b))
 
     # Runs, in the order they open.  Each carries the members that share its
     # 853, the pattern they agree on, and the member whose 853 is the fullest --
@@ -789,10 +802,14 @@ def convert_record(
                 groups.append(group)
                 by_link[link] = group
         elif (open_group is not None and open_group["link"] is None
-              and _same_publication_pattern(open_group["pattern"],
-                                            _pattern_map(cr.field_853))):
+              and _compatible(open_group["pattern"], _pattern_map(cr.field_853))):
             group = open_group
             pattern = _pattern_map(cr.field_853)
+            if pattern != group["pattern"]:
+                # Joined on a subset rather than an exact match: worth marking,
+                # since it is the one grouping decision a cataloguer might not
+                # agree with.
+                group["merged"] = True
             if len(pattern) > len(group["pattern"]):
                 # A later statement records more: the run is described by the
                 # fuller 853, and the sparser 863s simply omit what they lack.
@@ -823,6 +840,8 @@ def convert_record(
     for group in groups:
         link = group["link"]
         out.links_written.append(link)
+        if group.get("merged"):
+            out.merged_links.append(link)
         seq = 1
         for cr in group["members"]:
             for f863 in cr.fields_863:

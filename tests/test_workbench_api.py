@@ -751,3 +751,69 @@ def test_removal_still_works_when_asked_for(workbench_client, example_marc_bytes
     assert converted, "nothing converted, so the assertion below proves nothing"
     # A record whose statements all converted keeps no 866.
     assert any(not r.get_fields("866") for r in converted)
+
+
+def test_a_merged_run_is_flagged_to_the_screen(workbench_client, example_marc_bytes):
+    """
+    The screen has to be able to mark a merge, because it is the one grouping
+    decision a cataloguer might disagree with.
+    """
+    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    idx = record_index_with(records, "v.6(1995)-")
+
+    previews = previews_for(workbench_client, idx)
+    # This record pairs a fully-captioned statement with one recording no issue
+    # or month, so its run is a merge.
+    assert any(p["merged_run"] for p in previews)
+
+
+def test_keep_separate_splits_a_record_back(workbench_client, example_marc_bytes):
+    """
+    A per-record override: whether two statements are one publication is a
+    judgement about the serial, so the cataloguer can say they are not.
+    """
+    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    idx = record_index_with(records, "v.6(1995)-")
+
+    merged = previews_for(workbench_client, idx)
+    assert len({p["link"] for p in merged}) == 1
+
+    body = workbench_client.post("/api/preview-record", json={
+        "record_index": idx, "keep_separate": [idx], **SETTINGS}).get_json()
+    assert len({p["link"] for p in body["previews"]}) == 2
+    assert not any(p["merged_run"] for p in body["previews"])
+
+
+def test_keep_separate_only_affects_the_record_named(workbench_client,
+                                                     example_marc_bytes):
+    """The override is per record, not a global setting worn by every record."""
+    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    idx = record_index_with(records, "v.6(1995)-")
+
+    def links_per_record(payload):
+        body = workbench_client.post("/api/preview-records", json=payload).get_json()
+        return {r["index"]: len({p["link"] for p in r["previews"]})
+                for r in body["records"] if r["has_866"]}
+
+    before = links_per_record(SETTINGS)
+    after = links_per_record({**SETTINGS, "keep_separate": [idx]})
+
+    assert after[idx] == before[idx] + 1, "the named record should have split"
+    unchanged = {k: v for k, v in after.items() if k != idx}
+    assert unchanged == {k: v for k, v in before.items() if k != idx}
+
+
+def test_keep_separate_reaches_the_written_file(workbench_client,
+                                                example_marc_bytes):
+    """Preview and conversion must agree, or the preview is not a preview."""
+    import io as _io
+    from pymarc import MARCReader
+
+    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    idx = record_index_with(records, "v.6(1995)-")
+
+    workbench_client.post("/api/batch-convert", json={**SETTINGS,
+                                                      "keep_separate": [idx]})
+    written = list(MARCReader(_io.BytesIO(
+        workbench_client.get("/api/download-converted").data)))[idx]
+    assert len(written.get_fields("853")) == 2

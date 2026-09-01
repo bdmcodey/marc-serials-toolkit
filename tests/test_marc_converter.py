@@ -381,3 +381,53 @@ def test_every_member_of_a_run_reports_the_853_that_gets_written():
     shown = [r.field_853.display() for r in rc.results]
     assert shown[0] == shown[1]
     assert "$b no." in shown[1], "the sparser statement should show the run's 853"
+
+
+def test_a_merged_run_is_reported_as_merged():
+    """
+    Joining on a subset is the one grouping decision a cataloguer might not
+    agree with, so the run says it happened rather than presenting the merge as
+    settled.
+    """
+    rc = convert_record([parse_866("v.1:no.1(1990)-v.2:no.4(1991)"),
+                         parse_866("v.5(1994)-v.8(1997)")])
+    assert rc.merged_links == ["1"]
+
+    # A run whose members match exactly was not merged, it simply agreed.
+    plain = convert_record([parse_866("v.1(1990)-v.3(1992)"),
+                            parse_866("v.5(1994)")])
+    assert plain.merged_links == []
+
+
+def test_keeping_patterns_separate_stops_the_merge():
+    """
+    Whether "v.5(1994)" beside "v.1:no.1(1990)" is one publication or two is a
+    judgement about the serial, not about the strings. A cataloguer who knows it
+    is two can say so.
+    """
+    stmts = [parse_866("v.1:no.1(1990)-v.2:no.4(1991)"),
+             parse_866("v.5(1994)-v.8(1997)")]
+
+    merged = convert_record(stmts)
+    assert len(merged.fields_853) == 1
+
+    separate = convert_record(
+        [parse_866("v.1:no.1(1990)-v.2:no.4(1991)"),
+         parse_866("v.5(1994)-v.8(1997)")], merge_patterns=False)
+    assert len(separate.fields_853) == 2
+    assert separate.links_written == ["1", "2"]
+    assert separate.merged_links == []
+
+
+def test_keeping_patterns_separate_does_not_disturb_runs():
+    """
+    The switch governs how much detail two statements may differ by, not whether
+    a returning pattern gets a new number. Month/season/month is three runs
+    either way.
+    """
+    stmts = ["v. 1 no. 1-4 (Mar-Dec 2001)",
+             "v. 2 no. 1-4 (Winter-Fall 2002)",
+             "v. 3 no. 1-4 (Mar-Dec 2003)"]
+    for merge in (True, False):
+        rc = convert_record([parse_866(s) for s in stmts], merge_patterns=merge)
+        assert rc.links_written == ["1", "2", "3"], merge

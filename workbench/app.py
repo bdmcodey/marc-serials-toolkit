@@ -241,6 +241,26 @@ def _parser_fallback(data: dict) -> bool:
     return bool(value)
 
 
+def _keep_separate(data: dict) -> set:
+    """
+    Records the cataloguer has told not to merge patterns on.
+
+    Whether two statements recording different amounts of detail are one
+    publication is a judgement about the serial, so it is theirs to make, per
+    record.
+    """
+    raw = data.get("keep_separate")
+    if not isinstance(raw, (list, tuple)):
+        return set()
+    out = set()
+    for value in raw:
+        try:
+            out.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def _convention_opts(data: dict) -> tuple:
     """Build a caption-convention spec from a request body."""
     conv = (data.get("convention") or CONVENTION_STANDARD).strip().lower()
@@ -370,6 +390,7 @@ def _previews_from(rc, rejections=(), existing_853s=(), sources=(),
         by_link[(fld.get("8") or "").strip()] = _display_marc_field(fld)
 
     labels = _source_labels(patterns)
+    merged = set(rc.merged_links)
     out = []
     for idx, c in enumerate(rc.results):
         link = str(c.linking_number)
@@ -386,6 +407,7 @@ def _previews_from(rc, rejections=(), existing_853s=(), sources=(),
             "source": source,
             "source_label": labels.get(source, "Standard parser"),
             "from_pattern": source != PARSER_SOURCE,
+            "merged_run": link in merged,
         })
     return out
 
@@ -751,6 +773,7 @@ def api_pattern_preview():
                 captions=captions,
                 frequency=frequency,
                 numbering_continuity=continuity,
+                merge_patterns=record_index not in _keep_separate(data),
                 **conv_opts,
             )
             previews = _previews_from(rc, rejections, existing_853s,
@@ -927,6 +950,7 @@ def api_preview_record():
             captions=data.get("captions") or None,
             frequency=data.get("frequency", ""),
             numbering_continuity=data.get("numbering_continuity", "r"),
+            merge_patterns=record_index not in _keep_separate(data),
             **conv_opts,
         )
         # Deliberately no write and no save: preview leaves the file untouched.
@@ -983,6 +1007,7 @@ def api_preview_records():
     continuity = data.get("numbering_continuity", "r")
     patterns = _load_library()
     fallback = _parser_fallback(data)
+    keep_separate = _keep_separate(data)
 
     try:
         out = []
@@ -1003,7 +1028,8 @@ def api_preview_records():
             parsed, sources = _parse_all(statements, patterns, fallback)
             rc = convert_record(
                 parsed, existing_853s=existing_853s, captions=captions,
-                frequency=frequency, numbering_continuity=continuity, **conv_opts,
+                frequency=frequency, numbering_continuity=continuity,
+                merge_patterns=index not in keep_separate, **conv_opts,
             )
             previews = _previews_from(rc, rejections, existing_853s, sources, patterns)
             for preview, text in zip(previews, statements):
@@ -1114,6 +1140,7 @@ def api_batch_convert():
     captions = data.get("captions") or None
     patterns = _load_library()
     fallback = _parser_fallback(data)
+    keep_separate = _keep_separate(data)
 
     try:
         summary = []
@@ -1144,6 +1171,7 @@ def api_batch_convert():
                 captions=captions,
                 frequency=frequency,
                 numbering_continuity=continuity,
+                merge_patterns=rec_idx not in keep_separate,
                 **conv_opts,
             )
             _apply_record_conversion(record, rc)
