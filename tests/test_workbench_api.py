@@ -713,3 +713,41 @@ def test_single_record_conversion_also_matches_the_converter(workbench_client,
 
     assert workbench_client.get("/api/download-converted").data == \
            converter_client.get("/api/download-converted").data
+
+
+def test_the_866_is_kept_unless_removal_is_asked_for(workbench_client,
+                                                     example_marc_bytes):
+    """
+    The default changed to keeping them: an ILS that rebuilds 866s from 853/863
+    makes the originals redundant rather than wrong, and keeping them lets the
+    output be run through again with different settings.
+    """
+    import io as _io
+    from pymarc import MARCReader
+
+    upload_marc(workbench_client, example_marc_bytes)
+    settings = {k: v for k, v in SETTINGS.items() if k != "remove_866"}
+    assert workbench_client.post("/api/batch-convert", json=settings).status_code == 200
+
+    records = list(MARCReader(_io.BytesIO(
+        workbench_client.get("/api/download-converted").data)))
+    assert any(r.get_fields("866") for r in records), "every 866 was removed"
+    # And the conversion still happened alongside them.
+    assert any(r.get_fields("863") for r in records)
+
+
+def test_removal_still_works_when_asked_for(workbench_client, example_marc_bytes):
+    """Flipping the default must not break the behaviour itself."""
+    import io as _io
+    from pymarc import MARCReader
+
+    upload_marc(workbench_client, example_marc_bytes)
+    assert workbench_client.post("/api/batch-convert", json={
+        **SETTINGS, "remove_866": True}).status_code == 200
+
+    records = list(MARCReader(_io.BytesIO(
+        workbench_client.get("/api/download-converted").data)))
+    converted = [r for r in records if r.get_fields("863")]
+    assert converted, "nothing converted, so the assertion below proves nothing"
+    # A record whose statements all converted keeps no 866.
+    assert any(not r.get_fields("866") for r in converted)

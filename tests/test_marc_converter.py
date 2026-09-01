@@ -366,3 +366,18 @@ def test_record_warnings_are_deduplicated_in_order():
     """
     rc = convert_record([parse_866("2016?"), parse_866("2017?")])
     assert len(rc.warnings) == len(set(rc.warnings))
+
+
+def test_every_member_of_a_run_reports_the_853_that_gets_written():
+    """
+    Only the run's fullest 853 reaches the record, so a member reporting the one
+    it would have had alone would be previewing a field that is never written.
+    The per-statement preview is what a cataloguer approves, so it has to show
+    the field they will actually get.
+    """
+    rc = convert_record([parse_866("v.1:no.1(1990)-v.2:no.4(1991)"),
+                         parse_866("v.5(1994)-v.8(1997)")])
+
+    shown = [r.field_853.display() for r in rc.results]
+    assert shown[0] == shown[1]
+    assert "$b no." in shown[1], "the sparser statement should show the run's 853"

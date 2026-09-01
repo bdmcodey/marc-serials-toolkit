@@ -612,10 +612,6 @@ v.6(1995)-"></textarea>
       </div>
 
       <div class="check-row">
-        <input type="checkbox" id="batch-remove866" checked />
-        <label for="batch-remove866">Remove the 866 once it has been converted</label>
-      </div>
-      <div class="check-row">
         <input type="checkbox" id="batch-clear853863" />
         <label for="batch-clear853863">Clear existing 853 / 863 first</label>
       </div>
@@ -635,6 +631,16 @@ v.6(1995)-"></textarea>
           <button type="button" class="btn btn-ghost btn-sm" id="btn-expand-all">Open all</button>
           <button type="button" class="btn btn-ghost btn-sm" id="btn-collapse-all">Close all</button>
         </div>
+      </div>
+
+      <div class="check-row mt-2">
+        <input type="checkbox" id="batch-remove866" />
+        <label for="batch-remove866">Remove each 866 once it has been converted</label>
+      </div>
+      <div class="small dim" style="margin: calc(-1 * var(--sp-2)) 0 var(--sp-3) 2.25rem;">
+        Off by default. Keeping the originals lets you run the file through again
+        with different settings, and an ILS that rebuilds 866s from 853 / 863 will
+        replace them anyway.
       </div>
 
       <div id="records-accordion" class="mt-2"></div>

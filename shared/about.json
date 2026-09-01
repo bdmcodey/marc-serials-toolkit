@@ -33,6 +33,10 @@
           "text": "The fields shown for a pattern now carry the linking numbers they would really be given. $8 depends on the whole record \u2014 statements published to the same pattern share one 853 and run 1.1, 1.2, and a change of pattern starts 2.1 \u2014 so the screen shows the entire record the example belongs to, with that statement marked. It previously showed every statement as 1.1 whatever it would actually receive."
         },
         {
+          "tool": "Workbench",
+          "text": "The original 866 fields are now kept by default. The checkbox that removes them has moved out of Conversion settings to sit above the record list, where you can see it, and starts unticked \u2014 so the file you download has both the holdings you started with and the 853 / 863 built from them. Keeping them means the output can be run through the tool again with different settings, and a system that rebuilds 866s from 853 / 863 will replace them anyway. Tick the box if you want them removed as before."
+        },
+        {
           "tool": "Converter",
           "text": "When a serial changes its publication pattern and later changes back, the later run now gets an 853 of its own instead of being filed under the earlier one. A journal running months, then seasons, then months again produces three 853s numbered $8 1, 2 and 3 \u2014 the third is a third pattern, not a resumption of the first. Two of those 853s read identically apart from their number, which is correct: they describe separate runs either side of a change."
         },

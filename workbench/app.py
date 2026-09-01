@@ -1055,7 +1055,7 @@ def api_convert_record():
             target.remove_fields("853", "863")
             existing_853s = []
 
-        remove_866 = any(c.get("remove_866", True) for c in conversions_input)
+        remove_866 = any(c.get("remove_866", False) for c in conversions_input)
         conv_opts, rejections = _convention_opts(data)
         specs = [c for c in conversions_input if c.get("text")]
         texts = [c["text"] for c in specs]
@@ -1104,7 +1104,10 @@ def api_batch_convert():
     data = request.get_json(force=True) or {}
     frequency = data.get("frequency", "")
     continuity = data.get("numbering_continuity", "r")
-    remove_866 = data.get("remove_866", True)
+    # Defaults to keeping them: an ILS that regenerates 866s from 853/863 makes
+    # the originals redundant rather than wrong, and keeping them means the file
+    # can be run through again with different settings.
+    remove_866 = data.get("remove_866", False)
     clear_existing = data.get("clear_existing_853_863", False)
 
     conv_opts, rejections = _convention_opts(data)
