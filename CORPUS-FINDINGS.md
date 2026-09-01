@@ -4,9 +4,13 @@ Written 1 September 2026, after adopting the hand-collected 866 `$a` corpus that
 predates the toolkit — the examples the original monolithic regex was written
 against — as `data/textual_holdings_corpus.txt`.
 
-**Nothing in the parser, the converter or the detector was changed.** This is a
-log of what the corpus exposes, so that fixing any of it is a deliberate,
-separately reviewable decision.
+This is a log of what the corpus exposes, so that fixing any of it is a
+deliberate, separately reviewable decision. Everything here was found before
+anything was changed.
+
+**D17 and D18 are fixed** as of 0.6.1 (1 September 2026); their sections below
+are kept and marked, because the reasoning is the record of why the code looks
+the way it does now. Everything else is open.
 
 Reproduce every number below with:
 
@@ -357,7 +361,7 @@ This is the exact mirror of D2. There the end-only fallback is *missing* for
 enumeration; here it is *too eager* for chronology. Both come from the same
 asymmetry and should be fixed together.
 
-### D17 — a confirmed pattern claims a substring and discards the rest · 37 statements (33%) · **widest**
+### D17 — a confirmed pattern claims a substring and discards the rest · 37 statements (33%) · **FIXED in 0.6.1**
 
 This is the one that produced the reported output, and it is Workbench-only —
 `parse_866()` reads the statement correctly.
@@ -396,10 +400,25 @@ carry over to the bridge, where the match decides what gets written.
 Worth noting against the file's own reasoning: `build_parse_result()` already
 argues, at length and correctly, that half a statement is worse than none —
 "the 866 is removed once anything is written from it… All or nothing keeps the
-field intact." That guarantee is enforced *between* segments and not *within*
+field intact." That guarantee was enforced *between* segments and not *within*
 one.
 
-### D18 — the 863 second indicator contradicts the field · every generated 863
+**Fixed in 0.6.1.** `build_parse_result()` now requires `fullmatch`; a partial
+match means the pattern does not describe the statement, so it is treated as no
+match and the statement goes to the standard parser whole. Three places that
+*told* the cataloguer a partial match was a match changed with it, because the
+confirmation screen is where a wrong pattern gets confirmed in the first place:
+`_validate()` in the detector (the cluster match rate), and `_example_values()`
+and `/api/test-regex` in the Workbench. The detector's own Test button already
+distinguished full from partial and was left alone.
+
+Checked before changing it: **0 of 111** statements fail to fullmatch their own
+cluster's regex, so the `search` fallback never helped a pattern match its own
+members — it only ever let one claim a foreign statement.
+`scripts/corpus_report.py` now re-asks the real bridge whether any of the 37
+would still convert on a partial match, and says REGRESSION if one does.
+
+### D18 — the 863 second indicator contradicts the field · **FIXED in 0.6.1**
 
 `_build_863_for_range()` writes:
 
@@ -420,6 +439,12 @@ First indicator is **Field encoding level**, values 3/4/5 matching Leader/17, no
 "no information provided". `4` is a defensible value for enum-and-chron holdings,
 so the output is right and only the comment is wrong — but it should agree with
 whatever the record's Leader/17 says.
+
+**Fixed in 0.6.1**, second indicator only: `0`. The first indicator keeps `4`
+and gains a comment that states the rule; reconciling it with Leader/17 is a
+separate change, since nothing currently reads the Leader. A test pins the pair,
+because a single indicator character has no visible effect on screen and nothing
+else would notice it drifting back.
 
 The `853 31` the tool writes is fine: first indicator `3` (compressibility
 unknown) and second `1` (captions verified, all levels may not be present) are
@@ -523,13 +548,8 @@ everything correctly" is not.
 
 ## What I would do next, in order
 
-0. **D17 first, before anything else.** It is the largest silent loss in the
-   toolkit (33% of statements exposed), it is a one-line change to stop, and it
-   affects the Workbench — the tool meant to be the *safe* one because a human
-   confirms each pattern. A confirmation the cataloguer gave in good faith is
-   currently being applied to statements it does not describe.
-1. **D18** — set the 863 second indicator to `0`. One character, and every field
-   the tool has ever written is currently mislabelled.
+0. ~~**D17 first, before anything else.**~~ Done in 0.6.1.
+1. ~~**D18** — set the 863 second indicator to `0`.~~ Done in 0.6.1.
 2. **D15 and D16 together** — both are `_build_863_for_range()` boundary logic,
    and D16 is the mirror of D2, so all three are one change to how a level's two
    endpoints become a subfield value.

@@ -501,10 +501,20 @@ def _build_863_for_range(
     for code, value in sorted(planned, key=lambda p: p[0]):
         sfs.append(SubfieldData(code, value))
 
+    # Indicator 1 is Field encoding level, matching Leader/17: 3, 4 or 5.  4 is
+    # holdings level 4 -- enumeration and chronology recorded -- which is what
+    # this field carries.
+    #
+    # Indicator 2 is Form of holdings: 0 compressed, 1 uncompressed, 2 and 3 the
+    # same pair where the display comes from a linked 866.  Every field built
+    # here states the first part held and the last part held as a range
+    # ("$a 41-43 $i 1984-1986"), which is the definition of compressed, so it is
+    # 0.  It was 1 -- uncompressed, meaning each part itemised separately --
+    # which said the opposite of what the field contains.
     return FieldData(
         tag="863",
-        indicator1="4",  # 4 = no information provided / n/a
-        indicator2="1",  # 1 = compressed using / range designation
+        indicator1="4",  # field encoding level 4: enumeration and chronology
+        indicator2="0",  # form of holdings: compressed
         subfields=sfs,
     )
 

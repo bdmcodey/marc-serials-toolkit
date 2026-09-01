@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "released": "2026-08-25",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,29 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.6.1",
+      "date": "2026-09-01",
+      "summary": "Two corrections: a pattern can no longer convert half a statement, and every 863 now says it is compressed.",
+      "changes": [
+        {
+          "tool": "Workbench",
+          "text": "A confirmed pattern now has to fit the whole statement before it is used. Until now one could match just part of a statement \u2014 the pattern for \"v. 9 no. 1 (Nov 1902)\" matched the tail end of \"v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)\" \u2014 and everything before the part it matched was dropped, with nothing on screen to say so. A statement a pattern only partly fits now goes to the standard parser whole, as though no pattern had matched it. Please re-check any file you converted with your own patterns for holdings that begin later than they should."
+        },
+        {
+          "tool": "Workbench",
+          "text": "The Test button and the example values on the confirmation screen now count a pattern as matching only when it fits the whole statement, so what you see while confirming is what conversion will do. A pattern that fits only part is still shown, along with the part it covers, so you can see how close it came."
+        },
+        {
+          "tool": "Pattern Detector",
+          "text": "A pattern's match rate now counts only the statements it fits end to end. Some rates that read 100% will read lower \u2014 nothing got worse; the number now means what it says."
+        },
+        {
+          "tool": "Converter",
+          "text": "Every generated 863 now carries second indicator 0, \"compressed\", instead of 1, \"uncompressed\". These fields state a range \u2014 the first part held and the last part held \u2014 which is what compressed means, so each one had been claiming the opposite of what it contained. If your system reads that indicator, records written before this version are worth reloading."
+        }
+      ]
+    },
     {
       "version": "0.6.0",
       "date": "2026-08-25",

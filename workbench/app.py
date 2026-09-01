@@ -424,6 +424,11 @@ def _example_values(regex: str, statements, roles) -> list:
     is checking one statement at a time -- this 866, these captured values, that
     853 -- and a column mixing values from several statements cannot be lined up
     against any of them.
+
+    Only a full match contributes values, for the same reason pattern_bridge
+    only converts on one: values pulled out of a substring look like a working
+    pattern on this screen, and are exactly what the conversion will refuse to
+    use.  A partial match shows empty, which is what the pattern will do.
     """
     try:
         compiled = re.compile(regex, re.IGNORECASE)
@@ -433,7 +438,7 @@ def _example_values(regex: str, statements, roles) -> list:
     out = []
     for statement in list(statements)[:EXAMPLE_LIMIT]:
         s = (statement or "").strip()[:MAX_STATEMENT_CHARS]
-        m = compiled.fullmatch(s) or compiled.search(s)
+        m = compiled.fullmatch(s)
         caught = m.groupdict() if m else {}
         out.append({r.group: (caught.get(r.group) or "") for r in roles})
     return out
@@ -653,16 +658,22 @@ def api_test_regex():
     except re.error as exc:
         return jsonify({"error": f"Invalid regex: {exc}"}), 400
 
+    # "matched" means the pattern spans the whole statement, because that is
+    # what the Workbench will convert on -- see pattern_bridge. A partial hit is
+    # still reported, with the span it covers, so the cataloguer can see how
+    # close the expression came and what it missed; it just does not count.
     results = []
     for s in statements:
         s = s.strip()
         fm = compiled.fullmatch(s)
-        m = fm or compiled.search(s)
+        partial = None if fm else compiled.search(s)
+        m = fm or partial
         results.append({
             "statement": s,
-            "matched": m is not None,
+            "matched": fm is not None,
             "full_match": fm is not None,
-            "groups": m.groupdict() if m else {},
+            "partial_match": partial is not None,
+            "groups": fm.groupdict() if fm else {},
             "span": list(m.span()) if m else None,
         })
 

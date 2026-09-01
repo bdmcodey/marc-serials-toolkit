@@ -3,7 +3,7 @@ Run data/textual_holdings_corpus.txt through the parser, the converter and the
 pattern detector, and report where they fall short.
 
 This is a *reporting* script, not a test. It changes nothing and asserts
-nothing; it prints what the three engines currently do with 110 real 866 $a
+nothing; it prints what the three engines currently do with 112 real 866 $a
 statements so that CORPUS-FINDINGS.md can be checked against the code rather
 than remembered. Every count in that file comes from here.
 
@@ -25,6 +25,12 @@ and only the first is visible from the outside:
                      one pattern into several, each needing its own
                      confirmation. Nothing is wrong with the output; the tool is
                      just asking the same question repeatedly.
+
+The Workbench section additionally re-checks a fixed defect rather than only
+measuring an open one: D17 let a confirmed pattern claim a substring of a
+statement and discard the rest, and the report asks the real bridge, on every
+statement some other cluster's regex partly matches, whether it would still
+convert. It says REGRESSION if any does.
 
 Silent loss is found three ways, because no one of them sees everything:
 
@@ -54,7 +60,8 @@ CORPUS = REPO_ROOT / "data" / "textual_holdings_corpus.txt"
 
 # The engines import their siblings by bare name, exactly as tests/conftest.py
 # explains, so their directories have to be on the path before importing.
-for _d in (REPO_ROOT / "converter", REPO_ROOT / "pattern-detector"):
+for _d in (REPO_ROOT / "converter", REPO_ROOT / "pattern-detector",
+           REPO_ROOT / "workbench"):
     if str(_d) not in sys.path:
         sys.path.insert(0, str(_d))
 
@@ -342,21 +349,22 @@ def _coarse_signature(signature: str) -> str:
 
 def pattern_path_exposure(statements: list[str], groups: list) -> list[dict]:
     """
-    Statements a *different* cluster's regex can claim only part of.
+    Statements a *different* cluster's regex matches only part of.
 
-    pattern_bridge.build_parse_result() matches with
+    pattern_bridge.build_parse_result() used to match with
 
         m = compiled.fullmatch(seg) or compiled.search(seg)
 
-    so when a pattern does not span the whole statement it may still match a
-    substring, and every character outside that span is discarded with no
-    warning. apply_patterns() takes the first pattern that matches, so a short,
-    common pattern confirmed early beats the longer, correct one.
+    so a pattern that did not span the statement could still claim a substring,
+    and every character outside that span was discarded with no warning.
+    apply_patterns() takes the first pattern that matches, so the short, common
+    pattern a cataloguer confirms first beat the longer correct one (D17).
 
-    This is the shape of the failure, measured without confirming anything: for
-    each statement, the smallest span any cluster's regex would claim. A small
-    fraction means a pattern would keep that little of the statement and throw
-    the rest away.
+    It now requires a full match. This measurement is kept for two reasons: it
+    counts how often that rule is load-bearing, and `converted_on_partial`
+    re-checks the actual behaviour against a real pattern, so the report fails
+    loudly if the search fallback ever comes back. Each entry records the
+    smallest span any cluster's regex would claim for that statement.
     """
     compiled = [(g.human_label, re.compile(g.regex, re.IGNORECASE), g.count)
                 for g in groups if g.regex]
@@ -377,13 +385,33 @@ def pattern_path_exposure(statements: list[str], groups: list) -> list[dict]:
                     "label": label,
                     "cluster_size": size,
                     "fraction": fraction,
+                    "regex": rx,
                     "matched": statement[m.start():m.end()],
                     "discarded": (statement[:m.start()] + " … "
                                   + statement[m.end():]).strip(" …"),
                 }
         if worst is not None:
+            worst["converted_on_partial"] = _converts_on_partial_match(
+                worst["statement"], worst["regex"])
             exposure.append(worst)
     return exposure
+
+
+def _converts_on_partial_match(statement: str, compiled: "re.Pattern") -> bool:
+    """
+    True if the bridge still writes fields from a pattern that matches in part.
+
+    Asks the real code rather than re-implementing its rule, so this keeps
+    working if the matching moves. `fallback=False` isolates the pattern: with
+    the standard parser switched off, anything returned came from the pattern
+    alone.
+    """
+    from pattern_bridge import build_parse_result, roles_from_regex   # noqa: PLC0415
+
+    result = build_parse_result(statement, compiled,
+                                roles_from_regex(compiled.pattern),
+                                split=False, fallback=False)
+    return result is not None and bool(result.ranges)
 
 
 # ---------------------------------------------------------------------------
@@ -557,23 +585,40 @@ def report(detail: bool = False, drift_only: bool = False) -> int:
     print("Workbench (confirmed-pattern path)")
     print("-" * 78)
     exposure = pattern_path_exposure(statements, groups)
-    print(f"  statements a pattern can claim only part of  {len(exposure):3d}"
-          f"  ({len(exposure) / len(statements):.0%})")
+    leaked = [e for e in exposure if e["converted_on_partial"]]
+
+    print(f"  statements some other cluster's regex matches only in part"
+          f"  {len(exposure):3d}  ({len(exposure) / len(statements):.0%})")
     if exposure:
         worst = min(exposure, key=lambda e: e["fraction"])
-        print(f"  worst case consumes                          "
-              f"{worst['fraction']:.0%} of its statement")
-    print("\n  build_parse_result() accepts `compiled.fullmatch(seg) or")
-    print("  compiled.search(seg)`, so a pattern may match a substring and")
-    print("  everything outside the matched span is dropped without a warning.")
+        print(f"  smallest such span                                       "
+              f"  {worst['fraction']:.0%} of its statement")
+    print(f"  of those, ones a pattern would still convert on"
+          f"            {len(leaked):3d}")
+
+    if leaked:
+        print("\n  REGRESSION: build_parse_result() is converting on a partial")
+        print("  match again. Everything outside the matched span is being")
+        print("  written off. See D17 in CORPUS-FINDINGS.md.")
+        for e in leaked[:10]:
+            print(f"    {e['statement']}")
+            print(f"      kept     : {e['matched']}")
+            print(f"      discarded: {e['discarded']}")
+    else:
+        print("\n  None convert: build_parse_result() requires the pattern to span")
+        print("  the whole segment, so a partial match is treated as no match and")
+        print("  the statement goes to the standard parser whole. The count above")
+        print("  is how often that rule is what stands between a confirmed")
+        print("  pattern and a truncated record -- it is the fix doing work, not")
+        print("  a problem.")
 
     if detail:
         for e in sorted(exposure, key=lambda e: e["fraction"])[:10]:
-            print(f"\n    {e['fraction']:.0%} consumed by a cluster of {e['cluster_size']}"
-                  f"  ({e['label']})")
+            print(f"\n    {e['fraction']:.0%} would have been consumed by a cluster of "
+                  f"{e['cluster_size']}  ({e['label']})")
             print(f"      statement: {e['statement']}")
-            print(f"      matched  : {e['matched']}")
-            print(f"      discarded: {e['discarded']}")
+            print(f"      that span: {e['matched']}")
+            print(f"      refused, so this survives: {e['discarded']}")
 
     # ── Drift ──
     print()

@@ -120,10 +120,11 @@ python scripts/corpus_report.py --detail   # every affected statement
 python scripts/corpus_report.py --drift    # only outcomes that have changed
 ```
 
-[`CORPUS-FINDINGS.md`](CORPUS-FINDINGS.md) records what it currently reveals:
-60% of the statements convert cleanly, 32% convert with values silently dropped,
-a third can be claimed only in part by a confirmed pattern, and the detector
-splits four cataloguer-visible shapes across fifteen patterns.
+[`CORPUS-FINDINGS.md`](CORPUS-FINDINGS.md) records what it revealed and what has
+been fixed since: 60% of the statements convert cleanly, 32% convert with values
+silently dropped, and the detector splits four cataloguer-visible shapes across
+fifteen patterns. Two findings are fixed — a confirmed pattern claiming only part
+of a statement, and the 863 compression indicator.
 
 ## Running the tests
 

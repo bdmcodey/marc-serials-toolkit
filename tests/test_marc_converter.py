@@ -167,7 +167,22 @@ def test_standard_853_and_863_shape():
 
     assert result.field_853.display() == "853 31 $8 1 $a v. $b no. $i (year) $j (month)"
     assert len(result.fields_863) == 1
-    assert result.fields_863[0].display() == "863 41 $8 1.1 $a 1-5 $b 1-4 $i 1990-1994 $j 01-12"
+    assert result.fields_863[0].display() == "863 40 $8 1.1 $a 1-5 $b 1-4 $i 1990-1994 $j 01-12"
+
+
+def test_863_declares_itself_compressed():
+    """
+    Second indicator is Form of holdings: 0 compressed, 1 uncompressed.
+
+    Every 863 this tool builds states a range -- the first part held and the
+    last part held -- which is the definition of compressed. It carried 1 until
+    September 2026, so each field asserted that its parts were itemised
+    separately while holding "$a 1-5". Pinned because the value is a single
+    character with no visible effect on the screen, and nothing else would
+    notice it drifting back.
+    """
+    result = convert_holdings(parse_866("v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)"))
+    assert indicators(result.fields_863[0]) == ("4", "0")
 
 
 def test_house_convention_leads_with_the_year_and_writes_chronology_as_text():

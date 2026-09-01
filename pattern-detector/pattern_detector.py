@@ -505,8 +505,14 @@ def _validate(
     Test a regex against every statement using re.fullmatch (IGNORECASE).
 
     Returns (match_rate 0.0–1.0, matched_list, failed_list).
-    Falls back to re.search on fullmatch failure so partially-parsed
-    multi-range strings still report a hit.
+
+    A statement counts as matched only when the pattern spans the whole of it.
+    An re.search fallback used to count a partial hit as a match, so that
+    partially-parsed multi-range strings still registered -- but the rate is
+    what a cataloguer reads to decide whether a pattern is trustworthy, and
+    pattern_bridge will not convert on a partial match, so counting one here
+    promised something the Workbench then declined to do.  Multi-range strings
+    are handled by split_multi_range() before they reach this function.
     """
     matched, failed = [], []
     try:
@@ -515,7 +521,7 @@ def _validate(
         return 0.0, [], list(statements)
 
     for s in statements:
-        hit = compiled.fullmatch(s.strip()) or compiled.search(s.strip())
+        hit = compiled.fullmatch(s.strip())
         (matched if hit else failed).append(s)
 
     rate = len(matched) / len(statements) if statements else 1.0
