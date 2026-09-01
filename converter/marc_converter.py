@@ -672,12 +672,35 @@ def _set_subfield(field_data: FieldData, code: str, value: str) -> None:
 
 
 def _pattern_key(field_853: FieldData) -> tuple:
-    """
-    The publication pattern an 853 expresses, ignoring its linking number.
-
-    Two statements belong under the same 853 exactly when this matches.
-    """
+    """The publication pattern an 853 expresses, ignoring its linking number."""
     return tuple((sf.code, sf.value) for sf in field_853.subfields if sf.code != "8")
+
+
+def _pattern_map(field_853: FieldData) -> Dict[str, str]:
+    """The same thing as a mapping, for comparing two patterns subfield by subfield."""
+    return {sf.code: sf.value for sf in field_853.subfields if sf.code != "8"}
+
+
+def _same_publication_pattern(a: Dict[str, str], b: Dict[str, str]) -> bool:
+    """
+    Whether two 853s describe one publication pattern rather than two.
+
+    They do when every caption they both carry agrees, and one carries a subset
+    of the other's.  A statement recording less detail than its neighbour --
+    "v.5(1994)" beside "v.1:no.1(1990)" -- is the same publication with the
+    issue simply not recorded, and an 863 need not fill every caption its 853
+    declares.
+
+    Carrying the *same* caption with a *different* value is a real change and
+    never merges: month chronology and season chronology both use $j, so
+    "$j (month)" and "$j (season)" disagree on a shared caption and stay apart.
+    That distinction is the whole reason this is a subset test rather than an
+    intersection one.
+    """
+    shared = a.keys() & b.keys()
+    if any(a[k] != b[k] for k in shared):
+        return False
+    return a.keys() <= b.keys() or b.keys() <= a.keys()
 
 
 def convert_record(
@@ -697,17 +720,41 @@ def convert_record(
     decided per statement -- convert_holdings() cannot see its siblings -- so
     this function assigns every $8 once the whole record is known.
 
-    Statements whose 853 is identical share a linking number and receive
-    consecutive 863 sequence numbers.  Statements conforming to an 853 already
-    on the record adopt its $8.  Any link number written to is reported in
-    `links_written` so the caller can drop superseded 863s.
+    Statements are grouped into *runs*: consecutive statements describing one
+    publication pattern share a linking number and receive consecutive 863
+    sequence numbers.  A pattern that returns after a different one has
+    intervened starts a new run and takes the next linking number, because the
+    publication changed twice and the record should say so:
+
+        v. 1 no. 1-4 (Mar-Dec 2001)     months    $8 1
+        v. 2 no. 1-4 (Winter-Fall 2002) seasons   $8 2
+        v. 3 no. 1-4 (Mar-Dec 2003)     months    $8 3   <- not 1
+
+    This means two identical 853s can be generated, differing only in $8.  That
+    is deliberate and is not the fault v0.5.0 removed: that was one 853 per
+    *statement* even where nothing had changed, whereas these mark genuinely
+    separate runs either side of a change.
+
+    Grouping therefore depends on 866 field order, which carries meaning -- a
+    record whose 866s are not in publication order will produce more runs than
+    it should.  A statement held for review does not break a run: nothing is
+    known about it, so it is no evidence of a change.
+
+    Statements conforming to an 853 already on the record adopt its $8 and are
+    grouped by that field rather than by run, since it is one field already on
+    the record and cannot be duplicated.  Any link number written to is
+    reported in `links_written` so the caller can drop superseded 863s.
     """
     existing = list(existing_853s or [])
     out = RecordConversion()
 
-    # (link or pattern key) -> [(ConversionResult), ...], in first-appearance order
-    groups: "dict[Any, List[ConversionResult]]" = {}
-    conformed_links: Dict[Any, str] = {}
+    # Runs, in the order they open.  Each carries the members that share its
+    # 853, the pattern they agree on, and the member whose 853 is the fullest --
+    # that is the one field the record gets, so a run merged from a sparser
+    # statement and a richer one is described by the richer.
+    groups: "List[Dict[str, Any]]" = []
+    by_link: "Dict[str, Dict[str, Any]]" = {}
+    open_group: "Optional[Dict[str, Any]]" = None
 
     for pr in parse_results:
         # Pick the existing 853 this statement could conform to, if any.
@@ -733,31 +780,51 @@ def convert_record(
             continue
 
         if cr.conformed:
-            key = ("link", str(cr.linking_number))
-            conformed_links[key] = str(cr.linking_number)
+            # An 853 already on the record: one field, so one group, however
+            # many times statements return to it.
+            link = str(cr.linking_number)
+            group = by_link.get(link)
+            if group is None:
+                group = {"link": link, "pattern": None, "members": [], "head": cr}
+                groups.append(group)
+                by_link[link] = group
+        elif (open_group is not None and open_group["link"] is None
+              and _same_publication_pattern(open_group["pattern"],
+                                            _pattern_map(cr.field_853))):
+            group = open_group
+            pattern = _pattern_map(cr.field_853)
+            if len(pattern) > len(group["pattern"]):
+                # A later statement records more: the run is described by the
+                # fuller 853, and the sparser 863s simply omit what they lack.
+                group["pattern"] = pattern
+                group["head"] = cr
         else:
-            key = ("pattern", _pattern_key(cr.field_853))
-        groups.setdefault(key, []).append(cr)
+            group = {"link": None, "pattern": _pattern_map(cr.field_853),
+                     "members": [], "head": cr}
+            groups.append(group)
 
-    # Allocate link numbers, stepping around any a conformed group already owns.
-    taken = set(conformed_links.values())
-    assigned: Dict[Any, str] = dict(conformed_links)
+        group["members"].append(cr)
+        open_group = group
+
+    # Allocate link numbers in run order, stepping around any a conformed group
+    # already owns.
+    taken = {g["link"] for g in groups if g["link"]}
     nxt = 1
-    for key in groups:
-        if key in assigned:
+    for group in groups:
+        if group["link"]:
             continue
         while str(nxt) in taken:
             nxt += 1
-        assigned[key] = str(nxt)
+        group["link"] = str(nxt)
         taken.add(str(nxt))
         nxt += 1
 
     # Stamp $8 and let 863 sequence numbers run across the whole group.
-    for key, members in groups.items():
-        link = assigned[key]
+    for group in groups:
+        link = group["link"]
         out.links_written.append(link)
         seq = 1
-        for cr in members:
+        for cr in group["members"]:
             for f863 in cr.fields_863:
                 _set_subfield(f863, "8", f"{link}.{seq}")
                 out.fields_863.append(f863)
@@ -767,8 +834,9 @@ def convert_record(
             # actually written, even though only one field reaches the record.
             if cr.field_853 is not None:
                 _set_subfield(cr.field_853, "8", link)
-        # One 853 per group; conformed groups already have one on the record.
-        head = members[0]
+        # One 853 per run, the fullest of its members; conformed groups already
+        # have their field on the record.
+        head = group["head"]
         if head.field_853 is not None:
             out.fields_853.append(head.field_853)
 
