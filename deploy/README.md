@@ -60,6 +60,25 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d tools.example.com          # choose Redirect
 ```
 
+Certbot does not write the `:443` block from scratch — it adds `listen 443 ssl`
+to the block it finds and moves the plain `:80` listener into a new redirect
+block underneath. Everything in this file, the rate limits included, is carried
+across because it is the same block. Confirm that it was:
+
+```bash
+sudo grep -c 'limit_req zone=tools' /etc/nginx/sites-available/tools
+```
+
+Expect **3**, one per proxied tool. A `0` means certbot did not carry the
+locations over and the `limit_req` lines need adding to the `:443` block by
+hand. Worth checking because rate limiting fails open: nothing about a working
+site tells you the limits are gone.
+
+The zone itself is defined once, at the top of this file, which is http context
+because nginx includes `sites-enabled/*` from inside its `http` block. It does
+not need a separate file in `/etc/nginx/conf.d/` — and must not also be defined
+there, or nginx will refuse to start on a duplicate zone name.
+
 ### 5. Landing page
 `/` serves a page listing the three tools. It is a single static file with no
 app behind it, but nginx runs as `www-data` and usually cannot traverse a home
@@ -189,6 +208,17 @@ sudo cp ~/marc-serials-toolkit/deploy/landing/index.html /var/www/tools/
 
 Then check all three respond, as in **Verify** above, and try the new one with a
 small `.mrc` — reaching a page proves nginx and the unit, not that the app works.
+
+Re-check the rate limits too, since you have just edited the file that holds
+them:
+
+```bash
+sudo grep -c 'limit_req zone=tools' /etc/nginx/sites-available/tools
+```
+
+Expect one per proxied tool — **4** once a fourth is added, and so on. It is
+also worth running after an `nginx` package upgrade, which can offer to replace
+this file.
 
 ### If something is wrong
 
