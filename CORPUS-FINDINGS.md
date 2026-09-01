@@ -37,7 +37,7 @@ python scripts/corpus_report.py --drift    # only the tags that no longer hold
 
 The silent-loss column is the one to watch, and the clean rate is not. Statements
 have moved *out* of "clean" in both directions on purpose: ten now refuse
-outright rather than convert a third of themselves (D1, D3), and fifteen more
+outright rather than convert a third of themselves (D1, D3), and eighteen more
 convert while naming a value they could not place. Both are the same trade —
 less written, and what is written is true.
 
@@ -598,9 +598,11 @@ neither encoded nor lost — it is **accounted for**, and the cataloguer can act
 on a specific claim rather than wondering what else went missing.
 
 The corpus report follows the same distinction: a value a warning names no
-longer counts as a silent loss, which is why the clean rate moved from 60% to
-71% while six statements moved from "lost" to "warned". If that warning were
-ever removed, the report would count them as losses again.
+longer counts as a silent loss. At 0.6.2 that alone took the clean rate from
+60% to 71%, with six statements moving from "lost" to "warned" — 0.6.3 then
+moved it again by turning ten half-conversions into refusals, so the headline
+table is the current figure and this is the step. If that warning were ever
+removed, the report would count those statements as losses again.
 
 ### Both remaining shapes closed in 0.6.3
 
