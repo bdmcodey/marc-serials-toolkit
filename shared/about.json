@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.6.0",
+  "version": "0.6.4",
   "released": "2026-08-25",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,102 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.6.4",
+      "date": "2026-09-01",
+      "summary": "Fewer patterns to confirm, dates read to the day, and nothing but codes in a coded subfield.",
+      "changes": [
+        {
+          "tool": "Pattern Detector",
+          "text": "Months and seasons are now treated as the same kind of thing, and a combined chronology like \"Jul/Aug\" or \"Winter/Spring\" counts as one value rather than two with something in between. \"(Sep 1944 - Aug 1945)\" and \"(Winter 1986 - Summer 1987)\" are the same shape and used to be two patterns to confirm separately; across the test collection this took 55 patterns down to 44 and removed every case where one shape had been split. A pattern found from months will now also read the season a later record uses in the same place."
+        },
+        {
+          "tool": "Pattern Detector",
+          "text": "A pattern's description now shows where it contains text the tool does not recognise, as \u2039text\u203a. \"v. 58 Suppl. (Sep 2003)\" reads \"VOL\u2039text\u203a(CHRONYEAR)\" instead of looking exactly like a statement with no \"Suppl.\" in it \u2014 two different patterns could previously appear on screen under the same description."
+        },
+        {
+          "tool": "Converter",
+          "text": "A date written with a day is now read. \"(Apr 18, 1996-Dec 1997)\" recorded only \"1997\", claiming the holdings began that year; it now records 1996-1997 and April-December. The day itself is still not encoded \u2014 it has its own subfield this tool does not yet write \u2014 and is named on screen."
+        },
+        {
+          "tool": "Converter",
+          "text": "Wording that is not a month or a season no longer reaches a subfield reserved for chronology codes. \"v. 15 (1998 Buyers Guide)\" wrote \"Buyers Guide\" into $j, and \"Late Summer\" produced the half-coded \"11/12-Late Summer\"; both are now left out and named, so you can record them by hand. Abbreviated seasons \u2014 Spr., Sum, Aut, Win \u2014 are recognised and coded rather than treated as wording."
+        },
+        {
+          "tool": "Workbench",
+          "text": "\"Split multi-range statements on top-level commas, semicolons or slashes\" now starts switched off. Tick it when a file needs it."
+        },
+        {
+          "tool": "Converter",
+          "text": "A bracketed group nested inside a year-first statement \u2014 the \"(1)\" in \"N1984: (2 (1))\" \u2014 is now named rather than dropped in silence. What it means is local to whoever wrote it, so the tool says it could not encode it instead of guessing."
+        }
+      ]
+    },
+    {
+      "version": "0.6.3",
+      "date": "2026-09-01",
+      "summary": "Statements the parser can only partly read are now held for review instead of half-converted.",
+      "changes": [
+        {
+          "tool": "Converter",
+          "text": "A statement is now read whole or not at all. \"v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)\" used to produce \"$a 19 $b 1\" \u2014 one issue of twelve, no months, no year \u2014 and the original 866 was then removed, so the rest of the holdings went with it. Statements like this are now held for review, and the screen says how far the reading got: \"Read 'v. 19 nos. 1' but could not account for ', 3, 5, 7-12 (...)'\". The same applies to a supplement designation sitting between the numbering and the date, as in \"v. 58 Suppl. (Sep 2003)\". Fewer statements convert as a result; none of them were converting correctly. Please re-check any file converted before this version for holdings that stop earlier than they should."
+        },
+        {
+          "tool": "Converter",
+          "text": "A month or season given at only one end of a range is no longer recorded. \"(1981 - Sep 1996)\" wrote \"$i 1981-1996 $j 09\", which a catalogue reads as the run beginning in September 1981 \u2014 the statement never said that. Where both ends name one it is kept as a pair, as before. The value that could not be placed is named on screen either way."
+        },
+        {
+          "tool": "Converter",
+          "text": "A combined volume is now read. \"v.7/8(1996:Jul./Aug.)\" matched only \"v.7\" and dropped the year and both months in silence; volumes now accept the same combined form issues always have."
+        }
+      ]
+    },
+    {
+      "version": "0.6.2",
+      "date": "2026-09-01",
+      "summary": "A range now records both of its ends, and says which value it could not place.",
+      "changes": [
+        {
+          "tool": "Converter",
+          "text": "A range that begins and ends at the same issue now records both ends. \"v. 41 no. 1-v. 43 no. 1\" wrote \"$a 41-43 $b 1\", which reads just as well as issue 1 of each of volumes 41 to 43; it now writes \"$b 1-1\", so the first and last part held can be told apart. This applies to any level sitting under one that changes across the range \u2014 including the month in \"$i 2014-2022 $j 01\". Where nothing above a level changes, it is left as it was: \"v. 43 no. 6 - v. 43 no. 7\" still writes \"$a 43 $b 6-7\", which loses nothing."
+        },
+        {
+          "tool": "Converter",
+          "text": "Where only one end of a range gives a value, that value is no longer written as though it belonged to the other end. \"v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)\" used to record December as the month the holdings *begin*; the month is now left out, because the statement does not say what it is. The same applies to enumeration: \"v. 1 - v. 55 no. 3\" leaves the issue out rather than guessing."
+        },
+        {
+          "tool": "Converter",
+          "text": "When a value has to be left out for that reason, the conversion now says which one \u2014 \"Only the end of this range gives an issue (3)...\" \u2014 instead of dropping it in silence. Nothing is written differently because of this; you can simply see what could not be placed, and decide whether to record it by hand."
+        },
+        {
+          "tool": "Converter",
+          "text": "Two ends naming the same month are kept as a pair rather than merged. \"(Jan 1956 - Jan 1957)\" now gives \"$i 1956-1957 $j 01-01\" instead of \"$j 01\", which read as a single January spanning two years. Where only one end names a month \u2014 \"(1981 - Sep 1996)\" \u2014 it is still recorded once, since repeating it would invent a month the statement never gave."
+        }
+      ]
+    },
+    {
+      "version": "0.6.1",
+      "date": "2026-09-01",
+      "summary": "Two corrections: a pattern can no longer convert half a statement, and every 863 now says it is compressed.",
+      "changes": [
+        {
+          "tool": "Workbench",
+          "text": "A confirmed pattern now has to fit the whole statement before it is used. Until now one could match just part of a statement \u2014 the pattern for \"v. 9 no. 1 (Nov 1902)\" matched the tail end of \"v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)\" \u2014 and everything before the part it matched was dropped, with nothing on screen to say so. A statement a pattern only partly fits now goes to the standard parser whole, as though no pattern had matched it. Please re-check any file you converted with your own patterns for holdings that begin later than they should."
+        },
+        {
+          "tool": "Workbench",
+          "text": "The Test button and the example values on the confirmation screen now count a pattern as matching only when it fits the whole statement, so what you see while confirming is what conversion will do. A pattern that fits only part is still shown, along with the part it covers, so you can see how close it came."
+        },
+        {
+          "tool": "Pattern Detector",
+          "text": "A pattern's match rate now counts only the statements it fits end to end. Some rates that read 100% will read lower \u2014 nothing got worse; the number now means what it says."
+        },
+        {
+          "tool": "Converter",
+          "text": "Every generated 863 now carries second indicator 0, \"compressed\", instead of 1, \"uncompressed\". These fields state a range \u2014 the first part held and the last part held \u2014 which is what compressed means, so each one had been claiming the opposite of what it contained. If your system reads that indicator, records written before this version are worth reloading."
+        }
+      ]
+    },
     {
       "version": "0.6.0",
       "date": "2026-08-25",

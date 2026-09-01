@@ -82,10 +82,13 @@ marc-serials-toolkit/
 ├── tests/              pytest suite covering all three apps
 ├── data/
 │   ├── example_holdings.mrc   Small SYNTHETIC sample for demos/tests
-│   └── messy_holdings.mrc     SYNTHETIC awkward cases, for the test suite
+│   ├── messy_holdings.mrc     SYNTHETIC awkward cases, for the test suite
+│   └── textual_holdings_corpus.txt  112 real 866 $a statements (text, not MARC)
 ├── scripts/
 │   ├── create_example_mrc.py  Regenerates the synthetic sample
-│   └── create_messy_mrc.py    Regenerates the awkward-case fixture
+│   ├── create_messy_mrc.py    Regenerates the awkward-case fixture
+│   └── corpus_report.py       Runs the corpus through all three engines
+├── CORPUS-FINDINGS.md  What that corpus reveals about the three tools
 ├── NOTICE.md           Licensing status — no license currently granted
 ├── THIRD-PARTY-NOTICES.md  Attribution for derived third-party code
 └── .gitignore
@@ -93,9 +96,9 @@ marc-serials-toolkit/
 
 ## Sample data
 
-Both files in `data/` are **invented** records — no real institutional data.
-`example_holdings.mrc` is the demo sample; `messy_holdings.mrc` collects the
-awkward shapes the test suite needs (the chronology-first grammar, slash-
+Both `.mrc` files in `data/` are **invented** records — no real institutional
+data. `example_holdings.mrc` is the demo sample; `messy_holdings.mrc` collects
+the awkward shapes the test suite needs (the chronology-first grammar, slash-
 separated ranges, records that already carry an 853). Regenerate either with:
 
 ```bash
@@ -103,6 +106,26 @@ pip install pymarc
 python scripts/create_example_mrc.py
 python scripts/create_messy_mrc.py
 ```
+
+`data/textual_holdings_corpus.txt` is different in kind: 112 unique 866 `$a`
+statements transcribed from real catalogue records, as plain text rather than
+MARC. It covers far more caption and chronology styles than the synthetic
+fixtures do, and it exists to find where the engines fall short. It carries no
+patron data, no local identifiers and no institutional codes — only enumeration
+and chronology strings. Run it through all three engines with:
+
+```bash
+python scripts/corpus_report.py            # summary
+python scripts/corpus_report.py --detail   # every affected statement
+python scripts/corpus_report.py --drift    # only outcomes that have changed
+```
+
+[`CORPUS-FINDINGS.md`](CORPUS-FINDINGS.md) records what it revealed and what has
+been fixed since. Twelve findings are fixed so far, taking silent losses from
+32% of statements to one: 66% now convert cleanly, 19% convert while naming a
+value they could not place, and 14% are held for review rather than
+half-converted. On the detector side, no shape is split across clusters any
+more.
 
 ## Running the tests
 

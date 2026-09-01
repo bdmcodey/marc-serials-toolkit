@@ -36,8 +36,14 @@ VOL_CAP     = "VOL_CAP"
 ISS_CAP     = "ISS_CAP"
 PT_CAP      = "PT_CAP"
 YEAR        = "YEAR"
-MON         = "MON"
-SEASON      = "SEASON"
+# One kind for months and seasons alike.  They occupy the same slot in a
+# statement and already share a capture-group name, but two kinds meant
+# "(Sep 1944 - Aug 1945)" and "(Winter 1986 - Summer 1987)" -- the same shape to
+# a cataloguer -- landed in different clusters, each needing its own
+# confirmation.  A combined chronology ("Jul/Aug", "Winter/Spring") is one
+# value written with a slash, so it is one token too; splitting it was the
+# other half of the same fragmentation.
+CHRON       = "CHRON"
 NUMBER      = "NUMBER"
 PAREN_OPEN  = "PAREN_OPEN"
 PAREN_CLOSE = "PAREN_CLOSE"
@@ -48,7 +54,7 @@ SPACE       = "SPACE"
 UNKNOWN     = "UNKNOWN"
 
 _CAPTION_KINDS = {VOL_CAP, ISS_CAP, PT_CAP}
-_VALUE_KINDS   = {YEAR, MON, SEASON, NUMBER}
+_VALUE_KINDS   = {YEAR, CHRON, NUMBER}
 
 # Clusters longer than this (in collapsed tokens) are reported as a finding
 # rather than turned into a regex.
@@ -75,6 +81,12 @@ _MON_RE = (
 )
 _SEASON_RE = r"(?:Spring|Summer|Fall|Autumn|Winter)"
 
+# What a CHRON token matches: a month or a season, optionally slash-joined into
+# a combined chronology.  Broad on purpose -- a pattern found from months should
+# still match the season a later record uses in the same slot.
+_CHRON_UNIT_RE = f"(?:{_MON_RE}|{_SEASON_RE})"
+_CHRON_RE = rf"{_CHRON_UNIT_RE}(?:\s*/\s*{_CHRON_UNIT_RE})*"
+
 
 # ── Token dataclass ───────────────────────────────────────────────────────────
 
@@ -98,12 +110,17 @@ _TOK_RE = re.compile(
     r"|(?P<PT_CAP>\b(?:pt|part)\.?)"
     # Four-digit year — 1800–2099 range, must precede NUMBER
     r"|(?P<YEAR>\b(?:1[89]|20)\d{2}\b)"
-    # Season names    — word-boundary on both ends to avoid "springtime"
-    r"|(?P<SEASON>\b(?:spring|summer|fall|autumn|winter)\b)"
-    # Month names / abbreviations (must precede ISS_CAP to protect "Nov.", etc.)
-    r"|(?P<MON>\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?"
+    # Month or season, with any slash-joined continuation ("Jul/Aug",
+    # "Winter/Spring").  Must precede ISS_CAP to protect "Nov.", and the
+    # word boundary keeps "springtime" out.
+    r"|(?P<CHRON>\b(?:spring|summer|fall|autumn|winter"
+    r"|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?"
     r"|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?"
-    r"|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?)"
+    r"|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\b"
+    r"(?:\s*/\s*(?:spring|summer|fall|autumn|winter"
+    r"|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?"
+    r"|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?"
+    r"|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\b)*)"
     # Issue caption   — no. | nr. | num. | number | iss. | issue
     r"|(?P<ISS_CAP>\b(?:no|nr|num(?:ber)?|iss(?:ue)?)\.?)"
     # Generic number (possibly with trailing letter: "4a", "12b")
@@ -271,7 +288,7 @@ def _unique_name(base: str, used: set[str]) -> str:
 # ── Compact human-readable label ─────────────────────────────────────────────
 
 _CAP_SHORT = {VOL_CAP: "VOL", ISS_CAP: "ISS", PT_CAP: "PT"}
-_VAL_SHORT = {YEAR: "YEAR", MON: "MON", SEASON: "SEASON"}
+_VAL_SHORT = {YEAR: "YEAR", CHRON: "CHRON"}
 _SEP_SHORT = {SEP_COLON: ":", SEP_COMMA: ",", PAREN_OPEN: "(", PAREN_CLOSE: ")"}
 
 
@@ -319,6 +336,11 @@ def _compact_label(stripped: list[Token], range_sep_idx: Optional[int]) -> str:
             # Keep it: an intra-level range ("v.1-5", "1990-1994" inside parens)
             # is part of the shape, and eliding it ran the two values together.
             parts.append("\u2013" if i == len(stripped) - 1 else "-")
+        elif kind == UNKNOWN:
+            # Free text was omitted entirely, so "v. 58 Suppl. (Sep 2003)" read
+            # as "VOL(CHRONYEAR)" -- indistinguishable from a clean statement,
+            # and two different clusters could show the identical label.
+            parts.append("\u2039text\u203a")
         i += 1
     return "".join(parts)
 
@@ -423,19 +445,13 @@ def _build_regex(
             parts.append(r"\s*")
             continue
 
-        if kind == MON:
+        if kind == CHRON:
             name = boundary_name("month")
             named_groups.append(name)
-            # Use the general month pattern so future statements with any
-            # standard month abbreviation will also be matched.
-            parts.append(rf"(?P<{name}>{_MON_RE})")
-            parts.append(r"\s*")
-            continue
-
-        if kind == SEASON:
-            name = boundary_name("month")
-            named_groups.append(name)
-            parts.append(rf"(?P<{name}>{_SEASON_RE})")
+            # The general pattern, not the forms observed: a pattern found from
+            # "Apr" should still match the "Winter" or "Jul/Aug" a later record
+            # writes in the same slot.
+            parts.append(rf"(?P<{name}>{_CHRON_RE})")
             parts.append(r"\s*")
             continue
 
@@ -505,8 +521,14 @@ def _validate(
     Test a regex against every statement using re.fullmatch (IGNORECASE).
 
     Returns (match_rate 0.0–1.0, matched_list, failed_list).
-    Falls back to re.search on fullmatch failure so partially-parsed
-    multi-range strings still report a hit.
+
+    A statement counts as matched only when the pattern spans the whole of it.
+    An re.search fallback used to count a partial hit as a match, so that
+    partially-parsed multi-range strings still registered -- but the rate is
+    what a cataloguer reads to decide whether a pattern is trustworthy, and
+    pattern_bridge will not convert on a partial match, so counting one here
+    promised something the Workbench then declined to do.  Multi-range strings
+    are handled by split_multi_range() before they reach this function.
     """
     matched, failed = [], []
     try:
@@ -515,7 +537,7 @@ def _validate(
         return 0.0, [], list(statements)
 
     for s in statements:
-        hit = compiled.fullmatch(s.strip()) or compiled.search(s.strip())
+        hit = compiled.fullmatch(s.strip())
         (matched if hit else failed).append(s)
 
     rate = len(matched) / len(statements) if statements else 1.0

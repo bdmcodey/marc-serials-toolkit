@@ -511,3 +511,64 @@ def test_an_ordinary_pattern_suggests_nothing():
 def test_a_suggested_role_survives_the_round_trip():
     role = GroupRole("start_num", BOUNDARY_START, LEVEL_VOL, suggested=True)
     assert GroupRole.from_dict(role.to_dict()).suggested is True
+
+
+# ---------------------------------------------------------------------------
+# A pattern must span the statement it claims
+# ---------------------------------------------------------------------------
+
+def test_a_pattern_matching_only_part_of_a_statement_is_not_used():
+    """
+    A confirmed pattern must span the whole segment, or it does not apply.
+
+    build_parse_result() matched with `fullmatch(seg) or search(seg)` until
+    September 2026, so a pattern for the very common single-unit shape
+    "v. 9 no. 1 (Nov 1902)" would search-match the *tail* of a two-boundary
+    statement and convert on it. Everything before the matched span -- here the
+    entire first boundary, v. 1 no. 1 (1995) -- was discarded with no warning,
+    and the Converter removes the 866 once anything has been written from it.
+
+    The shortest pattern is the one a cataloguer confirms first, because it has
+    the largest cluster behind it, so this was reachable on an ordinary run
+    rather than a contrived one.
+    """
+    donor = detect_one("v. 9 no. 1 (Nov 1902)")
+    compiled = re.compile(donor.regex, re.IGNORECASE)
+    roles = infer_roles(donor.named_groups)
+
+    victim = "v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)"
+    assert compiled.fullmatch(victim) is None
+    assert compiled.search(victim) is not None, "the tail still matches"
+
+    # Without the standard parser to fall back on, nothing is written at all.
+    assert build_parse_result(victim, compiled, roles, split=False,
+                              fallback=False) is None
+
+
+def test_a_partly_matching_pattern_falls_back_to_the_parser_intact():
+    """
+    With the fallback on, the statement is read by parse_866() -- whole.
+
+    The pattern contributed nothing, so what reaches the converter has to be
+    what the Converter itself would have produced, not the tail the pattern
+    could see.
+    """
+    donor = detect_one("v. 9 no. 1 (Nov 1902)")
+    compiled = re.compile(donor.regex, re.IGNORECASE)
+    roles = infer_roles(donor.named_groups)
+
+    victim = "v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)"
+    result = build_parse_result(victim, compiled, roles, split=False, fallback=True)
+
+    assert result is None, "no segment matched, so the caller falls back wholesale"
+
+    # And through the public entry point, with the pattern in the library.
+    pattern = plib.ConfirmedPattern(
+        id="p1", label=donor.human_label, regex=donor.regex, roles=roles,
+    )
+    parsed, source = apply_patterns(victim, [pattern])
+    assert source == "parser"
+    assert parsed.ranges[0].start.vol == "1"      # the first boundary survives
+    assert parsed.ranges[0].start.issue == "1"
+    assert parsed.ranges[0].start.year == "1995"
+    assert parsed.ranges[0].end.vol == "12"

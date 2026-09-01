@@ -411,33 +411,192 @@ def _build_853(
 # 863 builder helpers
 # ---------------------------------------------------------------------------
 
-def _enum_value(start: Optional[str], end: Optional[str],
-                open_ended: bool) -> Optional[str]:
-    """
-    Produce the subfield value for an enumeration level:
-      single item → "3"
-      closed range → "3-7"
-      open range  → "3-"
-    """
-    if start is None:
-        return None
-    if end is None and not open_ended:
-        return start
-    if open_ended:
-        return f"{start}-"
-    return f"{start}-{end}" if end != start else start
+# The two level hierarchies an 863 carries, each most significant first.
+# Enumeration and chronology are independent: a volume ranging says nothing
+# about whether the year does.
+_ENUM_LEVELS = ("vol", "issue", "part")
+_CHRON_LEVELS = ("year", "month")
+
+# Cataloguer-facing names, with their article, for warnings about a level that
+# could not be written.
+_LEVEL_WORDS = {
+    "vol":   ("a", "volume"),
+    "issue": ("an", "issue"),
+    "part":  ("a", "part"),
+    "year":  ("a", "year"),
+    "month": ("a", "month or season"),
+}
 
 
-def _chron_value(start: Optional[str], end: Optional[str],
-                 open_ended: bool) -> Optional[str]:
-    """Same as _enum_value but for chronology strings."""
-    if start is None:
-        return None
-    if end is None and not open_ended:
-        return start
-    if open_ended:
-        return f"{start}-"
-    return f"{start}-{end}" if end != start else start
+# A chronology subfield an 853 labels "(month)" or "(season)" holds MARC codes:
+# months 01-12, seasons 21-24, joined by "-" for a range and "/" for a combined
+# issue.  Anything else is prose.
+_CHRON_CODE = r"(?:0[1-9]|1[0-2]|2[1-4])"
+_CHRON_VALUE_RE = re.compile(rf"^{_CHRON_CODE}(?:[-/]{_CHRON_CODE})*-?$")
+
+# A year subfield holds four-digit years, likewise joined.
+_YEAR_VALUE_RE = re.compile(r"^\d{4}(?:[-/]\d{4})*-?$")
+
+
+def _is_codeable(level: str, value: str) -> bool:
+    """Whether `value` may be written into the coded subfield for `level`."""
+    if level == "month":
+        return bool(_CHRON_VALUE_RE.match(value))
+    if level == "year":
+        return bool(_YEAR_VALUE_RE.match(value))
+    return True
+
+
+def _note_unplaceable(warnings: Optional[List[str]], which: str,
+                      level: str, value: str) -> None:
+    """
+    Record that one boundary states a level the other does not.
+
+    A compressed 863 pairs its subfields positionally, so a value written for
+    one end is read as covering both.  With nothing at the other end there is no
+    range to express and no notation for half of one, so the level is left out
+    -- and named here, which is what keeps it accounted for rather than lost.
+    """
+    if warnings is None:
+        return
+    article, word = _LEVEL_WORDS.get(level, ("a", level))
+    other = "end" if which == "start" else "start"
+    note = (
+        f"Only the {which} of this range gives {article} {word} ({value}); a "
+        f"compressed 863 records the first and last part held, so with no "
+        f"{word} at the {other} it was left out."
+    )
+    if note not in warnings:
+        warnings.append(note)
+
+
+def _note_uncodeable(warnings: Optional[List[str]], level: str,
+                     value: str) -> None:
+    """Record chronology wording the coded subfield cannot hold."""
+    if warnings is None:
+        return
+    _, word = _LEVEL_WORDS.get(level, ("a", level))
+    note = (
+        f"'{value}' is not something a {word} subfield can hold — it takes "
+        f"MARC codes, not wording — so it was left out. Record it by hand if "
+        f"it matters."
+    )
+    if note not in warnings:
+        warnings.append(note)
+
+
+def _hierarchy_values(
+    hr: HoldingsRange,
+    level_names: tuple,
+    warnings: Optional[List[str]] = None,
+) -> Dict[str, str]:
+    """
+    The 863 value for every level of one hierarchy, as {level: value}.
+
+    A compressed 863 records the first part held and the last part held, and a
+    reader pairs the subfields positionally: the first value of every subfield
+    describes the first part, the second value the last part.  Everything below
+    follows from that one fact, and from a single question asked per level --
+    *does anything above this level range?*
+
+    No second boundary at all
+        A single unit ("v. 58 (Sep 2003)") has nothing to disagree with, so
+        every value stands.  An open-ended range writes the trailing hyphen.
+
+    Both ends known, different
+        The obvious "41-43".
+
+    Both ends known, equal
+        "1-1" when a more significant level ranges, because "$a 41-43 $b 1"
+        cannot be read back as v.41:no.1 - v.43:no.1 -- it describes issue 1 of
+        each of volumes 41 to 43 just as well.  Plain "1" when nothing above
+        ranges: "v. 43 no. 6 - v. 43 no. 7" loses nothing as "$a 43 $b 6-7".  A
+        value already containing a range is left alone, since "no. 3-4 - no. 3-4"
+        would become the unreadable "3-4-3-4".
+
+    One end only, and the other boundary states nothing at all in this
+    hierarchy
+        One group is describing the whole range and the parser has hung it on
+        whichever boundary carried it.  "v.1:no.1-v.2:no.4(1990-1991)" puts both
+        years on the end; "(Jan 1956 - Jan 1957)" puts an already-paired
+        "01-01" there.  The value covers both ends and is used as it stands.
+
+    One end only, and nothing above it ranges
+        Nothing to pair with, so the value is unambiguous:
+        "1983: 5 (7-30 [Jan 28-Dec 29])" states its year once for a run whose
+        months range within it.
+
+    One end only, and something above it ranges
+        Then the pairing matters and there is no notation for half of it.  The
+        "December" in "v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)" belongs to
+        the end alone; writing it asserts the holdings *begin* in December.  The
+        "Spring" in "v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)" is the same
+        thing pointing the other way.  The level is left out, and a warning names
+        the value -- accounted for rather than silently discarded.
+    """
+    s, e = hr.start, hr.end
+    oe = hr.open_ended
+
+    # Whether each boundary was written out at all at this hierarchy.  A value
+    # found on one boundary while the other is silent throughout came from a
+    # group covering the whole range, not from one end of it -- which is what
+    # separates the "01-01" of "(Jan 1956 - Jan 1957)", already a pair, from the
+    # "1-2" of "v. 1 (1956) - v. 51 nos. 1-2 (2006)", which is a range inside
+    # the end boundary and says nothing about where the run starts.
+    speaks = {
+        "start": any(getattr(s, name) is not None for name in level_names),
+        "end": e is not None and any(
+            getattr(e, name) is not None for name in level_names
+        ),
+    }
+
+    out: Dict[str, str] = {}
+    ranged_above = False
+
+    for name in level_names:
+        s_val = getattr(s, name)
+        e_val = getattr(e, name) if e is not None else None
+        value: Optional[str] = None
+
+        if e is None:
+            # Single unit: no other end to disagree with.
+            if s_val is not None:
+                value = f"{s_val}-" if oe else s_val
+        elif s_val is not None and e_val is not None:
+            if s_val != e_val:
+                value = f"{s_val}-{e_val}"
+            elif ranged_above and "-" not in s_val:
+                value = f"{s_val}-{s_val}"
+            else:
+                value = s_val
+        elif s_val is not None or e_val is not None:
+            lone = s_val if s_val is not None else e_val
+            which = "start" if s_val is not None else "end"
+            other = "end" if which == "start" else "start"
+            if speaks[other] and ranged_above:
+                _note_unplaceable(warnings, which, name, lone)
+            else:
+                value = lone
+
+        if value and not _is_codeable(name, value):
+            # "(1998 Buyers Guide)" is a named issue, not a date, and
+            # "Late Summer" is not a season MARC has a code for.  Both used to
+            # reach $j, which the 853 declares as "(month)" -- and
+            # "11/12-Late Summer" put codes and prose in one subfield.  The
+            # record cannot carry it, so it is left out and named.
+            _note_uncodeable(warnings, name, value)
+            value = None
+
+        if value:
+            out[name] = value
+            # A written value that is itself a range is what makes the levels
+            # under it need both of their endpoints. Reading it back off the
+            # output covers every branch above at once, including the one where
+            # the range arrived pre-compressed from the parser ("1990-1991").
+            if "-" in value.rstrip("-"):
+                ranged_above = True
+
+    return out
 
 
 def _build_863_for_range(
@@ -447,64 +606,53 @@ def _build_863_for_range(
     levels: dict,
     smap: Optional[Dict[str, str]] = None,
     chron_as_text: bool = False,
+    warnings: Optional[List[str]] = None,
 ) -> FieldData:
     """
     Build a single 863 field for one HoldingsRange.
 
     `smap` maps semantic levels to subfield codes, so the 863 lands in the same
     subfields the governing 853 declares.  `chron_as_text` writes chronology as
-    text ("Mar") instead of MARC codes ("03").
+    text ("Mar") instead of MARC codes ("03").  `warnings`, when given, collects
+    notes about values the range states that could not be encoded -- see
+    _hierarchy_values, which decides what those are.
     """
     smap = smap or _SUBFIELD_MAPS[CONVENTION_STANDARD]
-    s = hr.start
-    e = hr.end  # may be None (open-ended)
-    oe = hr.open_ended
 
     sfs: List[SubfieldData] = []
     sfs.append(SubfieldData("8", f"{linking_number}.{sequence}"))
 
+    values = _hierarchy_values(hr, _ENUM_LEVELS, warnings)
+    values.update(_hierarchy_values(hr, _CHRON_LEVELS, warnings))
+
     planned: List[tuple] = []
-
-    # Enumeration
-    if levels.get("vol"):
-        val = _enum_value(s.vol, e.vol if e else None, oe)
-        if val:
-            planned.append((smap["vol"], val))
-
-    if levels.get("issue"):
-        val = _enum_value(s.issue, e.issue if e else None, oe)
-        if val:
-            planned.append((smap["issue"], val))
-
-    if levels.get("part"):
-        val = _enum_value(s.part, e.part if e else None, oe)
-        if val:
-            planned.append((smap["part"], val))
-
-    # Chronology.  In "chron at end only" patterns such as
-    # "v.1:no.1-v.2:no.4(1990-1991)" the single chronology group covers
-    # the whole range, so fall back to the end boundary's values.
-    if levels.get("year"):
-        start_year = s.year if s.year is not None else (e.year if e else None)
-        end_year = e.year if (e and s.year is not None) else None
-        val = _chron_value(start_year, end_year, oe)
-        if val:
-            planned.append((smap["year"], val))
-
-    if levels.get("month"):
-        start_month = s.month if s.month is not None else (e.month if e else None)
-        end_month = e.month if (e and s.month is not None) else None
-        val = _chron_value(start_month, end_month, oe)
-        if val:
-            planned.append((smap["month"], _chron_text(val) if chron_as_text else val))
+    for name in _ENUM_LEVELS + _CHRON_LEVELS:
+        if not levels.get(name):
+            continue
+        value = values.get(name)
+        if not value:
+            continue
+        if name == "month" and chron_as_text:
+            value = _chron_text(value)
+        planned.append((smap[name], value))
 
     for code, value in sorted(planned, key=lambda p: p[0]):
         sfs.append(SubfieldData(code, value))
 
+    # Indicator 1 is Field encoding level, matching Leader/17: 3, 4 or 5.  4 is
+    # holdings level 4 -- enumeration and chronology recorded -- which is what
+    # this field carries.
+    #
+    # Indicator 2 is Form of holdings: 0 compressed, 1 uncompressed, 2 and 3 the
+    # same pair where the display comes from a linked 866.  Every field built
+    # here states the first part held and the last part held as a range
+    # ("$a 41-43 $i 1984-1986"), which is the definition of compressed, so it is
+    # 0.  It was 1 -- uncompressed, meaning each part itemised separately --
+    # which said the opposite of what the field contains.
     return FieldData(
         tag="863",
-        indicator1="4",  # 4 = no information provided / n/a
-        indicator2="1",  # 1 = compressed using / range designation
+        indicator1="4",  # field encoding level 4: enumeration and chronology
+        indicator2="0",  # form of holdings: compressed
         subfields=sfs,
     )
 
@@ -585,8 +733,8 @@ def convert_holdings(
         # not this statement's position in the record.
         link = _existing_link(existing_853) or linking_number
         fields_863 = [
-            _build_863_for_range(hr, link, seq, levels,
-                                 smap=declared, chron_as_text=chron_as_text)
+            _build_863_for_range(hr, link, seq, levels, smap=declared,
+                                 chron_as_text=chron_as_text, warnings=warnings)
             for seq, hr in enumerate(parse_result.ranges, start=1)
         ]
         return ConversionResult(
@@ -620,8 +768,8 @@ def convert_holdings(
 
     fields_863: List[FieldData] = []
     for seq, hr in enumerate(parse_result.ranges, start=1):
-        f863 = _build_863_for_range(hr, linking_number, seq, levels,
-                                    smap=smap, chron_as_text=chron_as_text)
+        f863 = _build_863_for_range(hr, linking_number, seq, levels, smap=smap,
+                                    chron_as_text=chron_as_text, warnings=warnings)
         fields_863.append(f863)
 
     return ConversionResult(

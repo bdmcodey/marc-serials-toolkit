@@ -297,6 +297,15 @@ def build_parse_result(
     anything is written from it, so converting the first range of
     "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)" and silently discarding the
     second would delete holdings. All or nothing keeps the field intact.
+
+    A segment matches only when the pattern spans the whole of it.  The same
+    argument that makes half a statement worse than none makes half a *segment*
+    worse than none, and re.search would allow exactly that: the pattern for the
+    common "v. 9 no. 1 (Nov 1902)" shape search-matches the tail of
+    "v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)", and everything before the
+    matched span -- the whole first boundary -- would be dropped with nothing
+    written to say so.  A partial match means the pattern does not describe this
+    statement, so it is treated as no match at all.
     """
     text = (text or "").strip()
     if not text:
@@ -308,7 +317,7 @@ def build_parse_result(
 
     for seg in segments:
         seg = seg.strip()
-        m = compiled.fullmatch(seg) or compiled.search(seg)
+        m = compiled.fullmatch(seg)
         if m is None:
             if not fallback:
                 # All or nothing: see the note above about half a statement.

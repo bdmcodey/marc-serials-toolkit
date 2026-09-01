@@ -218,15 +218,29 @@ def test_chron_unit_codes(raw, code):
     assert chron_unit_code(raw) == code
 
 
+@pytest.mark.parametrize("raw, code", [
+    ("Spr.", "21"), ("Sum", "22"), ("Aut", "23"), ("Win", "24"),
+])
+def test_abbreviated_seasons_are_coded(raw, code):
+    """
+    Cataloguers abbreviate seasons as often as they abbreviate months, and the
+    table held only the full words. An abbreviation used to fall through to
+    normalise_chron_unit() and reach $j as prose; since the converter now
+    refuses to write prose into a coded subfield, not coding these would mean
+    dropping them.
+    """
+    assert chron_unit_code(raw) == code
+
+
 def test_unrecognised_chron_unit_is_left_alone():
     """
-    Unknown text is passed through rather than dropped or guessed at, so nothing
-    is invented. Normalisation still strips a trailing period, which is why this
-    returns "Spr" rather than the "Spr." the source comment suggests.
+    Text that is genuinely not a month or season is passed through rather than
+    dropped or guessed at, so nothing is invented here. The converter decides
+    separately whether it can be written -- see marc_converter._is_codeable.
     """
-    assert chron_unit_code("Spr.") is None
-    assert normalise_chron_unit("Spr.") == "Spr"
+    assert chron_unit_code("Michaelmas") is None
     assert normalise_chron_unit("Michaelmas") == "Michaelmas"
+    assert chron_unit_code("Buyers Guide") is None
 
 
 # ---------------------------------------------------------------------------
@@ -376,3 +390,63 @@ def test_a_compressed_range_is_still_one_unit(text, vol, year):
     assert r.ranges[0].start.vol == vol
     assert r.ranges[0].start.year == year
     assert r.ranges[0].end is None
+
+
+# ---------------------------------------------------------------------------
+# A unit is parsed whole or not at all
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text, read, unread", [
+    # A discontinuous list: the regex stops at the first comma.
+    ("v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)",
+     "v. 19 nos. 1", ", 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"),
+    # A designation between the enumeration and the chronology.
+    ("v. 58 Suppl. (Sep 2003)", "v. 58", "Suppl. (Sep 2003)"),
+    ("v. 19 no. 2 Suppl. (1998)", "v. 19 no. 2", "Suppl. (1998)"),
+])
+def test_a_partly_matched_unit_converts_nothing(text, read, unread):
+    """
+    Converting part of a statement is worse than converting none of it.
+
+    The Converter removes the 866 once anything has been written from it, so
+    "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" writing "$a 19
+    $b 1" deleted eleven of the statement's twelve assertions with nothing on
+    screen to say so.
+
+    The guard that refuses a partial match already existed; it sat inside the
+    branch for a number with no caption, so it fired for "34 no 3, 4 (...)" and
+    never for the same shape with a "v." in front -- the common one. It now
+    applies whenever the match does not account for the whole unit, and says
+    how far it got.
+    """
+    result = parse_866(text)
+    assert result.ranges == []
+    assert result.success is False
+    assert any(read in w and unread in w for w in result.warnings), result.warnings
+
+
+def test_a_combined_volume_keeps_the_rest_of_its_statement():
+    """
+    "v.7/8" is a combined volume, the same shape iss_num has always accepted for
+    issues. vol_num allowed only a hyphen, so the match stopped at "v.7" and the
+    year and months were dropped -- silently, until the guard above turned it
+    into a refusal. Widening vol_num converts it properly instead.
+    """
+    result = parse_866("v.7/8(1996:Jul./Aug.)")
+    assert result.ranges[0].start.vol == "7/8"
+    assert result.ranges[0].start.year == "1996"
+    assert result.ranges[0].start.month == "07/08"
+
+
+def test_a_month_at_one_end_of_a_chronology_group_is_not_kept():
+    """
+    "1981 - Sep 1996" names a month at one end only. A reader pairs subfields
+    positionally, so keeping it would say the run begins in September 1981.
+    Both ends naming a month is a different case and keeps both.
+    """
+    lone = parse_866("v. 78 - v. 93 no. 3 (1981 - Sep 1996)")
+    assert lone.ranges[0].end.year == "1981-1996"
+    assert lone.ranges[0].end.month is None
+
+    paired = parse_866("v. 62 no. 1 - v. 63 no. 1 (Jan 1956 - Jan 1957)")
+    assert paired.ranges[0].end.month == "01-01"
