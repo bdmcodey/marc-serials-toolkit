@@ -34,6 +34,18 @@
         },
         {
           "tool": "Converter",
+          "text": "When a serial changes its publication pattern and later changes back, the later run now gets an 853 of its own instead of being filed under the earlier one. A journal running months, then seasons, then months again produces three 853s numbered $8 1, 2 and 3 \u2014 the third is a third pattern, not a resumption of the first. Two of those 853s read identically apart from their number, which is correct: they describe separate runs either side of a change."
+        },
+        {
+          "tool": "Converter",
+          "text": "Holdings that record less detail than their neighbours now share an 853 with them instead of getting one of their own. \"v.5(1994)\" beside \"v.1:no.1(1990)\" is the same publication with the issue simply not written down, so both sit under the fuller 853 and the sparser 863 leaves the issue empty. This previously split one publication across two 853s. Holdings that record something *different* \u2014 seasons where the others use months \u2014 still get their own."
+        },
+        {
+          "tool": "Converter",
+          "text": "Because runs are read in the order the 866 fields appear, a record whose holdings are not in publication order may produce more 853s than it should. Check the order of the 866s if a record comes out with more patterns than you expect."
+        },
+        {
+          "tool": "Converter",
           "text": "A range written with spaces around its dash \u2014 \"v. 1 (2001) - v. 5 (2005)\" \u2014 now keeps its end. It previously read only as far as the first half: an 863 was written for \"v. 1 (2001)\" alone, and because something had been converted the original 866 was then removed, so the rest of the range was deleted with nothing on screen to say so. The same statement written without the spaces was always read correctly. Please re-check any file converted before this version for holdings that end earlier than they should."
         },
         {

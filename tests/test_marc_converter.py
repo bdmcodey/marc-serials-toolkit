@@ -236,14 +236,95 @@ def test_statements_sharing_a_pattern_share_one_853():
     assert [sub(f, "8") for f in rc.fields_863] == ["1.1", "1.2"]
 
 
-def test_differing_patterns_get_their_own_853():
+def test_a_gap_in_holdings_does_not_start_a_new_853():
+    """
+    An 853 is a caption *pattern*. Missing volumes are a gap in what is held,
+    not a change in how the serial is published, so both runs sit under one.
+    """
+    rc = convert_record([parse_866("v. 1 (2001)-v. 5 (2005)"),
+                         parse_866("v. 7 (2007)")])
+
+    assert len(rc.fields_853) == 1
+    assert [sub(f, "8") for f in rc.fields_863] == ["1.1", "1.2"]
+
+
+def test_a_statement_recording_less_detail_shares_the_853():
+    """
+    "v.5(1994)" beside "v.1:no.1(1990)" is the same publication with the issue
+    simply not recorded, so they share an 853 -- the fuller of the two, since an
+    863 need not fill every caption its 853 declares.
+
+    This used to produce two 853s, splitting one publication in half.
+    """
     rc = convert_record([parse_866("v.1:no.1(1990)-v.2:no.4(1991)"),
                          parse_866("v.5(1994)-v.8(1997)")])
 
+    assert len(rc.fields_853) == 1
+    assert sub(rc.fields_853[0], "b") == "no."     # the fuller 853 leads
+    assert [sub(f, "8") for f in rc.fields_863] == ["1.1", "1.2"]
+    # The sparser statement's 863 simply has no $b.
+    assert sub(rc.fields_863[1], "b") is None
+
+
+def test_the_fuller_853_leads_even_when_it_arrives_second():
+    """Order of arrival must not decide which captions the run is described by."""
+    rc = convert_record([parse_866("v.5(1994)-v.8(1997)"),
+                         parse_866("v.1:no.1(1990)-v.2:no.4(1991)")])
+
+    assert len(rc.fields_853) == 1
+    assert sub(rc.fields_853[0], "b") == "no."
+
+
+def test_a_different_chronology_gets_its_own_853():
+    """
+    Month and season chronology both use $j, with different captions, so they
+    disagree on a caption they share and are two publication patterns -- not one
+    recording less than the other. This is why compatibility is a subset test.
+    """
+    rc = convert_record([parse_866("v. 1 no. 1-4 (Mar-Dec 2001)"),
+                         parse_866("v. 2 no. 1-4 (Winter-Fall 2002)")])
+
     assert len(rc.fields_853) == 2
+    assert sub(rc.fields_853[0], "j") == "(month)"
+    assert sub(rc.fields_853[1], "j") == "(season)"
     assert rc.links_written == ["1", "2"]
-    assert [sub(f, "8") for f in rc.fields_853] == ["1", "2"]
-    assert [sub(f, "8") for f in rc.fields_863] == ["1.1", "2.1"]
+
+
+def test_a_pattern_that_returns_gets_a_new_linking_number():
+    """
+    The publication changed twice, and the record should say so. The months run
+    after the season interruption is a third pattern, not a resumption of the
+    first, so it takes the next linking number rather than reusing $8 1.
+
+    Two of the three 853s are identical apart from $8. That is deliberate: it is
+    not the fault v0.5.0 removed, which was one 853 per statement even where
+    nothing had changed.
+    """
+    rc = convert_record([parse_866("v. 1 no. 1-4 (Mar-Dec 2001)"),
+                         parse_866("v. 2 no. 1-4 (Winter-Fall 2002)"),
+                         parse_866("v. 3 no. 1-4 (Mar-Dec 2003)")])
+
+    assert len(rc.fields_853) == 3
+    assert rc.links_written == ["1", "2", "3"]
+    assert [sub(f, "8") for f in rc.fields_863] == ["1.1", "2.1", "3.1"]
+    # First and third describe the same pattern and differ only in $8.
+    first, third = rc.fields_853[0], rc.fields_853[2]
+    assert [(x.code, x.value) for x in first.subfields if x.code != "8"] == \
+           [(x.code, x.value) for x in third.subfields if x.code != "8"]
+
+
+def test_a_statement_held_for_review_does_not_break_a_run():
+    """
+    Nothing is known about a statement that could not be read, so it is no
+    evidence that the publication pattern changed. The runs either side of it
+    stay one run.
+    """
+    rc = convert_record([parse_866("v.1(1990)-v.3(1992)"),
+                         parse_866("? 106"),
+                         parse_866("v.5(1994)-v.8(1997)")])
+
+    assert len(rc.fields_853) == 1
+    assert [sub(f, "8") for f in rc.fields_863] == ["1.1", "1.2"]
 
 
 def test_conforming_adopts_the_existing_linking_number():

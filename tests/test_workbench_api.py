@@ -333,23 +333,24 @@ def test_statements_sharing_a_pattern_share_an_853(workbench_client,
         ["1.1", "1.2"]
 
 
-def test_a_different_pattern_starts_a_new_linking_number(workbench_client,
-                                                         messy_marc_bytes):
+def test_a_statement_recording_more_detail_joins_the_same_853(workbench_client,
+                                                              messy_marc_bytes):
     """
-    The other half: when the publication pattern actually changes, numbering
-    moves to 2.1 rather than continuing.
+    Sequence numbers run across a whole record, through the API as through the
+    converter. This record's first 866 holds two slash-separated ranges, which
+    the pattern splits into 1.1 and 1.2 -- the standard parser drops the second
+    outright (see the xfail test_slash_separated_ranges_should_both_survive), so
+    a confirmed pattern recovers holdings here as well as numbering them.
 
-    This record shows both halves at once. Its first 866 holds two slash-
-    separated ranges, which the pattern splits into 1.1 and 1.2 -- the standard
-    parser drops the second outright (see the xfail
-    test_slash_separated_ranges_should_both_survive), so a confirmed pattern
-    recovers holdings here as well as numbering them. Its second 866 is a
-    different shape, and starts 2.1.
+    Its second 866 adds month chronology the first does not record, which is the
+    same publication described more fully, so it joins the run at 1.3 rather
+    than starting its own 853. The rule itself is pinned in
+    tests/test_marc_converter.py; this checks the API agrees.
     """
     records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
     assert preview_links(
         workbench_client, "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)", records
-    ) == ["1.1", "1.2", "2.1"]
+    ) == ["1.1", "1.2", "1.3"]
 
 
 def test_the_candidate_pattern_outranks_the_library_but_is_never_stored(
