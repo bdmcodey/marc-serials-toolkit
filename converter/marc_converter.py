@@ -830,8 +830,13 @@ def convert_record(
                 out.fields_863.append(f863)
                 seq += 1
             cr.linking_number = link
-            # Stamp every member's 853 so per-statement previews show the link
-            # actually written, even though only one field reaches the record.
+            # Every member reports the run's 853, not the one it would have had
+            # alone. Only the head's field reaches the record, so a member
+            # showing its own would be previewing a field that is never written
+            # -- visible whenever a run merged a sparser statement with a
+            # fuller one.
+            if cr.field_853 is not None and group["head"].field_853 is not None:
+                cr.field_853 = group["head"].field_853
             if cr.field_853 is not None:
                 _set_subfield(cr.field_853, "8", link)
         # One 853 per run, the fullest of its members; conformed groups already
