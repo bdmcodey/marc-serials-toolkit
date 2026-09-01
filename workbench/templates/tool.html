@@ -124,8 +124,12 @@
     .rec-detail { padding: var(--sp-3); border-top: 2px solid var(--border-soft); }
     .rec-row.reviewed { border-left: 6px solid var(--ok); }
     .rec-row[hidden] { display: none; }
+    .rec-sep {
+      width: 2px; height: 1.1em; flex: none;
+      background: var(--border-soft); margin: 0 var(--sp-2);
+    }
     .rec-review {
-      display: flex; align-items: center; gap: var(--sp-2);
+      display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
       padding: 0 var(--sp-3) var(--sp-3);
       font-size: var(--fs-xs); color: var(--text-muted);
     }
@@ -741,6 +745,10 @@ let dismissed   = new Set();
 // the cataloguer has ticked off, and where in the file they are.
 let recordPreviews = new Map();   // record index -> the page entry for it
 let reviewed       = new Set();
+// Records where the cataloguer has said two statements recording different
+// amounts of detail are NOT one publication. A judgement about the serial, so
+// it is theirs, and it is per record.
+let keepSeparate   = new Set();
 let reviewFilter   = 'all';
 let reviewOffset   = 0;
 const REVIEW_PAGE  = 50;
@@ -834,6 +842,7 @@ function conventionPayload() {
                  document.getElementById('batch-ind2').value],
     chronology: document.getElementById('batch-chronology').value,
     parser_fallback: document.getElementById('opt-parser-fallback').checked,
+    keep_separate: [...keepSeparate],
     frequency: document.getElementById('batch-freq').value,
     numbering_continuity: document.getElementById('batch-continuity').value,
   };
@@ -966,8 +975,23 @@ function renderRecordList(records) {
       <label class="rec-review">
         <input type="checkbox" class="rec-reviewed" data-index="${i}" />
         Reviewed
+        <span class="rec-sep"></span>
+        <input type="checkbox" class="rec-keep-separate" data-index="${i}" />
+        <span title="Give each pattern its own 853, even where one records less detail than another">
+          Keep patterns separate</span>
       </label>
     </div>`).join('');
+
+  box.querySelectorAll('.rec-keep-separate').forEach(el =>
+    el.addEventListener('change', async e => {
+      const idx = Number(e.target.dataset.index);
+      e.target.checked ? keepSeparate.add(idx) : keepSeparate.delete(idx);
+      // The record's whole conversion changes, so re-preview it.
+      recordPreviews.delete(idx);
+      await loadReviewPage();
+      const row = document.querySelector(`.rec-row[data-index="${idx}"]`);
+      if (row && !row.querySelector('.rec-detail').hidden) await renderRecordDetail(idx);
+    }));
 
   box.querySelectorAll('.rec-reviewed').forEach(box_ =>
     box_.addEventListener('change', e => {
@@ -1536,7 +1560,8 @@ function renderRecordPreview(data) {
   data.previews.forEach(pv => {
     if (pv.needs_review || !pv.fields_863.length) { review.push(pv); return; }
     if (!groups.has(pv.link)) {
-      groups.set(pv.link, { field_853: pv.field_853, existing: pv.existing, rows: [] });
+      groups.set(pv.link, { field_853: pv.field_853, existing: pv.existing,
+                            merged: pv.merged_run, rows: [] });
     }
     groups.get(pv.link).rows.push(pv);
   });
@@ -1564,6 +1589,8 @@ function renderRecordPreview(data) {
           <span class="pill ${g.existing ? '' : 'has-866'}">${
             g.existing ? 'already on this record' : 'generated'}</span>
           <span class="dim small">${g.rows.length} statement${g.rows.length !== 1 ? 's' : ''}</span>
+          ${g.merged ? `<span class="pill decide"
+             title="These statements record different amounts of detail. Tick &quot;Keep patterns separate&quot; on this record if they are not one publication.">merged</span>` : ''}
         </div>
         <div class="field-display f853">${highlightField(escHtml(g.field_853 || ''))}</div>
       </div>
@@ -1837,7 +1864,8 @@ async function renderRecordDetail(idx) {
   previews.forEach(pv => {
     if (pv.needs_review || !pv.fields_863.length) { review.push(pv); return; }
     if (!groups.has(pv.link)) {
-      groups.set(pv.link, { field_853: pv.field_853, existing: pv.existing, rows: [] });
+      groups.set(pv.link, { field_853: pv.field_853, existing: pv.existing,
+                            merged: pv.merged_run, rows: [] });
     }
     groups.get(pv.link).rows.push(pv);
   });
@@ -1850,6 +1878,8 @@ async function renderRecordDetail(idx) {
           <span class="pill ${g.existing ? '' : 'has-866'}">${
             g.existing ? 'already on this record' : 'generated'}</span>
           <span class="dim small">${g.rows.length} statement${g.rows.length !== 1 ? 's' : ''}</span>
+          ${g.merged ? `<span class="pill decide"
+             title="These statements record different amounts of detail. Tick &quot;Keep patterns separate&quot; below if they are not one publication.">merged</span>` : ''}
         </div>
         <div class="field-display f853">${highlightField(escHtml(g.field_853 || ''))}</div>
       </div>

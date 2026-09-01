@@ -45,6 +45,10 @@
           "text": "Holdings that record less detail than their neighbours now share an 853 with them instead of getting one of their own. \"v.5(1994)\" beside \"v.1:no.1(1990)\" is the same publication with the issue simply not written down, so both sit under the fuller 853 and the sparser 863 leaves the issue empty. This previously split one publication across two 853s. Holdings that record something *different* \u2014 seasons where the others use months \u2014 still get their own."
         },
         {
+          "tool": "Workbench",
+          "text": "Where two holdings statements were put under one 853 because one records less detail than the other, the pattern is marked \"merged\" on the record. Whether they really are one publication is a judgement about the serial rather than about the wording, so if they are not, tick \"Keep patterns separate\" on that record and each gets its own 853. The choice applies to that record alone and is remembered for the visit."
+        },
+        {
           "tool": "Converter",
           "text": "Because runs are read in the order the 866 fields appear, a record whose holdings are not in publication order may produce more 853s than it should. Check the order of the 866s if a record comes out with more patterns than you expect."
         },
