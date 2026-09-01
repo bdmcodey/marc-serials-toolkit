@@ -29,6 +29,10 @@ patterns/*.json
 !data/example_holdings.mrc
 !data/messy_holdings.mrc
 
+# Local deployment scratch notes, kept out of the repo on purpose:
+# deploy/README.md is the version that ships.
+DEPLOY-STEPS-RECOVERED.md
+
 # OS / editor
 .DS_Store
 Thumbs.db
