@@ -168,15 +168,23 @@ class Outcome:
         """
         True when a converter warning names this value as not encoded.
 
-        The warnings quote the value they dropped in parentheses, so those are
-        the spans to search -- and the value inside can itself be a range, as in
-        "Only the end of this range gives an issue (1-2)". A bare "2" from the
-        digit audit has to match inside that, or a value the record *does*
-        account for would still be counted as lost.
+        The warnings quote the value they dropped, in parentheses ("gives an
+        issue (1-2)") or in single quotes ("'11/12-Late Summer' is not
+        something..."), so both are the spans to search -- and the value inside
+        can itself be a range or a compound. A bare "2" from the digit audit has
+        to match inside "1-2", or a value the record *does* account for would
+        still be counted as lost.
         """
         for warning in self.conversion.warnings:
-            for span in re.findall(r"\(([^)]*)\)", warning):
-                if value == span or value in re.findall(r"\w+", span):
+            for span in re.findall(r"\(([^)]*)\)|'([^']*)'", warning):
+                text = span[0] or span[1]
+                words = re.findall(r"\w+", text)
+                if value == text or value in words:
+                    return True
+                # A chronology code is announced by the wording it came from:
+                # "'11/12-Late Summer' ... was left out" accounts for 22 as
+                # surely as it accounts for 11.
+                if any(MARC_CHRON_CODES.get(w.lower()) == value for w in words):
                     return True
         return False
 

@@ -9,9 +9,10 @@ deliberate, separately reviewable decision. Everything here was found before
 anything was changed.
 
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
-(0.6.3, 1 September 2026). Their sections below are kept and marked, because the
-reasoning is the record of why the code looks the way it does now. Everything
-else is open.
+(0.6.3); D4, D5, D9, D12 and D13 (0.6.4, 1 September 2026). Their sections below
+are kept and marked, because the reasoning is the record of why the code looks
+the way it does now. **D6, D7, D10, D11 and D14 remain open** — see the list at
+the end.
 
 Reproduce every number below with:
 
@@ -23,15 +24,16 @@ python scripts/corpus_report.py --drift    # only the tags that no longer hold
 
 ## Headline
 
-| | at 0.6.0 | now (0.6.3) |
+| | at 0.6.0 | now (0.6.4) |
 |---|---|---|
 | statements | 112 unique (127 before de-duplication), 10 sections | — |
-| converted cleanly | 67 (60%) | 73 (65%) |
-| converted with values **silently** dropped | 36 (32%) | **5 (4%)** |
-| converted, and told the cataloguer what it dropped | 3 | **18** |
+| converted cleanly | 67 (60%) | 74 (66%) |
+| converted with values **silently** dropped | 36 (32%) | **1 (1%)** |
+| converted, and told the cataloguer what it dropped | 3 | **21** |
 | produced no fields at all | 6 (5%) | **16 (14%)** |
-| detector clusters | 55, 39 of them singletons | unchanged |
-| statements a pattern could claim only part of | 37 (33%) | 0 convert on one |
+| detector clusters | 55, 39 of them singletons | **44, 31 singletons** |
+| one shape split across several clusters | 45 statements, 15 confirmations | **0** |
+| statements a pattern could claim only part of | 37 (33%) | 64, none convert |
 
 The silent-loss column is the one to watch, and the clean rate is not. Statements
 have moved *out* of "clean" in both directions on purpose: ten now refuse
@@ -40,7 +42,13 @@ convert while naming a value they could not place. Both are the same trade —
 less written, and what is written is true.
 
 The number that matters is not the refusals. It was the **36 silent losses**;
-5 remain, and 3 of those are one open defect (D5).
+one remains, and it is the run-on whose day-level dates the block grammar drops
+by design (D10).
+
+The partial-match count *rose*, from 37 to 64, and that is not a regression:
+the generated expressions became broader in 0.6.4, so more of them now overlap
+more statements. None convert on a partial match, because 0.6.1 made that
+impossible — the number measures how much work that rule is doing.
 
 A refusal is safe: the Converter writes nothing, the 866 survives, and the
 statement lands in the cataloguer's review queue. A silent loss is not.
@@ -182,7 +190,7 @@ not a combined volume — while `iss_num` had always accepted both. Giving
 $j 07/08`. It took a test failure to find, which is the argument for the
 committed fixtures.
 
-### D4 — a day inside the date voids that boundary's chronology · 1 statement
+### D4 — a day inside the date voids that boundary's chronology · 1 statement · **FIXED in 0.6.4**
 
 ```
 v. 34 no. 8/9-v. 35 no. 23/24 (Apr 18, 1996-Dec 1997)
@@ -200,7 +208,13 @@ dropped *by design* (`_bracket_chron_unit` documents "trailing day dropped").
 The inconsistency is that the block grammar drops the day and keeps the month,
 while this path drops the whole boundary.
 
-### D5 — chronology wording that is not a code is written into a coded subfield · 3 statements
+**Fixed in 0.6.4** by giving `_parse_chron_single()` the one pattern it lacked.
+The day is still not encoded — 863 `$k` holds one and nothing here models it —
+but it is now named, and the month and year survive: `$i 1996-1997 $j 04-12`.
+That resolves the inconsistency in the block grammar's favour rather than
+inventing day support.
+
+### D5 — chronology wording that is not a code is written into a coded subfield · 3 statements · **FIXED in 0.6.4**
 
 ```
 v. 15 (1998 Buyers Guide)              -> 863 $i 1998 $j Buyers Guide
@@ -216,6 +230,20 @@ value goes through. `$j 11/12-Late Summer` mixes codes and prose in one subfield
 The fallback is the right instinct — dropping the text would be worse — but the
 value needs to go somewhere that admits text, or the field needs to be held for
 review, rather than into a subfield the record declares as coded.
+
+**Fixed in 0.6.4** in two halves, because two different things were going wrong.
+
+*One was a gap in the table.* `Sum` is Summer and `Spr.` is Spring; the codes
+table held only the full words, so ordinary abbreviations fell through to the
+prose path. Adding them converts `2018: ([Sum])` correctly rather than
+salvaging it.
+
+*The rest is genuinely uncodeable.* `_is_codeable()` now checks a chronology
+value against the codes MARC defines before it is written, and a value that
+fails is left out and named. `Buyers Guide` is not chronology at all, and
+`Late Summer` is not a season MARC has a code for. Note that this drops the
+whole of `11/12-Late Summer`, valid half included: under the one-sided rule
+from 0.6.3 the `11/12` could not have been written on its own either.
 
 `Buyers Guide` is a different problem wearing the same clothes: it is not
 chronology at all. It is a named issue that happens to sit in the parenthesis
@@ -255,14 +283,15 @@ the documented, correct behaviour — the same argument `HANDOFF.md` makes about
 confirm step is exactly the mechanism that could convert these, since a human
 says once what the captured values mean.
 
-### D8, D9, D11 — smaller things, all warned or by design
+### D8, D9, D11 — smaller things, all warned or by design (D9 **FIXED in 0.6.4**)
 
 - **D8** `Series 1, v. 6 no. 1 (Summer/Fall 1992)` — the series designation is
   dropped, but with a warning naming it. Correct handling of something it cannot
   encode; recorded so it is not mistaken for a silent loss.
 - **D9** `N1984: (2 (1))M1985: 2 (2 [summer])` — `_BLOCK_RE`'s body allows one
-  nesting level, and the inner `(1)` is lost. The statement does warn, about the
-  `N`/`M` markers rather than about this.
+  nesting level, and the inner `(1)` was lost without comment. **Fixed in
+  0.6.4**: the nested group is named rather than dropped in silence. Its meaning
+  is local to whoever wrote it, so guessing would be worse than saying so.
 - **D11** `N?: 1 (4)1984: ...` — unexplained markers, warned by design.
 - **D10** the long `ONE` run-on — the detector's complexity guard declines it and
   the parser drops the day from each bracketed date. Both documented, both
@@ -275,7 +304,7 @@ matches 100% of its own members, and only the one run-on trips
 `MAX_PATTERN_TOKENS`. The problems are all about how much work it hands the
 cataloguer, and one is about what it shows them.
 
-### D12 — one shape is clustered as many patterns · 45 statements (40%)
+### D12 — one shape is clustered as many patterns · 45 statements (40%) · **FIXED in 0.6.4**
 
 54 clusters for 110 statements, 38 of them singletons. Four cataloguer-visible
 shapes account for the worst of it:
@@ -307,7 +336,23 @@ it to 43. Neither is a full fix — much of the remaining fragmentation is real
 structural variety, which is the corpus being honest — but the two together
 remove the fragmentation a cataloguer would call spurious.
 
-### D13 — free text is invisible in the pattern label
+**Fixed in 0.6.4**, and it went further than predicted: **every** spuriously
+split shape is now one cluster. 55 clusters became 44, singletons 39 became 31,
+and the four families above — 45 statements costing 15 confirmations — now cost
+4.
+
+Both halves landed as one change to the tokeniser. `MON` and `SEASON` became a
+single `CHRON` kind, and a slash-joined chronology (`Jul/Aug`,
+`Winter/Spring`, `Jan/Feb/Mar`) became *one* `CHRON` token rather than three.
+That second half matters twice over: it merges the clusters, and it stops the
+generated expression carrying `.{1,8}?` where a literal `/` belongs.
+
+The emitted pattern is the general chronology form, not the forms observed, so
+a pattern confirmed from months now also reads the season a later record writes
+in the same slot. The label says `CHRON` where it used to say `MON` or
+`SEASON` — one row instead of several, which is the point.
+
+### D13 — free text is invisible in the pattern label · **FIXED in 0.6.4**
 
 `_compact_label()` has a branch for every token kind except `UNKNOWN`, which it
 silently omits. So:
@@ -325,6 +370,10 @@ The same silence hides `Suppl.` in `v. 58 Suppl. (Sep 2003)` (labelled
 
 This is the label a pattern is chosen by. A `…` or `‹text›` marker where an
 UNKNOWN run sits would be enough.
+
+**Fixed in 0.6.4**: `_compact_label()` now emits `‹text›` for an UNKNOWN run, so
+`v. 58 Suppl. (Sep 2003)` reads `VOL‹text›(CHRONYEAR)` and no longer looks
+identical to a clean statement. No two clusters in the corpus share a label now.
 
 ### D14 — detector and converter disagree, and the Workbench sits between them
 
@@ -683,16 +732,30 @@ everything correctly" is not.
    larger, separate job and is still open.
 4. ~~**D2**~~ Done in 0.6.2. The fix was not the fallback proposed above —
    see D2's section for why that would have been wrong.
-5. **D6** — let the enumeration block match an issue-first unit. No guessing
-   required; three statements here and a common real shape.
-6. **D5** — refuse to write text into a subfield declared as coded; hold for
-   review instead.
-7. **D12/D13** — merge `MON`/`SEASON`, give `/` a token kind, and show UNKNOWN
-   runs in the label.
+5. ~~**D5**~~ Done in 0.6.4, with D4 and D9.
+6. ~~**D12/D13**~~ Done in 0.6.4 — and the merge removed *all* spurious
+   splitting, not just the four families measured.
 
-The bounded-error work above cuts across all of these and is worth doing
-alongside rather than after: every fix on this list is easier to trust when the
-report can show what it changed.
+### What is left
+
+- **D6** — statements captioned at issue level only. Not really "issue-first
+  statements are refused" but "the model cannot express an enumeration
+  hierarchy that is not volume-then-issue", so it wants designing together with
+  the `$a`/`$b`/`$c`-by-position rework rather than patching alone. The largest
+  remaining piece of work, and the only open defect that loses whole statements.
+- **D7** — genuinely captionless statements. Expected to keep failing; the
+  Workbench's confirm step is the mechanism that could convert them.
+- **D10, D11** — by design, and documented as such.
+- **D14** — the detector and converter disagree about
+  `8,13,15,17,19,20-(1982-1994)`. A design decision to make explicitly, not a
+  bug to fix.
+- The run-on in `block-grammar` still drops its day-level dates, which is the
+  single remaining silent loss and is `_bracket_chron_unit`'s documented
+  behaviour. D4's fix could be extended to it.
+
+The bounded-error work cuts across all of these and is worth doing alongside
+rather than after: every fix on this list was easier to trust because the report
+could show what it changed.
 
 ## Requested, not yet started
 

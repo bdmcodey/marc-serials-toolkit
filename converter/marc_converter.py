@@ -428,6 +428,25 @@ _LEVEL_WORDS = {
 }
 
 
+# A chronology subfield an 853 labels "(month)" or "(season)" holds MARC codes:
+# months 01-12, seasons 21-24, joined by "-" for a range and "/" for a combined
+# issue.  Anything else is prose.
+_CHRON_CODE = r"(?:0[1-9]|1[0-2]|2[1-4])"
+_CHRON_VALUE_RE = re.compile(rf"^{_CHRON_CODE}(?:[-/]{_CHRON_CODE})*-?$")
+
+# A year subfield holds four-digit years, likewise joined.
+_YEAR_VALUE_RE = re.compile(r"^\d{4}(?:[-/]\d{4})*-?$")
+
+
+def _is_codeable(level: str, value: str) -> bool:
+    """Whether `value` may be written into the coded subfield for `level`."""
+    if level == "month":
+        return bool(_CHRON_VALUE_RE.match(value))
+    if level == "year":
+        return bool(_YEAR_VALUE_RE.match(value))
+    return True
+
+
 def _note_unplaceable(warnings: Optional[List[str]], which: str,
                       level: str, value: str) -> None:
     """
@@ -446,6 +465,21 @@ def _note_unplaceable(warnings: Optional[List[str]], which: str,
         f"Only the {which} of this range gives {article} {word} ({value}); a "
         f"compressed 863 records the first and last part held, so with no "
         f"{word} at the {other} it was left out."
+    )
+    if note not in warnings:
+        warnings.append(note)
+
+
+def _note_uncodeable(warnings: Optional[List[str]], level: str,
+                     value: str) -> None:
+    """Record chronology wording the coded subfield cannot hold."""
+    if warnings is None:
+        return
+    _, word = _LEVEL_WORDS.get(level, ("a", level))
+    note = (
+        f"'{value}' is not something a {word} subfield can hold — it takes "
+        f"MARC codes, not wording — so it was left out. Record it by hand if "
+        f"it matters."
     )
     if note not in warnings:
         warnings.append(note)
@@ -543,6 +577,15 @@ def _hierarchy_values(
                 _note_unplaceable(warnings, which, name, lone)
             else:
                 value = lone
+
+        if value and not _is_codeable(name, value):
+            # "(1998 Buyers Guide)" is a named issue, not a date, and
+            # "Late Summer" is not a season MARC has a code for.  Both used to
+            # reach $j, which the 853 declares as "(month)" -- and
+            # "11/12-Late Summer" put codes and prose in one subfield.  The
+            # record cannot carry it, so it is left out and named.
+            _note_uncodeable(warnings, name, value)
+            value = None
 
         if value:
             out[name] = value

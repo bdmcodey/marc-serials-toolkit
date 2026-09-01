@@ -67,10 +67,10 @@ MARC_CHRON_CODES: dict[str, str] = {
     "oct": "10", "october": "10",
     "nov": "11", "november": "11",
     "dec": "12", "december": "12",
-    "spring": "21",
-    "summer": "22",
-    "fall": "23", "autumn": "23",
-    "winter": "24",
+    "spring": "21", "spr": "21",
+    "summer": "22", "sum": "22",
+    "fall": "23", "autumn": "23", "aut": "23",
+    "winter": "24", "win": "24", "wint": "24",
 }
 
 SEASON_CODES = {"21", "22", "23", "24"}
@@ -295,10 +295,13 @@ def _chron_unit_value(raw: str) -> str:
     return code if code is not None else normalise_chron_unit(raw)
 
 
-def _parse_chron_single(raw: str) -> Tuple[Optional[str], Optional[str]]:
+def _parse_chron_single(raw: str,
+                        warnings: Optional[List[str]] = None,
+                        ) -> Tuple[Optional[str], Optional[str]]:
     """
     Parse ONE chronology boundary (no range hyphen), e.g.:
       '1990'  '1990:Mar.'  'Spring 1990'  '1990 Spring'  'Mar. 1990'  'Jan'
+      'Apr 18, 1996'  -> ('1996', '04'), the day noted and not encoded
     Returns (year, month_code_or_text).
     """
     raw = raw.strip()
@@ -309,6 +312,21 @@ def _parse_chron_single(raw: str) -> Tuple[Optional[str], Optional[str]]:
     m = re.match(r"^(\d{4})$", raw)
     if m:
         return m.group(1), None
+
+    # Mon D, YYYY -- a day-level date.  Every other alternative here wants the
+    # year adjacent to the month, so "Apr 18, 1996" matched none of them and
+    # the whole boundary was returned as (None, None): the month and the year
+    # went with the day.  863 $k holds a day and nothing in this tool models
+    # one yet, so the day is dropped -- as the block grammar already drops it
+    # -- but the month and year are kept, and the day is named.
+    m = re.match(r"^([A-Za-z.]+)\s+(\d{1,2})\s*,?\s+(\d{4})$", raw)
+    if m and chron_unit_code(m.group(1)) is not None:
+        if warnings is not None:
+            note = (f"Day-level date '{raw}' recorded to the month; "
+                    f"the day ({m.group(2)}) is not encoded.")
+            if note not in warnings:
+                warnings.append(note)
+        return m.group(3), _chron_unit_value(m.group(1))
 
     # YYYY:Mon. or YYYY Season (year first)
     m = re.match(r"(\d{4})\s*[:\s]\s*([A-Za-z./]+(?:\s+[A-Za-z./]+)?)$", raw)
@@ -349,8 +367,8 @@ def _parse_chron(raw: str,
 
     if "-" in raw:
         left, right = (p.strip() for p in raw.split("-", 1))
-        l_year, l_month = _parse_chron_single(left)
-        r_year, r_month = _parse_chron_single(right)
+        l_year, l_month = _parse_chron_single(left, warnings)
+        r_year, r_month = _parse_chron_single(right, warnings)
 
         # Year: share the right-hand year if the left boundary omits it.
         # Equal years collapse: the year is the most significant chronology
@@ -394,7 +412,7 @@ def _parse_chron(raw: str,
             return year, month
         return raw, None  # unparseable: preserve raw so nothing is lost
 
-    year, month = _parse_chron_single(raw)
+    year, month = _parse_chron_single(raw, warnings)
     if year or month:
         return year, month
 
@@ -688,7 +706,19 @@ def _parse_block_format(text: str) -> ParseResult:
             items = [""]          # "(...)" with nothing usable inside
 
         for item in items:
-            im = _BLOCK_ITEM_RE.match(item.strip())
+            item = item.strip()
+            # A nested group -- the "(1)" in "N1984: (2 (1))" -- is not part of
+            # the issue-and-chronology shape this grammar reads, and its meaning
+            # is local to whoever wrote it. Named rather than dropped in
+            # silence; guessing at it would be worse.
+            nested = re.search(r"\(([^()]*)\)", item)
+            if nested and nested.group(1).strip():
+                note = (f"Nested group '({nested.group(1).strip()})' inside "
+                        f"'{item}' is not encoded.")
+                if note not in result.warnings:
+                    result.warnings.append(note)
+
+            im = _BLOCK_ITEM_RE.match(item)
             if not im:
                 continue
             issue = (im.group("iss") or "").strip() or None
@@ -700,7 +730,7 @@ def _parse_block_format(text: str) -> ParseResult:
             start = EnumChron(vol=vol, issue=issue, year=year, month=c_start)
             end = EnumChron(month=c_end) if c_end and c_end != c_start else None
             result.ranges.append(
-                HoldingsRange(start=start, end=end, raw=item.strip() or body.strip())
+                HoldingsRange(start=start, end=end, raw=item or body.strip())
             )
 
     if result.ranges:

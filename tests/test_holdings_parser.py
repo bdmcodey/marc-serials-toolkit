@@ -218,15 +218,29 @@ def test_chron_unit_codes(raw, code):
     assert chron_unit_code(raw) == code
 
 
+@pytest.mark.parametrize("raw, code", [
+    ("Spr.", "21"), ("Sum", "22"), ("Aut", "23"), ("Win", "24"),
+])
+def test_abbreviated_seasons_are_coded(raw, code):
+    """
+    Cataloguers abbreviate seasons as often as they abbreviate months, and the
+    table held only the full words. An abbreviation used to fall through to
+    normalise_chron_unit() and reach $j as prose; since the converter now
+    refuses to write prose into a coded subfield, not coding these would mean
+    dropping them.
+    """
+    assert chron_unit_code(raw) == code
+
+
 def test_unrecognised_chron_unit_is_left_alone():
     """
-    Unknown text is passed through rather than dropped or guessed at, so nothing
-    is invented. Normalisation still strips a trailing period, which is why this
-    returns "Spr" rather than the "Spr." the source comment suggests.
+    Text that is genuinely not a month or season is passed through rather than
+    dropped or guessed at, so nothing is invented here. The converter decides
+    separately whether it can be written -- see marc_converter._is_codeable.
     """
-    assert chron_unit_code("Spr.") is None
-    assert normalise_chron_unit("Spr.") == "Spr"
+    assert chron_unit_code("Michaelmas") is None
     assert normalise_chron_unit("Michaelmas") == "Michaelmas"
+    assert chron_unit_code("Buyers Guide") is None
 
 
 # ---------------------------------------------------------------------------

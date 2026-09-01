@@ -25,12 +25,12 @@ from pattern_detector import (detect_patterns, split_multi_range, get_signature,
 
 @pytest.mark.parametrize("text, kind", [
     ("1990", "YEAR"),        # YEAR must beat NUMBER
-    ("Nov.", "MON"),         # MON must beat ISS_CAP, or "Nov." becomes "no" + junk
+    ("Nov.", "CHRON"),       # CHRON must beat ISS_CAP, or "Nov." becomes "no" + junk
     ("no.", "ISS_CAP"),
     ("v.", "VOL_CAP"),
     ("Volume", "VOL_CAP"),
     ("pt.", "PT_CAP"),
-    ("Spring", "SEASON"),
+    ("Spring", "CHRON"),     # months and seasons share one kind
     ("4a", "NUMBER"),        # a trailing letter stays part of one number
 ])
 def test_token_kinds(text, kind):
@@ -53,7 +53,23 @@ def test_year_recognition_boundaries(text, kind):
 
 def test_springtime_is_not_a_season():
     """The season pattern is word-bounded; "springtime" is ordinary text."""
-    assert tokenize("springtime")[0].kind != "SEASON"
+    assert tokenize("springtime")[0].kind != "CHRON"
+
+
+@pytest.mark.parametrize("text", ["Jul/Aug", "Winter/Spring", "Jan/Feb/Mar",
+                                  "November/December"])
+def test_a_combined_chronology_is_one_token(text):
+    """
+    "Jul/Aug" is one value written with a slash, not two values with noise
+    between them. Tokenising it as three tokens put "(Jul/Aug 2017)" and
+    "(Apr 2019)" in different clusters, and left the slash -- which always means
+    something in holdings -- as UNKNOWN, so generated regexes carried a lazy
+    wildcard where a literal "/" belonged.
+    """
+    tokens = tokenize(text)
+    assert len(tokens) == 1
+    assert tokens[0].kind == "CHRON"
+    assert tokens[0].raw == text
 
 
 # ---------------------------------------------------------------------------
@@ -288,3 +304,48 @@ def test_too_complex_implies_no_regex_and_vice_versa():
     for group in detect_patterns(["v.1(1990)-v.3(1992)", LONG_RUN_ON]):
         assert group.too_complex == (group.regex == "")
         assert group.too_complex == (group.token_count > MAX_PATTERN_TOKENS)
+
+
+# ---------------------------------------------------------------------------
+# One shape, one cluster
+# ---------------------------------------------------------------------------
+
+def test_months_and_seasons_cluster_together():
+    """
+    "(Sep 1944 - Aug 1945)" and "(Winter 1986 - Summer 1987)" are one shape to a
+    cataloguer, and were two clusters -- two confirmations for the same
+    question. A combined chronology belongs with them too.
+    """
+    statements = [
+        "v. 50 no. 3 - v. 52 no. 3 (Sep 1944 - Aug 1945)",
+        "v. 92 no. 1 - v. 93 no. 3 (Winter 1986 - Summer 1987)",
+        "v. 43 no. 6 - v. 43 no. 7 (June 2022 - July/August 2022)",
+    ]
+    groups = detect_patterns(statements)
+    assert len(groups) == 1
+    assert groups[0].count == 3
+    assert groups[0].match_rate == 1.0
+
+
+def test_a_generated_pattern_matches_a_season_where_it_saw_a_month():
+    """
+    The emitted expression is the general chronology pattern, not the forms
+    observed, so a pattern confirmed from months still reads the season a later
+    record writes in the same slot.
+    """
+    group = detect_patterns(["v. 9 no. 1 (Nov 1902)"])[0]
+    compiled = re.compile(group.regex, re.IGNORECASE)
+    assert compiled.fullmatch("v. 12 no. 4 (Winter 2001)")
+    assert compiled.fullmatch("v. 12 no. 4 (Jul/Aug 2001)")
+
+
+def test_free_text_is_visible_in_the_label():
+    """
+    _compact_label had no branch for UNKNOWN, so it omitted free text entirely:
+    "v. 58 Suppl. (Sep 2003)" and "v. 58 (Sep 2003)" showed the identical label,
+    and two different clusters could appear as the same row on screen.
+    """
+    plain = detect_patterns(["v. 58 (Sep 2003)"])[0].human_label
+    noisy = detect_patterns(["v. 58 Suppl. (Sep 2003)"])[0].human_label
+    assert plain != noisy
+    assert "text" in noisy

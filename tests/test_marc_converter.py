@@ -617,3 +617,52 @@ def test_a_range_inside_one_boundary_is_not_mistaken_for_a_pair():
     assert sub(result.fields_863[0], "a") == "1-51"
     assert sub(result.fields_863[0], "b") is None
     assert any("(1-2)" in w for w in result.warnings), result.warnings
+
+
+# ---------------------------------------------------------------------------
+# A coded subfield holds codes
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text, dropped", [
+    # A named issue that merely sits where chronology usually goes.
+    ("v. 15 (1998 Buyers Guide)", "Buyers Guide"),
+    # A season MARC has no code for, mixed with two it does.
+    ("v. 15 no. 6 - v. 23 nos. 2/3 (Nov/Dec 1994 - Late Summer 2002)",
+     "Late Summer"),
+])
+def test_wording_never_reaches_a_coded_chronology_subfield(text, dropped):
+    """
+    The 853 labels $j "(month)" or "(season)", so an 863 under it holds 01-12 or
+    21-24. Unrecognised wording used to go through unchanged -- and
+    "$j 11/12-Late Summer" put codes and prose in one subfield. The value is
+    left out and named instead.
+    """
+    result = convert_holdings(parse_866(text))
+    assert sub(result.fields_863[0], "j") is None
+    assert any(dropped in w for w in result.warnings), result.warnings
+
+
+def test_an_abbreviated_season_is_coded_rather_than_dropped():
+    """
+    The guard above only helps if the codes table is complete enough. "Sum" is
+    Summer, and coding it is what keeps it out of the guard's way.
+    """
+    result = convert_holdings(parse_866("2018: ([Sum])"))
+    assert sub(result.fields_863[0], "j") == "22"
+    assert result.warnings == []
+
+
+def test_a_day_level_date_keeps_its_month_and_year():
+    """
+    "Apr 18, 1996" matched none of _parse_chron_single's alternatives -- each
+    wants the year adjacent to the month -- so the boundary returned
+    (None, None) and "$i 1997" alone claimed the run began in 1997. The day is
+    still not encoded (863 $k is unmodelled) but it is named, and the month and
+    year survive.
+    """
+    result = convert_holdings(
+        parse_866("v. 34 no. 8/9-v. 35 no. 23/24 (Apr 18, 1996-Dec 1997)"))
+    f863 = result.fields_863[0]
+    assert sub(f863, "i") == "1996-1997"
+    assert sub(f863, "j") == "04-12"
+    assert any("(18)" in w for w in result.warnings), result.warnings

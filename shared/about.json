@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "released": "2026-08-25",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,37 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.6.4",
+      "date": "2026-09-01",
+      "summary": "Fewer patterns to confirm, dates read to the day, and nothing but codes in a coded subfield.",
+      "changes": [
+        {
+          "tool": "Pattern Detector",
+          "text": "Months and seasons are now treated as the same kind of thing, and a combined chronology like \"Jul/Aug\" or \"Winter/Spring\" counts as one value rather than two with something in between. \"(Sep 1944 - Aug 1945)\" and \"(Winter 1986 - Summer 1987)\" are the same shape and used to be two patterns to confirm separately; across the test collection this took 55 patterns down to 44 and removed every case where one shape had been split. A pattern found from months will now also read the season a later record uses in the same place."
+        },
+        {
+          "tool": "Pattern Detector",
+          "text": "A pattern's description now shows where it contains text the tool does not recognise, as \u2039text\u203a. \"v. 58 Suppl. (Sep 2003)\" reads \"VOL\u2039text\u203a(CHRONYEAR)\" instead of looking exactly like a statement with no \"Suppl.\" in it \u2014 two different patterns could previously appear on screen under the same description."
+        },
+        {
+          "tool": "Converter",
+          "text": "A date written with a day is now read. \"(Apr 18, 1996-Dec 1997)\" recorded only \"1997\", claiming the holdings began that year; it now records 1996-1997 and April-December. The day itself is still not encoded \u2014 it has its own subfield this tool does not yet write \u2014 and is named on screen."
+        },
+        {
+          "tool": "Converter",
+          "text": "Wording that is not a month or a season no longer reaches a subfield reserved for chronology codes. \"v. 15 (1998 Buyers Guide)\" wrote \"Buyers Guide\" into $j, and \"Late Summer\" produced the half-coded \"11/12-Late Summer\"; both are now left out and named, so you can record them by hand. Abbreviated seasons \u2014 Spr., Sum, Aut, Win \u2014 are recognised and coded rather than treated as wording."
+        },
+        {
+          "tool": "Workbench",
+          "text": "\"Split multi-range statements on top-level commas, semicolons or slashes\" now starts switched off. Tick it when a file needs it."
+        },
+        {
+          "tool": "Converter",
+          "text": "A bracketed group nested inside a year-first statement \u2014 the \"(1)\" in \"N1984: (2 (1))\" \u2014 is now named rather than dropped in silence. What it means is local to whoever wrote it, so the tool says it could not encode it instead of guessing."
+        }
+      ]
+    },
     {
       "version": "0.6.3",
       "date": "2026-09-01",
