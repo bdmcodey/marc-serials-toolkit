@@ -1,0 +1,195 @@
+# Textual holdings corpus (866 $a text only)
+# ==========================================
+#
+# 110 unique 866 $a statements, collected by hand while the original monolithic
+# parsing regex was being written, and kept because between them they cover far
+# more caption and chronology styles than the synthetic .mrc fixtures in this
+# directory do. Most of them the old monolith parsed; a few it never did.
+#
+# This is 866 $a TEXT, not MARC. It exercises holdings_parser.parse_866(),
+# marc_converter.convert_holdings() and pattern_detector.detect_patterns()
+# directly, and says nothing about record-level behaviour -- $8 linking, 853
+# conformance, multiple 866s on one record. data/messy_holdings.mrc remains the
+# fixture for that.
+#
+# Provenance: transcribed from real catalogue records. It carries no patron
+# data, no local identifiers and no institutional codes -- only enumeration and
+# chronology strings and, in the section headings, publicly known serial titles.
+# It is committed as .txt deliberately; .gitignore's *.mrc rule keeps real
+# holdings FILES out of the repository and is not weakened by this file.
+#
+#
+# FORMAT
+# ------
+# One statement per line, in source order, grouped by the section headings the
+# original file carried. Duplicates are removed; "[x2]" records how many times a
+# statement appeared. Lines starting with "#" are comments, "[section: name]"
+# opens a section, and a trailing "  # status:ID" is this statement's currently
+# known outcome. No holdings statement in this corpus contains "#", so splitting
+# a line on it is unambiguous.
+#
+#   (no tag)  parses and converts with nothing lost
+#   loss:Dn   converts, but silently drops values the statement asserts
+#   fail:Dn   produces no 853/863 at all
+#   warn:Dn   converts, and warns about what it dropped
+#   known:Dn  a deliberate, documented limitation, not a defect
+#
+# The Dn ids are defined in CORPUS-FINDINGS.md. Regenerate every count in that
+# file with:
+#
+#     python scripts/corpus_report.py
+#
+# The tags record what the tools do TODAY. They are a baseline to notice change
+# against, not a specification -- when a fix lands, the report will disagree
+# with the tag, and the tag is what should be updated.
+#
+
+
+[section: mixed]
+# The opening set: an unlabelled mix, the widest variety in the file.
+# Source heading: (opening set, unlabelled). 22 unique statements.
+v. 23 no. 3-4-v. 29 no. 3-4 (Fall 1985-Fall/Winter 1991)
+v. 24 nos. 2-5, 8-10 (Apr-Jul, Oct-Dec 1920)                        # loss:D1
+v. 24 nos. 2-5 (Apr-Jul 1920)
+v. 24 nos. 8-10 (Oct-Dec 1920)
+v.1-10 (1963-1968)
+v. 15 no. 2 (Apr 1993)-v. 18 no. 5 (Nov 1996)
+v. 1 (1973)-v. 11 no. 9 (Sep 1983)                                  # loss:D2
+8,13,15,17,19,20-(1982-1994)                                        # fail:D7
+v. 1 (1956) - v. 51 nos. 1-2 (2006)                                 # loss:D2
+v. 78 - v. 93 no. 3 (1981 - Sep 1996)                               # loss:D2
+v. 6 (1935)
+v. 9-13 (1939-1943)
+no. 26 (May 1994)-no. 37 (May 2000)                                 # [x2] fail:D6
+no. 43 (Jun 2006)-no. 58 (Jul 2013)                                 # [x2] fail:D6
+v. 59 no. 1 (Jan 2014)-v. 67 no. 1 (Jan 2022)
+no. 41 (May 2002)                                                   # fail:D6
+v. 59 No. 1 (Jan 2014)-v. 67 No 1 (Jan 2022)
+v. 1 - v. 55 no. 3 (1927-1982)                                      # loss:D2
+v. 15 no. 6 - v. 23 nos. 2/3 (Nov/Dec 1994 - Late Summer 2002)      # loss:D5
+v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)              # [x2] loss:D1
+v. 34 no. 8/9-v. 35 no. 23/24 (Apr 18, 1996-Dec 1997)               # loss:D4
+v. 92 no. 1/2-v. 95 no. 1/2 (1993-1996)                             # [x2]
+
+[section: mixed-2]
+# Headed "Random test examples" in the source.
+# Source heading: Random test examples. 32 unique statements.
+v.22:no.3(1984)
+v. 1 nos. 1-6 (Jan-Jun 1984)
+v. 1 no. 8-v. 2 no. 2 (Aug 1984-Mar/Apr 1985)
+v. 2 nos. 4-5 (Jul/Aug-Sep/Oct 1985)
+v. 3 no. 2-v. 4 no. 5 (Mar/Apr 1987-Sep/Oct 1988)
+(Winter/Spring 1994 - Spring/Summer 1999)
+(Spring/Summer 2000)
+v. 65 no. 4-v. 69 no. 1 (Apr 2012-Jan/Feb/Mar 2016)
+v. 69 no. 3 (May 2016)-v. 69 no. 4 (Jun 2016)                       # [x3]
+v. 53 no. 4-v. 56 no. 5 (Apr 1998-May 2001)
+v. 56 nos. 7-11 (Jul-Nov 2001)                                      # [x2]
+v.23(1985)-v.35(1997)                                               # [x3]
+v. 15 (1998 Buyers Guide)                                           # loss:D5
+v. 3 nos. 1-2 (January-April 2006)
+v. 42 no. 1-v. 43 no. 9 (October 1963-June 1965)
+v. 1-23 (1988-2010)
+v. 1 No. 1 (Autumn 2011)-v. 3 No. 4 (Winter 2013)
+v. 1 no. 1-v. 7 no. 2 (October 1970-March/April 1977)
+v. 1 (1993) - v. 67 (2015)
+v. 70 (2016) - v. 78 (2018)
+v. 48 no. 7 (Jul/Aug 2017)-v. 50 no. 4 (Apr 2019)
+v.9-23 (1922-1936)
+v. 1-v. 17 no. 3 (1981-October 1997)                                # loss:D2
+v. 18-v. 19 no. 2 (1998-Summer 1999)                                # loss:D2
+v. 52 (1981)
+v. 40-45 no. 4 (1974-Apr 1979)                                      # [x2]
+v. 1 no. 1 (1956)-v.51 (2006)                                       # [x3]
+v. 1 (1956)-v.51 nos.1-2 (2006)                                     # [x3] loss:D2
+v. 1 nos. 1-2 (1956)-v.51 (2006)
+v.1 (1880)
+Series 1, v. 6 no. 1 (Summer/Fall 1992)                             # warn:D8
+v. 1 no. 8-v. 2 (Aug 1984-1985)                                     # [x2]
+
+[section: list-ref]
+# Headed "list_ref examples"; all but one repeat earlier lines.
+# Source heading: list_ref examples. 1 unique statements.
+v. 1-v. 2 no. 2 (1984-Mar/Apr 1985)                                 # loss:D2
+
+[section: dentistry]
+# One title's real run. Six of its seven statements use the
+#   discontinuous "nos. a-b, c-d" list that D1 truncates.
+# Source heading: Australian journal of dentistry. 7 unique statements.
+v. 20 nos. 1, 3, 9-10 (Jan, Mar, Sep-Oct 1916)                      # loss:D1
+v. 21 nos. 6, 8 (Jun, Aug 1917)                                     # loss:D1
+v. 22 nos. 1-6, 10 (Jan-Jun, Oct 1918)                              # loss:D1
+v. 24 nos 2-5, 8-10 (Apr-Jul, Oct-Dec 1920)                         # loss:D1
+v. 25 no. 2-v. 33 (Feb 1921-1929)
+v. 34 nos. 2-3, 6-10 (Feb-Mar, Jun-Oct 1930)                        # loss:D1
+v. 35-59 (1931-1955)
+
+[section: supplements]
+# Supplement and anniversary issues.
+# Source heading: Suppls. 2 unique statements.
+v. 58 Suppl. (Sep 2003)                                             # loss:D3
+50th Anniversary Issue (2017)                                       # fail:D7
+
+[section: desmos]
+# One title's full run, 1902-2022: the cleanest large block here,
+#   and the best evidence for the detector's clustering behaviour.
+# Source heading: Desmos. 34 unique statements.
+v. 9 no. 1 (Nov 1902)
+v. 9 no. 3 (May 1903)
+v. 14 nos. 2-3 (Feb-May 1908)
+v. 50 no. 1 (Feb 1944)
+v. 50 no. 3 - v. 52 no. 3 (Sep 1944 - Aug 1945)
+v. 53 no. 1 - v. 54 no. 3 (Feb 1947 - Aug 1948)
+v. 55 no. 1 (Feb 1949)
+v. 55 no. 3 - v. 58 no. 3 (Aug 1949 - July 1952)
+v. 59 no. 1 - v. 60 no. 2 (Jan 1953 - Apr 1954)
+v. 60 no. 4 (Oct 1954)
+v. 61 no. 3 (Jul 1955)
+v. 62 no. 1 - v. 63 no. 1 (Jan 1956 - Jan 1957)
+v. 63 no. 3 - v. 64 no. 3 (Jul 1957 - Jul 1958)
+v. 65 no. 1 - v. 66 no. 1 (Jan 1959 - Jan 1960)
+v. 67 no. 4 (Oct 1961)
+v. 68 nos. 2-3 (Apr-Jul 1962)
+v. 69 no. 3 (Jul 1963)
+v. 70 no. 1 - v. 72 no. 1 (Jan 1964 - Jan 1966)
+v. 72 no. 3 - v. 73 no. 2 (Jul 1966 - Apr 1967)
+v. 73 no. 4 - v. 74 no. 1 (Oct 1967 - Jan 1968)
+v. 74 no. 3 (Jul 1968)
+v. 75 no. 3 (Jul 1969)
+v. 76 no. 1 (Feb 1970)
+v. 76 no. 3 (Aug 1970)
+v. 89 nos. 1-2 (Feb-May 1983)
+v. 89 no. 4 (Nov 1983)
+v. 91 nos. 1-3 (Feb-Aug 1985)
+v. 92 no. 1 - v. 93 no. 3 (Winter 1986 - Summer 1987)
+v. 94 no. 1 - v. 101 no. 4 (Jan 1988 - Fall 1995)
+v. 102 no. 2 - v. 103 no. 3 (Spring 1996 - Summer 1997)
+v. 104 no. 1 - v. 116 no. 2 (Winter 1998 - Summer 2010)
+v. 116 no. 4 (Winter 2010)-v. 117 no. 3 (Fall 2011)
+v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)
+v. 122 no. 3 (2016)-v. 128 no. 4 (2022)
+
+[section: compendium]
+# One title's main run.
+# Source heading: Compendium [main run]. 4 unique statements.
+v. 16 no. 2 - v. 37 no. 8 (February 1995 - September 2016)
+v. 37 no. 10 - v. 43 no. 1 (November/December 2016 - January 2022)
+v. 43 no. 3 (March 2022)
+v. 43 no. 6 - v. 43 no. 7 (June 2022 - July/August 2022)
+
+[section: compendium-suppl]
+# The same title's supplements.
+# Source heading: Compendium [suppls]. 3 unique statements.
+Special Issue (October/November 1995)                               # fail:D7
+v. 19 no. 2 Suppl. (1998)                                           # loss:D3
+v. 20 no. 1 Suppl. (1999)                                           # loss:D3
+
+[section: block-grammar]
+# Chronology-first statements, parsed by the separate block
+#   grammar in holdings_parser._parse_block_format().
+# Source heading: ONE examples. 5 unique statements.
+1979: 1 (6-8 [Sep-Dec])
+N1984: (2 (1))M1985: 2 (2 [summer])                                 # warn:D9
+2018: ([Sum])                                                       # loss:D5
+1983: 5 (7-30 [Jan 28-Dec 29])1984: 6 (1-4 [Jan 5-Jan 26], 6 [Feb 9], 11-12 [Mar 15-Mar 22], 14 [Apr 5], 18-19 [May 3-May 10], 24-25 [Jun 14-Jun 21]{lcub}called "Alternate Voice" for one issue only{rcub}, 27-28 [Jul 5-Jul 12])  # known:D10
+N?: 1 (4)1984: 2 (1)M1985: 2 (2 [summer])                            # known:D11
