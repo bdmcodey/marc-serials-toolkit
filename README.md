@@ -83,7 +83,7 @@ marc-serials-toolkit/
 ├── data/
 │   ├── example_holdings.mrc   Small SYNTHETIC sample for demos/tests
 │   ├── messy_holdings.mrc     SYNTHETIC awkward cases, for the test suite
-│   └── textual_holdings_corpus.txt  110 real 866 $a statements (text, not MARC)
+│   └── textual_holdings_corpus.txt  112 real 866 $a statements (text, not MARC)
 ├── scripts/
 │   ├── create_example_mrc.py  Regenerates the synthetic sample
 │   ├── create_messy_mrc.py    Regenerates the awkward-case fixture
@@ -107,7 +107,7 @@ python scripts/create_example_mrc.py
 python scripts/create_messy_mrc.py
 ```
 
-`data/textual_holdings_corpus.txt` is different in kind: 110 unique 866 `$a`
+`data/textual_holdings_corpus.txt` is different in kind: 112 unique 866 `$a`
 statements transcribed from real catalogue records, as plain text rather than
 MARC. It covers far more caption and chronology styles than the synthetic
 fixtures do, and it exists to find where the engines fall short. It carries no
@@ -121,8 +121,9 @@ python scripts/corpus_report.py --drift    # only outcomes that have changed
 ```
 
 [`CORPUS-FINDINGS.md`](CORPUS-FINDINGS.md) records what it currently reveals:
-71% of the statements convert cleanly, 21% convert with values silently dropped,
-and the detector splits four cataloguer-visible shapes across fifteen patterns.
+60% of the statements convert cleanly, 32% convert with values silently dropped,
+a third can be claimed only in part by a confirmed pattern, and the detector
+splits four cataloguer-visible shapes across fifteen patterns.
 
 ## Running the tests
 

@@ -154,7 +154,8 @@ class Outcome:
     """What the parser and converter actually did with one statement."""
 
     __slots__ = ("entry", "result", "conversion", "status", "dropped_numbers",
-                 "dropped_chron", "undeclared", "end_only", "uncoded")
+                 "dropped_chron", "undeclared", "end_only", "uncoded",
+                 "collapsed", "phantom_start")
 
     def __init__(self, entry: Entry):
         self.entry = entry
@@ -231,7 +232,70 @@ class Outcome:
                     if sf.code in coded and re.search(r"[A-Za-z]", sf.value):
                         self.uncoded.append(f"${sf.code} {sf.value}")
 
-        if produced and (self.end_only or self.uncoded):
+        # A compressed 863 states the first part held and the last part held, so
+        # every level has to be repeated at both ends of the range.
+        # _enum_value() collapses "1-1" to "1" whenever the two endpoints are
+        # equal, and that is lossy exactly when a *more significant* level does
+        # range: "$a 41-43 $b 1" cannot be read back as v.41:no.1 - v.43:no.1,
+        # because it equally describes issue 1 of each of volumes 41 to 43. The
+        # endpoint pairing is what is destroyed.
+        #
+        # Collapsing is fine when nothing above the level ranges:
+        # "v. 43 no. 6 - v. 43 no. 7" is fully recoverable from "$a 43 $b 6-7",
+        # so only levels under a ranging one are flagged. Enumeration and
+        # chronology are separate hierarchies, each ordered most significant
+        # first.
+        self.collapsed: list[str] = []
+        for seq, hr in enumerate(self.result.ranges):
+            if hr.end is None or seq >= len(self.conversion.fields_863):
+                continue
+            emitted = {sf.code: sf.value
+                       for sf in self.conversion.fields_863[seq].subfields}
+            for hierarchy in (("vol", "issue", "part"), ("year", "month")):
+                ranged = False
+                for level in hierarchy:
+                    start_v = getattr(hr.start, level)
+                    end_v = getattr(hr.end, level)
+                    if start_v is None or end_v is None:
+                        continue
+                    if start_v != end_v:
+                        ranged = True
+                        continue
+                    code = slots.get(level)
+                    if ranged and code and emitted.get(code) == start_v:
+                        self.collapsed.append(
+                            f"${code} {start_v} should be {start_v}-{end_v}")
+
+        # The mirror of end_only, for chronology. _build_863_for_range() falls
+        # back to the end boundary when the start has no value -- which is right
+        # for "v.1:no.1-v.2:no.4(1990-1991)", where the single chronology group
+        # covers the whole range, and wrong for
+        # "v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)", where December
+        # belongs to the end alone. The field then asserts the run *begins* in
+        # December 2006. Only the second shape is flagged: the range has its own
+        # chronology group at each end, and only one of them named a month.
+        self.phantom_start: list[str] = []
+        for seq, hr in enumerate(self.result.ranges):
+            if hr.end is None or seq >= len(self.conversion.fields_863):
+                continue
+            emitted = {sf.code: sf.value
+                       for sf in self.conversion.fields_863[seq].subfields}
+            for level in ("year", "month"):
+                start_v, end_v = getattr(hr.start, level), getattr(hr.end, level)
+                code = slots.get(level)
+                if not code or start_v is not None or end_v is None:
+                    continue
+                # Only when the *other* chronology level proves both boundaries
+                # carried a chronology group of their own.
+                other = "month" if level == "year" else "year"
+                if getattr(hr.start, other) is None:
+                    continue
+                if emitted.get(code) == end_v:
+                    self.phantom_start.append(
+                        f"${code} {end_v} is the end's {level}, written as the start's")
+
+        if produced and (self.end_only or self.uncoded
+                         or self.collapsed or self.phantom_start):
             self.status = "loss"
 
     @property
@@ -273,6 +337,56 @@ def _coarse_signature(signature: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# The Workbench's confirmed-pattern path
+# ---------------------------------------------------------------------------
+
+def pattern_path_exposure(statements: list[str], groups: list) -> list[dict]:
+    """
+    Statements a *different* cluster's regex can claim only part of.
+
+    pattern_bridge.build_parse_result() matches with
+
+        m = compiled.fullmatch(seg) or compiled.search(seg)
+
+    so when a pattern does not span the whole statement it may still match a
+    substring, and every character outside that span is discarded with no
+    warning. apply_patterns() takes the first pattern that matches, so a short,
+    common pattern confirmed early beats the longer, correct one.
+
+    This is the shape of the failure, measured without confirming anything: for
+    each statement, the smallest span any cluster's regex would claim. A small
+    fraction means a pattern would keep that little of the statement and throw
+    the rest away.
+    """
+    compiled = [(g.human_label, re.compile(g.regex, re.IGNORECASE), g.count)
+                for g in groups if g.regex]
+
+    exposure: list[dict] = []
+    for statement in statements:
+        worst = None
+        for label, rx, size in compiled:
+            if rx.fullmatch(statement):
+                continue                       # spans it all: nothing discarded
+            m = rx.search(statement)
+            if m is None or m.end() == m.start():
+                continue
+            fraction = (m.end() - m.start()) / len(statement)
+            if worst is None or fraction < worst["fraction"]:
+                worst = {
+                    "statement": statement,
+                    "label": label,
+                    "cluster_size": size,
+                    "fraction": fraction,
+                    "matched": statement[m.start():m.end()],
+                    "discarded": (statement[:m.start()] + " … "
+                                  + statement[m.end():]).strip(" …"),
+                }
+        if worst is not None:
+            exposure.append(worst)
+    return exposure
+
+
+# ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
 
@@ -290,6 +404,11 @@ DEFECTS = {
     "D11": "unexplained N/M marker before the year (warned, by design)",
     "D12": "detector: one cataloguer-visible shape clustered as many patterns",
     "D13": "detector: free text invisible in the pattern label",
+    "D14": "detector/converter disagree on a shape both accept",
+    "D15": "compressed range collapsed when both endpoints are equal",
+    "D16": "the end's chronology written as if it were the start's",
+    "D17": "workbench: a pattern claims a substring, discarding the rest",
+    "D18": "863 second indicator says uncompressed for a compressed field",
 }
 
 
@@ -375,6 +494,10 @@ def report(detail: bool = False, drift_only: bool = False) -> int:
                     print(f"       end boundary dropped: {', '.join(o.end_only)}")
                 if o.uncoded:
                     print(f"       text in a coded subfield: {'; '.join(o.uncoded)}")
+                if o.collapsed:
+                    print(f"       range collapsed: {'; '.join(o.collapsed)}")
+                if o.phantom_start:
+                    print(f"       invented start: {'; '.join(o.phantom_start)}")
                 for w in o.result.warnings:
                     print(f"       warn: {w}")
 
@@ -427,6 +550,30 @@ def report(detail: bool = False, drift_only: bool = False) -> int:
         print("\n  Declined as too complex:")
         for g in too_complex:
             print(f"    tokens={g.token_count}  {g.examples[0][:100]}...")
+
+    # ── Workbench ──
+    print()
+    print("-" * 78)
+    print("Workbench (confirmed-pattern path)")
+    print("-" * 78)
+    exposure = pattern_path_exposure(statements, groups)
+    print(f"  statements a pattern can claim only part of  {len(exposure):3d}"
+          f"  ({len(exposure) / len(statements):.0%})")
+    if exposure:
+        worst = min(exposure, key=lambda e: e["fraction"])
+        print(f"  worst case consumes                          "
+              f"{worst['fraction']:.0%} of its statement")
+    print("\n  build_parse_result() accepts `compiled.fullmatch(seg) or")
+    print("  compiled.search(seg)`, so a pattern may match a substring and")
+    print("  everything outside the matched span is dropped without a warning.")
+
+    if detail:
+        for e in sorted(exposure, key=lambda e: e["fraction"])[:10]:
+            print(f"\n    {e['fraction']:.0%} consumed by a cluster of {e['cluster_size']}"
+                  f"  ({e['label']})")
+            print(f"      statement: {e['statement']}")
+            print(f"      matched  : {e['matched']}")
+            print(f"      discarded: {e['discarded']}")
 
     # ── Drift ──
     print()

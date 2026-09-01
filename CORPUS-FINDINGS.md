@@ -20,20 +20,21 @@ python scripts/corpus_report.py --drift    # only the tags that no longer hold
 
 | | |
 |---|---|
-| statements | 110 unique (125 before de-duplication), 9 sections |
-| converted cleanly | **78 (71%)** |
-| converted with values silently dropped | **23 (21%)**, 22 of them defects |
+| statements | 112 unique (127 before de-duplication), 10 sections |
+| converted cleanly | **67 (60%)** |
+| converted with values silently dropped | **36 (32%)**, 35 of them defects |
 | converted with a warning | 3 |
 | produced no fields at all | 6 (5%) |
-| detector clusters | 54 for 110 statements, 38 of them singletons |
+| detector clusters | 55 for 112 statements, 39 of them singletons |
+| statements a pattern can claim only part of | **37 (33%)** |
 
-The number that matters is not the 6 refusals. It is the **23 silent losses**.
+The number that matters is not the 6 refusals. It is the **36 silent losses**.
 
 A refusal is safe: the Converter writes nothing, the 866 survives, and the
 statement lands in the cataloguer's review queue. A silent loss is not.
 `converter/app.py` defaults `remove_866` to `True`, so once *anything* has been
 written from a statement the source text is deleted from the record — and for
-these 23 the generated 853/863 does not carry everything the 866 said. The
+these 36 the generated 853/863 does not carry everything the 866 said. The
 holdings are gone, and nothing on screen says so.
 
 The Workbench is safer here: since "Keep the original 866s by default" it
@@ -43,9 +44,14 @@ Under the old monolithic regex most of these statements parsed. The three most
 damaging classes below (D1, D2, D3) are regressions in coverage relative to it,
 not shapes that were always out of reach.
 
+**Revised 1 September 2026** after reviewing a real `.mrc` through the Workbench.
+D15–D18 below came out of that review, and two of them (D15, D17) are far more
+common than the single records that exposed them. The clean rate fell from 71%
+to 60% purely because the audit got sharper — no code changed.
+
 ## Converter and parser
 
-### D1 — a discontinuous list is truncated at its first comma · 7 statements · **worst**
+### D1 — a discontinuous list is truncated at its first comma · 7 statements · **worst per statement**
 
 ```
 v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)
@@ -224,7 +230,7 @@ matches 100% of its own members, and only the one run-on trips
 `MAX_PATTERN_TOKENS`. The problems are all about how much work it hands the
 cataloguer, and one is about what it shows them.
 
-### D12 — one shape is clustered as many patterns · 44 statements (40%)
+### D12 — one shape is clustered as many patterns · 45 statements (40%)
 
 54 clusters for 110 statements, 38 of them singletons. Four cataloguer-visible
 shapes account for the worst of it:
@@ -294,21 +300,282 @@ Two smaller ones:
 - `split_multi_range()` splits `Series 1, v. 6 no. 1 (...)` into `Series 1` and
   the rest, so `Series 1` is clustered as though it were a holdings range.
 
+## From reviewing a real `.mrc` through the Workbench
+
+Two records raised these; the corpus then showed how common they are. Both
+premises checked out against MARC 21 — see "Checking against the standard".
+
+### D15 — a compressed range collapses when both endpoints are equal · 12 statements
+
+```
+v. 41 no. 1-v. 43 no. 1 (Jun 1984-Jan/Apr 1986)
+  generated: 863 41 $8 1.1 $a 41-43 $b 1   $i 1984-1986 $j 06-01/04
+  correct  : 863 41 $8 1.1 $a 41-43 $b 1-1 $i 1984-1986 $j 06-01/04
+```
+
+A compressed 863 states the first part held and the last part held, so every
+level has to appear at both ends. `_enum_value()` ends with
+
+```python
+return f"{start}-{end}" if end != start else start
+```
+
+so equal endpoints collapse to one value. `$a 41-43 $b 1` cannot be read back as
+*v.41:no.1 – v.43:no.1*: it equally describes issue 1 of each of volumes 41
+through 43. The endpoint pairing is destroyed.
+
+Collapsing is *not* always wrong, and the audit only flags it when a more
+significant level actually ranges. `v. 43 no. 6 - v. 43 no. 7` is fully
+recoverable from `$a 43 $b 6-7`, because the volume does not range — so it is
+not flagged. Twelve statements are, including `$j 01` under `$i 2014-2022`,
+where the same ambiguity hits chronology.
+
+### D16 — the end's chronology written as if it were the start's · 1 statement
+
+```
+v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)
+  generated: 863 41 $8 1.1 $a 1-12 $b 1-4 $i 1995-2006 $j 12
+  correct  : 863 41 $8 1.1 $a 1-12 $b 1-4 $i 1995-2006
+```
+
+`_build_863_for_range()` falls back to the end boundary when the start has no
+value:
+
+```python
+start_month = s.month if s.month is not None else (e.month if e else None)
+```
+
+That is right for `v.1:no.1-v.2:no.4(1990-1991)`, where one chronology group
+covers the whole range. It is wrong here, where *both* boundaries have their own
+parenthesis and only the second names a month: the field now asserts the run
+begins in December. The start month is genuinely unknown and unknowable from the
+statement, so dropping `$j` is the honest output — the audit distinguishes the
+two shapes by whether the other chronology level proves both boundaries carried
+a group of their own.
+
+This is the exact mirror of D2. There the end-only fallback is *missing* for
+enumeration; here it is *too eager* for chronology. Both come from the same
+asymmetry and should be fixed together.
+
+### D17 — a confirmed pattern claims a substring and discards the rest · 37 statements (33%) · **widest**
+
+This is the one that produced the reported output, and it is Workbench-only —
+`parse_866()` reads the statement correctly.
+
+```
+v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)
+  via parse_866():        863 $a 1-12 $b 1-4 $i 1995-2006 $j 12
+  via a confirmed pattern: 863 $a 12   $b 4   $i 2006      $j 12
+```
+
+Reproduced exactly, **with no warning**, by confirming the corpus's single
+largest cluster — `VOLISS(MONYEAR)`, the plain `v. 9 no. 1 (Nov 1902)` shape —
+and running this statement through it.
+
+**Cause.** `pattern_bridge.build_parse_result()`:
+
+```python
+m = compiled.fullmatch(seg) or compiled.search(seg)
+```
+
+`fullmatch` fails, `search` succeeds on the tail, and the pattern claims
+`v. 12 no. 4 (December 2006)` — characters 18 to 45. The first half is never
+looked at again. `apply_patterns()` returns the first pattern that matches, so
+the shortest, commonest pattern — the one a cataloguer confirms first, because
+it has the biggest count — beats the longer correct one.
+
+Across the corpus **37 of 112 statements (33%)** can be claimed in part by some
+other cluster's regex, the worst keeping 32% of its statement.
+
+The same `fullmatch() or search()` idiom is in `pattern_detector._validate()`,
+where it inflates the reported match rate: a cluster can report 100% while its
+regex only spans part of some members. There it is documented as deliberate, so
+partly-parsed multi-range strings still count as a hit. That rationale does not
+carry over to the bridge, where the match decides what gets written.
+
+Worth noting against the file's own reasoning: `build_parse_result()` already
+argues, at length and correctly, that half a statement is worse than none —
+"the 866 is removed once anything is written from it… All or nothing keeps the
+field intact." That guarantee is enforced *between* segments and not *within*
+one.
+
+### D18 — the 863 second indicator contradicts the field · every generated 863
+
+`_build_863_for_range()` writes:
+
+```python
+indicator1="4",  # 4 = no information provided / n/a
+indicator2="1",  # 1 = compressed using / range designation
+```
+
+Both comments misstate the standard, and one of the values is wrong.
+
+Second indicator in 863 is **Form of holdings**: `0` Compressed, `1`
+Uncompressed, `2` Compressed use textual string, `3` Uncompressed use textual
+string. The tool writes `1` — uncompressed, meaning each part itemised
+separately — on fields like `$a 41-43 $i 1984-1986`, which are compressed ranges.
+Every generated 863 says the opposite of what it contains. It should be `0`.
+
+First indicator is **Field encoding level**, values 3/4/5 matching Leader/17, not
+"no information provided". `4` is a defensible value for enum-and-chron holdings,
+so the output is right and only the comment is wrong — but it should agree with
+whatever the record's Leader/17 says.
+
+The `853 31` the tool writes is fine: first indicator `3` (compressibility
+unknown) and second `1` (captions verified, all levels may not be present) are
+both reasonable defaults. Note that `853` first indicator `3` and an `863`
+claiming to be uncompressed are at least consistent in being uninformative —
+setting the 863 indicator to `0` without revisiting the 853's would be a partial
+fix.
+
+## Checking against the standard
+
+Both premises hold.
+
+**`$b 1-1`.** MARC 21 defines compressed form as "a summarized form containing
+the enumeration and chronology of more than one part expressed as a range of
+holdings", i.e. the first part held and the last part held. Implementation
+guidance is explicit that *all levels of enumeration must be repeated at the
+beginning and end of each range held* — the canonical example being
+`v.1:no.1(1976:winter)-v.2:no.3(1976:summer)`, where the year is repeated even
+though both ends are 1976. So `$a 41-43 $b 1-1` is correct and `$b 1` is not.
+
+**Dropping `$j`.** Nothing in the format lets a chronology subfield say "the end
+only". The subfield either carries the range or it does not, so writing `$j 12`
+for a range beginning in 1995 states something false about the first part held.
+Omitting it is the correct reading, and matches how `853` second indicator `1`
+already declares that not every level may be present.
+
+One caveat on sourcing: `loc.gov`, OCLC and itsmarc are all blocked by this
+environment's network policy, so I could not fetch the primary pages directly and
+worked from search results quoting them, plus the CONSER/Yale implementation
+guidance. The indicator value lists and the compression rule were consistent
+across every source that surfaced, but the `$b 1-1` conclusion rests on
+implementation guidance rather than a verbatim MARC 21 example, and is worth one
+confirmation against the LoC page before it goes in a slide.
+
+## Catching silent drops: a proposal
+
+The two records above are a good argument for a *bounded-error* guarantee,
+because neither is a case where the tool could have got the answer right. In
+D16 the start month is not in the statement. In D17 the pattern genuinely does
+not describe the statement. What went wrong is not that the tool was unsure —
+it is that the output did not say so. The error was unbounded: nothing in the
+record, the screen, or the log distinguished a conversion that used everything
+from one that used a third of it.
+
+The tool cannot promise its readings are right. It can promise something
+narrower and checkable: **no value leaves the 866 unaccounted for.** Every
+token in the source ends in exactly one of three buckets, and the third is never
+empty-by-default:
+
+1. **encoded** — it reached a subfield;
+2. **deliberately dropped** — with a reason on the record ("day-of-month not
+   encoded", "role set to Not encoded");
+3. **unaccounted** — nobody claimed it. This is the bucket that must force the
+   statement into review.
+
+That turns an unbounded failure ("something may be missing, somewhere") into a
+bounded one ("these three tokens are missing, here they are"). It is also
+exactly what a cataloguer can act on.
+
+Three checks implement it, all cheap, and all now prototyped in
+`scripts/corpus_report.py` where they find both reported cases automatically:
+
+**1. Span coverage — the pattern path.** A match must consume the whole segment.
+This is nearly free: drop the `or compiled.search(seg)` fallback, or keep it and
+compare `m.end() - m.start()` against `len(seg)`, reporting the unconsumed text
+verbatim. It catches D17 outright and would have caught it the first time
+anyone confirmed a short pattern. `pattern_path_exposure()` in the report script
+is this check.
+
+**2. Value conservation — both paths.** Extract the numbers and month/season
+words from the source, extract them from the generated fields, and diff. The
+report script's audit does this and is deliberately conservative (a dropped
+value that coincides with another value already in the output is not counted),
+so it under-reports and never cries wolf. Everything it does report is real.
+
+**3. Structural invariants — the converter.** Cheaper than conservation and
+sharper, because each one names a specific defect rather than a missing digit:
+
+   - every caption the 853 declares has a value in its 863 (finds D2);
+   - a level whose endpoints are equal under a ranging level is written
+     `x-x`, not `x` (finds D15);
+   - a chronology subfield holds codes, not prose (finds D5);
+   - a value that belongs to one boundary is not written as the other's
+     (finds D16).
+
+Where this should live matters more than the checks themselves. Today the
+Converter's contract is "produce fields, remove the 866". The bounded version is
+**"produce fields, account for every token, and only remove the 866 when the
+third bucket is empty"** — the 866 stays whenever anything is unaccounted for,
+and the statement is marked for review with the unaccounted tokens listed. That
+inverts the current default in the safe direction: silence stops meaning success.
+
+Two things follow that are worth saying in the talk. First, the receipt is
+useful even when nothing is wrong — a cataloguer reviewing 500 records wants to
+see *which* statements were fully accounted for, so attention goes to the rest.
+Second, none of this requires better parsing. It is orthogonal: the parser can
+stay exactly as wrong as it is today and the failure still becomes bounded,
+visible and countable. That is the whole point — the guarantee is about
+detection, not accuracy, and it is achievable now in a way that "parse
+everything correctly" is not.
+
 ## What I would do next, in order
 
-1. **D1 and D3 together** — move the partial-match guard in `_parse_unit()` out of
+0. **D17 first, before anything else.** It is the largest silent loss in the
+   toolkit (33% of statements exposed), it is a one-line change to stop, and it
+   affects the Workbench — the tool meant to be the *safe* one because a human
+   confirms each pattern. A confirmation the cataloguer gave in good faith is
+   currently being applied to statements it does not describe.
+1. **D18** — set the 863 second indicator to `0`. One character, and every field
+   the tool has ever written is currently mislabelled.
+2. **D15 and D16 together** — both are `_build_863_for_range()` boundary logic,
+   and D16 is the mirror of D2, so all three are one change to how a level's two
+   endpoints become a subfield value.
+3. **D1 and D3 together** — move the partial-match guard in `_parse_unit()` out of
    the captionless branch so it applies whenever the match does not account for
    the whole unit. That alone converts 10 silent losses into visible refusals,
    which is a strict improvement even before either shape is properly parsed.
    Handling the comma list properly is the larger, separate job.
-2. **D2** — give enumeration the same end-boundary fallback chronology already
-   has. Small, local, 8 statements.
-3. **D6** — let the enumeration block match an issue-first unit. No guessing
+4. **D2** — give enumeration the same end-boundary fallback chronology already
+   has, with D16's guard so it does not become too eager in turn. 8 statements.
+5. **D6** — let the enumeration block match an issue-first unit. No guessing
    required; three statements here and a common real shape.
-4. **D5** — refuse to write text into a subfield declared as coded; hold for
+6. **D5** — refuse to write text into a subfield declared as coded; hold for
    review instead.
-5. **D12/D13** — merge `MON`/`SEASON`, give `/` a token kind, and show UNKNOWN
+7. **D12/D13** — merge `MON`/`SEASON`, give `/` a token kind, and show UNKNOWN
    runs in the label.
+
+The bounded-error work above cuts across all of these and is worth doing
+alongside rather than after: every fix on this list is easier to trust when the
+report can show what it changed.
+
+## Requested, not yet started
+
+Raised 1 September 2026 alongside D15–D18, recorded here so they are not lost.
+None of these is started; the first is a modelling change and the rest are
+Workbench UI.
+
+- **Enumeration levels are positional, not named.** `caption_slot()` maps `no.`
+  to `issue` and `_build_853()` puts issue in `$b`, so the level a caption
+  occupies is hard-coded to the word used. It should not be: an issue can be the
+  *top* level of enumeration and belong in `$a`, and a title can carry three
+  levels (volume, issue, part) needing `$a $b $c`. The word "issue", "number" or
+  "part" carries no inherent level. This is the same root as D6 — which is not
+  really "issue-first statements are refused" but "the model cannot express an
+  enumeration hierarchy that is not volume-then-issue" — so the two should be
+  designed together rather than patched separately.
+- **Skip a pattern or a record.** A button that removes a pattern or a record
+  from conversion entirely, leaving it untouched.
+- **Split on top-level commas, semicolons or slashes should default to OFF.**
+- **The pattern library needs to collapse.** It is unusable at length with a
+  large `.mrc` loaded; scrolling past it to reach the next step is the whole
+  interaction.
+- **Jump from a record in Convert back to its pattern**, unhiding the library if
+  collapsed, so a mistake spotted during review can be fixed at its source. Any
+  record already reviewed that the edited pattern touches has to go back to
+  unreviewed.
 
 ## A note on this corpus
 

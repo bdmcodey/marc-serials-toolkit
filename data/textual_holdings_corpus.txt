@@ -48,7 +48,7 @@
 [section: mixed]
 # The opening set: an unlabelled mix, the widest variety in the file.
 # Source heading: (opening set, unlabelled). 22 unique statements.
-v. 23 no. 3-4-v. 29 no. 3-4 (Fall 1985-Fall/Winter 1991)
+v. 23 no. 3-4-v. 29 no. 3-4 (Fall 1985-Fall/Winter 1991)            # loss:D15
 v. 24 nos. 2-5, 8-10 (Apr-Jul, Oct-Dec 1920)                        # loss:D1
 v. 24 nos. 2-5 (Apr-Jul 1920)
 v. 24 nos. 8-10 (Oct-Dec 1920)
@@ -62,14 +62,14 @@ v. 6 (1935)
 v. 9-13 (1939-1943)
 no. 26 (May 1994)-no. 37 (May 2000)                                 # [x2] fail:D6
 no. 43 (Jun 2006)-no. 58 (Jul 2013)                                 # [x2] fail:D6
-v. 59 no. 1 (Jan 2014)-v. 67 no. 1 (Jan 2022)
+v. 59 no. 1 (Jan 2014)-v. 67 no. 1 (Jan 2022)                       # loss:D15
 no. 41 (May 2002)                                                   # fail:D6
-v. 59 No. 1 (Jan 2014)-v. 67 No 1 (Jan 2022)
+v. 59 No. 1 (Jan 2014)-v. 67 No 1 (Jan 2022)                        # loss:D15
 v. 1 - v. 55 no. 3 (1927-1982)                                      # loss:D2
 v. 15 no. 6 - v. 23 nos. 2/3 (Nov/Dec 1994 - Late Summer 2002)      # loss:D5
 v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)              # [x2] loss:D1
 v. 34 no. 8/9-v. 35 no. 23/24 (Apr 18, 1996-Dec 1997)               # loss:D4
-v. 92 no. 1/2-v. 95 no. 1/2 (1993-1996)                             # [x2]
+v. 92 no. 1/2-v. 95 no. 1/2 (1993-1996)                             # [x2] loss:D15
 
 [section: mixed-2]
 # Headed "Random test examples" in the source.
@@ -138,20 +138,20 @@ v. 9 no. 1 (Nov 1902)
 v. 9 no. 3 (May 1903)
 v. 14 nos. 2-3 (Feb-May 1908)
 v. 50 no. 1 (Feb 1944)
-v. 50 no. 3 - v. 52 no. 3 (Sep 1944 - Aug 1945)
+v. 50 no. 3 - v. 52 no. 3 (Sep 1944 - Aug 1945)                     # loss:D15
 v. 53 no. 1 - v. 54 no. 3 (Feb 1947 - Aug 1948)
 v. 55 no. 1 (Feb 1949)
-v. 55 no. 3 - v. 58 no. 3 (Aug 1949 - July 1952)
+v. 55 no. 3 - v. 58 no. 3 (Aug 1949 - July 1952)                    # loss:D15
 v. 59 no. 1 - v. 60 no. 2 (Jan 1953 - Apr 1954)
 v. 60 no. 4 (Oct 1954)
 v. 61 no. 3 (Jul 1955)
-v. 62 no. 1 - v. 63 no. 1 (Jan 1956 - Jan 1957)
-v. 63 no. 3 - v. 64 no. 3 (Jul 1957 - Jul 1958)
-v. 65 no. 1 - v. 66 no. 1 (Jan 1959 - Jan 1960)
+v. 62 no. 1 - v. 63 no. 1 (Jan 1956 - Jan 1957)                     # loss:D15
+v. 63 no. 3 - v. 64 no. 3 (Jul 1957 - Jul 1958)                     # loss:D15
+v. 65 no. 1 - v. 66 no. 1 (Jan 1959 - Jan 1960)                     # loss:D15
 v. 67 no. 4 (Oct 1961)
 v. 68 nos. 2-3 (Apr-Jul 1962)
 v. 69 no. 3 (Jul 1963)
-v. 70 no. 1 - v. 72 no. 1 (Jan 1964 - Jan 1966)
+v. 70 no. 1 - v. 72 no. 1 (Jan 1964 - Jan 1966)                     # loss:D15
 v. 72 no. 3 - v. 73 no. 2 (Jul 1966 - Apr 1967)
 v. 73 no. 4 - v. 74 no. 1 (Oct 1967 - Jan 1968)
 v. 74 no. 3 (Jul 1968)
@@ -166,7 +166,7 @@ v. 94 no. 1 - v. 101 no. 4 (Jan 1988 - Fall 1995)
 v. 102 no. 2 - v. 103 no. 3 (Spring 1996 - Summer 1997)
 v. 104 no. 1 - v. 116 no. 2 (Winter 1998 - Summer 2010)
 v. 116 no. 4 (Winter 2010)-v. 117 no. 3 (Fall 2011)
-v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)
+v. 118 no. 1 (Spring 2012)-v. 122 no. 1 (2016)                      # loss:D15
 v. 122 no. 3 (2016)-v. 128 no. 4 (2022)
 
 [section: compendium]
@@ -193,3 +193,13 @@ N1984: (2 (1))M1985: 2 (2 [summer])                                 # warn:D9
 2018: ([Sum])                                                       # loss:D5
 1983: 5 (7-30 [Jan 28-Dec 29])1984: 6 (1-4 [Jan 5-Jan 26], 6 [Feb 9], 11-12 [Mar 15-Mar 22], 14 [Apr 5], 18-19 [May 3-May 10], 24-25 [Jun 14-Jun 21]{lcub}called "Alternate Voice" for one issue only{rcub}, 27-28 [Jul 5-Jul 12])  # known:D10
 N?: 1 (4)1984: 2 (1)M1985: 2 (2 [summer])                            # known:D11
+
+[section: workbench-review]
+# Statements met while reviewing a real .mrc through the Workbench, added
+#   1 September 2026. Both convert differently depending on which path runs:
+#   the converter's parse_866() and the Workbench's confirmed-pattern path do
+#   not agree on them. Tags record the CONVERTER's outcome, as everywhere else;
+#   `corpus_report.py --workbench` reports the pattern path separately.
+# Source: reviewing real records, not the original hand-collected file.
+v. 41 no. 1-v. 43 no. 1 (Jun 1984-Jan/Apr 1986)                     # loss:D15
+v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)                       # loss:D16
