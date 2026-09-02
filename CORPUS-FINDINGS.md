@@ -9,10 +9,10 @@ deliberate, separately reviewable decision. Everything here was found before
 anything was changed.
 
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
-(0.6.3); D4, D5, D9, D12 and D13 (0.6.4, 1 September 2026). Their sections below
-are kept and marked, because the reasoning is the record of why the code looks
-the way it does now. **D6, D7, D10, D11 and D14 remain open** — see the list at
-the end.
+(0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0, 2 September 2026).
+Their sections below are kept and marked, because the reasoning is the record of
+why the code looks the way it does now. **D7, D10, D11 and D14 remain open** —
+see the list at the end.
 
 Reproduce every number below with:
 
@@ -24,22 +24,24 @@ python scripts/corpus_report.py --drift    # only the tags that no longer hold
 
 ## Headline
 
-| | at 0.6.0 | now (0.6.4) |
+| | at 0.6.0 | now (0.7.0) |
 |---|---|---|
 | statements | 112 unique (127 before de-duplication), 10 sections | — |
-| converted cleanly | 67 (60%) | 74 (66%) |
+| converted cleanly | 67 (60%) | **78 (70%)** |
 | converted with values **silently** dropped | 36 (32%) | **1 (1%)** |
-| converted, and told the cataloguer what it dropped | 3 | **21** |
-| produced no fields at all | 6 (5%) | **16 (14%)** |
+| converted, and told the cataloguer what it dropped | 3 | **20** |
+| produced no fields at all | 6 (5%) | **13 (12%)** |
 | detector clusters | 55, 39 of them singletons | **44, 31 singletons** |
 | one shape split across several clusters | 45 statements, 15 confirmations | **0** |
 | statements a pattern could claim only part of | 37 (33%) | 64, none convert |
 
 The silent-loss column is the one to watch, and the clean rate is not. Statements
 have moved *out* of "clean" in both directions on purpose: ten now refuse
-outright rather than convert a third of themselves (D1, D3), and eighteen more
+outright rather than convert a third of themselves (D1, D3), and twenty more
 convert while naming a value they could not place. Both are the same trade —
-less written, and what is written is true.
+less written, and what is written is true. The clean rate rose again in 0.7.0
+for a different reason: four statements the model simply could not express now
+convert whole (D6, D8).
 
 The number that matters is not the refusals. It was the **36 silent losses**;
 one remains, and it is the run-on whose day-level dates the block grammar drops
@@ -249,22 +251,50 @@ from 0.6.3 the `11/12` could not have been written on its own either.
 chronology at all. It is a named issue that happens to sit in the parenthesis
 where chronology normally lives.
 
-### D6 — statements captioned at issue level only are refused outright · 3 statements
+### D6 — statements captioned at issue level only are refused outright · 3 statements · **FIXED in 0.7.0**
 
 ```
 no. 26 (May 1994)-no. 37 (May 2000)    ->  nothing
 no. 41 (May 2002)                      ->  nothing
 ```
 
-`_ENUM_CHRON_RE`'s enumeration block is `(vol_cap)? vol_num (iss_cap iss_num)?`.
-The issue group can only follow a number, so an issue-first unit has no path
-through the grammar at all and the statement fails whole.
+`_ENUM_CHRON_RE`'s enumeration block was `(vol_cap)? vol_num (iss_cap iss_num)?`.
+The issue group could only follow a number, so an issue-first unit had no path
+through the grammar at all and the statement failed whole.
 
 **This is not the "captionless" family, and I would not file it with them.** The
 caption is right there — `no.` — and it is unambiguous. A serial numbered
 continuously by issue with no volume level is a completely ordinary thing
 (monographic series, numbered reports, many newsletters). Of the six refusals in
 this corpus, these three are the ones worth fixing; nothing has to be guessed.
+
+**Fixed in 0.7.0**, by removing the thing that made it a defect: enumeration is
+no longer three named levels (volume, issue, part) but an ordered list of any
+depth, and a caption is a *word*, not a level. MARC 21 agrees — 853 `$a`–`$f`
+carry captions "in descending order of significance" and say nothing about
+which words go in them, so `$a no.` is as ordinary as `$a v.`
+
+```
+no. 26 (May 1994)-no. 37 (May 2000)
+  853 31 $8 1 $a no. $i (year) $j (month)
+  863 40 $8 1.1 $a 26-37 $i 1994-2000 $j 05-05
+```
+
+Three consequences worth stating, because they change more than these three
+statements:
+
+- **Depth is no longer capped at three.** `Series 1, v. 6 no. 1 (Summer/Fall
+  1992)` now fills `$a ser. $b v. $c no.`, and the standard convention has room
+  for six levels before it runs out of subfields — at which point the levels it
+  cannot place are named in a warning rather than dropped.
+- **Position, not the word, decides the subfield.** The Workbench's confirm step
+  offers the familiar words as suggested captions and lets a cataloguer override
+  both the caption and the level a value sits at; the level defaults to the
+  order the values appear in, because that order *is* the hierarchy.
+- **A new guard came with it.** One 853 is the caption pattern for every 863
+  linked to it, so two statements on one record that number by different
+  hierarchies cannot share one. `v.1(1990), no.5(1995)` would have written the
+  `5` into `$a v.` — read downstream as volume 5. It is now left out and named.
 
 ### D7 — genuinely captionless statements · 3 statements · expected fail
 
@@ -285,9 +315,14 @@ says once what the captured values mean.
 
 ### D8, D9, D11 — smaller things, all warned or by design (D9 **FIXED in 0.6.4**)
 
-- **D8** `Series 1, v. 6 no. 1 (Summer/Fall 1992)` — the series designation is
-  dropped, but with a warning naming it. Correct handling of something it cannot
-  encode; recorded so it is not mistaken for a silent loss.
+- **D8** `Series 1, v. 6 no. 1 (Summer/Fall 1992)` — the series designation was
+  dropped, but with a warning naming it. **Fixed in 0.7.0**, in two parts. `ser.`
+  became a caption word, so the designation parses; and `_split_ranges` no longer
+  breaks the statement at that comma. The test is whether both sides number by
+  the same caption: a repeated caption is a second range (`v. 1, v. 5 (1994)` is
+  two ranges, and that is how a cataloguer writes a gap), a caption appearing
+  only on the left is a heading. It now encodes whole, three levels deep:
+  `853 $a ser. $b v. $c no.` over `863 $a 1 $b 6 $c 1`.
 - **D9** `N1984: (2 (1))M1985: 2 (2 [summer])` — `_BLOCK_RE`'s body allows one
   nesting level, and the inner `(1)` was lost without comment. **Fixed in
   0.6.4**: the nested group is named rather than dropped in silence. Its meaning
@@ -737,14 +772,11 @@ everything correctly" is not.
 5. ~~**D5**~~ Done in 0.6.4, with D4 and D9.
 6. ~~**D12/D13**~~ Done in 0.6.4 — and the merge removed *all* spurious
    splitting, not just the four families measured.
+7. ~~**D6**~~ Done in 0.7.0, as the enumeration-hierarchy rework it needed — not
+   as a patch. D8 fell out of the same change. See D6's section.
 
 ### What is left
 
-- **D6** — statements captioned at issue level only. Not really "issue-first
-  statements are refused" but "the model cannot express an enumeration
-  hierarchy that is not volume-then-issue", so it wants designing together with
-  the `$a`/`$b`/`$c`-by-position rework rather than patching alone. The largest
-  remaining piece of work, and the only open defect that loses whole statements.
 - **D7** — genuinely captionless statements. Expected to keep failing; the
   Workbench's confirm step is the mechanism that could convert them.
 - **D10, D11** — by design, and documented as such.
@@ -762,21 +794,18 @@ could show what it changed.
 ## Requested, not yet started
 
 Raised 1 September 2026 alongside D15–D18, recorded here so they are not lost.
-None of these is started; the first is a modelling change and the rest are
-Workbench UI.
+The first two are done; the rest are Workbench UI and are not started.
 
-- **Enumeration levels are positional, not named.** `caption_slot()` maps `no.`
-  to `issue` and `_build_853()` puts issue in `$b`, so the level a caption
-  occupies is hard-coded to the word used. It should not be: an issue can be the
-  *top* level of enumeration and belong in `$a`, and a title can carry three
-  levels (volume, issue, part) needing `$a $b $c`. The word "issue", "number" or
-  "part" carries no inherent level. This is the same root as D6 — which is not
-  really "issue-first statements are refused" but "the model cannot express an
-  enumeration hierarchy that is not volume-then-issue" — so the two should be
-  designed together rather than patched separately.
+- ~~**Enumeration levels are positional, not named.**~~ Done in 0.7.0, with D6.
+  `caption_slot()` used to map `no.` to `issue` and `_build_853()` put issue in
+  `$b`, so the level a caption occupied was hard-coded to the word used. It is
+  now an ordered list of any depth: `caption_slot()` answers only "enumeration,
+  year or month", the subfield comes from position, and the caption is whatever
+  word the statement used. See D6.
 - **Skip a pattern or a record.** A button that removes a pattern or a record
   from conversion entirely, leaving it untouched.
-- **Split on top-level commas, semicolons or slashes should default to OFF.**
+- ~~**Split on top-level commas, semicolons or slashes should default to
+  OFF.**~~ Done in 0.6.4.
 - **The pattern library needs to collapse.** It is unusable at length with a
   large `.mrc` loaded; scrolling past it to reach the next step is the whole
   interaction.

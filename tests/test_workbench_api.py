@@ -54,8 +54,7 @@ def confirm(client, group, decisions=None, split=True, priority=None):
     roles = [dict(r) for r in group["suggested_roles"]]
     for role in roles:
         if decisions and role["group"] in decisions:
-            boundary, level = decisions[role["group"]]
-            role["boundary"], role["level"] = boundary, level
+            role.update(decisions[role["group"]])
 
     entry = {
         "id": "confirmed-1",
@@ -123,8 +122,10 @@ def test_every_group_arrives_with_roles_and_the_values_they_would_take(
     group = group_for(workbench_client, "v.1(1990)-v.5(1994)")
     roles = {r["group"]: r for r in group["suggested_roles"]}
     assert set(roles) == set(group["named_groups"])
-    assert roles["start_vol"]["level"] == "vol"
-    assert roles["start_vol"]["level_label"]          # shown to a cataloguer
+    assert roles["start_vol"]["kind"] == "enum"
+    assert roles["start_vol"]["level"] == 0           # first enumeration level
+    assert roles["start_vol"]["caption"] == "v."
+    assert roles["start_vol"]["kind_label"]           # shown to a cataloguer
     assert group["example_values"][0]["start_year"] == "1990"
     assert group["example_values"][0]["end_year"] == "1994"
 
@@ -229,7 +230,7 @@ def test_correcting_a_role_changes_the_marc_the_screen_shows(workbench_client):
     corrected = [dict(r) for r in group["suggested_roles"]]
     for role in corrected:
         if role["group"] == "start_num":
-            role["boundary"], role["level"] = "end", "vol"
+            role.update(boundary="end", kind="enum", level=0, caption="v.")
 
     after = preview(corrected)
     assert "$a 1-5" in after["pattern"]["fields_863"][0]
@@ -477,12 +478,62 @@ def test_a_confirmed_pattern_converts_what_the_parser_held_for_review(
 
     group = group_for(workbench_client, "?: 16")
     number = next(g for g in group["named_groups"] if g.endswith("num"))
-    confirm(workbench_client, group, decisions={number: ("start", "issue")})
+    confirm(workbench_client, group, decisions={
+        number: {"boundary": "start", "kind": "enum", "level": 0, "caption": "no."}})
 
     converted = [p for p in previews_for(workbench_client, idx)
                  if p["source_866"] == "?: 16"]
     assert converted[0]["from_pattern"] is True
-    assert any("$b 16" in f for f in converted[0]["fields_863"])
+    # The cataloguer called it an issue; with no volume above it, it is this
+    # record's first enumeration level, so it lands in $a under an $a no.
+    assert any("$a 16" in f for f in converted[0]["fields_863"])
+
+
+def test_the_settings_the_screen_sends_reach_the_fields(workbench_client,
+                                                        example_marc_bytes):
+    """
+    The convention editor posts enumeration by position ("e1" is the first
+    level) and chronology by name. A shape the server does not understand would
+    fall back to the preset without complaint, so this pins the round trip.
+    """
+    upload_marc(workbench_client, example_marc_bytes)
+    body = workbench_client.post("/api/batch-convert", json={
+        **SETTINGS,
+        "convention": "house",
+        "subfields": {"enum": {"e1": "b", "e2": "c", "e3": "d"},
+                      "year": "a", "month": "i"},
+        "indicators": ["2", "0"],
+    }).get_json()
+
+    assert body["success"] is True
+    assert not body["rejections"]
+
+
+def test_moving_a_level_onto_one_the_screen_does_not_show_is_reported(
+        workbench_client, example_marc_bytes):
+    """
+    The editor shows three enumeration levels; the standard convention has six.
+    Moving the first level onto a subfield one of the hidden three is using
+    costs that level, and saying so is the only way a cataloguer could know.
+    """
+    upload_marc(workbench_client, example_marc_bytes)
+    body = workbench_client.post("/api/batch-convert", json={
+        **SETTINGS, "subfields": {"enum": {"e1": "d"}},
+    }).get_json()
+
+    assert body["success"] is True
+    assert any("room for 5 levels" in r for r in body["rejections"])
+
+
+def test_a_settings_shape_the_server_cannot_use_is_reported(workbench_client,
+                                                            example_marc_bytes):
+    upload_marc(workbench_client, example_marc_bytes)
+    body = workbench_client.post("/api/batch-convert", json={
+        **SETTINGS, "subfields": {"enum": {"e1": "z"}},
+    }).get_json()
+
+    assert body["success"] is True          # the preset carried it through
+    assert any("$a-$m" in r for r in body["rejections"])
 
 
 def test_batch_conversion_reports_what_read_what(workbench_client, example_marc_bytes):

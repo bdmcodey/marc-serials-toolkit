@@ -330,6 +330,12 @@
             <div class="conv-head">Level</div>
             <div class="conv-head">$</div>
             <div class="conv-head">Caption</div>
+            {% for lvl in enum_levels %}
+            <div class="conv-level">{{ lvl.label }}</div>
+            <input type="text" class="conv-sf" id="sf-{{ lvl.key }}" maxlength="1" />
+            <input type="text" id="cap-{{ lvl.key }}"
+                   placeholder="{{ lvl.default_caption }}" />
+            {% endfor %}
             {% for level in convention_levels %}
             <div class="conv-level">{{ level }}</div>
             <input type="text" class="conv-sf" id="sf-{{ level }}" maxlength="1" />
@@ -451,6 +457,12 @@
             <div class="conv-head">Level</div>
             <div class="conv-head">$</div>
             <div class="conv-head">Caption</div>
+            {% for lvl in enum_levels %}
+            <div class="conv-level">{{ lvl.label }}</div>
+            <input type="text" class="conv-sf" id="bsf-{{ lvl.key }}" maxlength="1" />
+            <input type="text" id="bcap-{{ lvl.key }}"
+                   placeholder="{{ lvl.default_caption }}" />
+            {% endfor %}
             {% for level in convention_levels %}
             <div class="conv-level">{{ level }}</div>
             <input type="text" class="conv-sf" id="bsf-{{ level }}" maxlength="1" />
@@ -638,9 +650,9 @@
 
 const CONVENTION_PRESETS = {{ convention_presets | tojson }};
 const CONVENTION_LEVELS  = {{ convention_levels | tojson }};
-const DEFAULT_CAPTIONS   = {
-  vol: 'v.', issue: 'no.', part: 'pt.', year: '(year)', month: '(month)'
-};
+// Enumeration has no level names, only positions: "e1" is the first level.
+const ENUM_LEVELS        = {{ enum_levels | tojson }};
+const DEFAULT_CAPTIONS   = { year: '(year)', month: '(month)' };
 // 853 carries captions in $a-$m; everything else is reserved for other data.
 const ALLOWED_SUBFIELDS = 'abcdefghijklm';
 
@@ -651,6 +663,15 @@ const ALLOWED_SUBFIELDS = 'abcdefghijklm';
  */
 function applyPreset(name, p) {
   const preset = CONVENTION_PRESETS[name] || CONVENTION_PRESETS.standard;
+  ENUM_LEVELS.forEach((lvl, i) => {
+    const sf  = document.getElementById(`${p}sf-${lvl.key}`);
+    const cap = document.getElementById(`${p}cap-${lvl.key}`);
+    if (sf) sf.value = (preset.subfields.enum || [])[i] || '';
+    // Left empty on purpose: an enumeration caption is the word the statement
+    // itself used, and filling these in would overwrite "no. 26" with "v. 26".
+    // The placeholder shows what a statement that names no caption gets.
+    if (cap) cap.value = '';
+  });
   CONVENTION_LEVELS.forEach(level => {
     const sf  = document.getElementById(`${p}sf-${level}`);
     const cap = document.getElementById(`${p}cap-${level}`);
@@ -669,8 +690,9 @@ function applyPreset(name, p) {
 /** Flag subfields MARC will not accept, or that two levels are fighting over. */
 function markInvalidSubfields(p) {
   const seen = {};
-  CONVENTION_LEVELS.forEach(level => {
-    const el = document.getElementById(`${p}sf-${level}`);
+  const keys = ENUM_LEVELS.map(l => l.key).concat(CONVENTION_LEVELS);
+  keys.forEach(key => {
+    const el = document.getElementById(`${p}sf-${key}`);
     if (!el) return;
     const v = (el.value || '').trim().toLowerCase();
     const bad = v && (v.length !== 1 || !ALLOWED_SUBFIELDS.includes(v) || seen[v]);
@@ -681,7 +703,14 @@ function markInvalidSubfields(p) {
 
 /** Collect the editor into the shape the API expects. */
 function conventionPayload(p) {
-  const subfields = {}, captions = {};
+  const subfields = {}, captions = {}, enumSubfields = {};
+  ENUM_LEVELS.forEach(lvl => {
+    const sf  = document.getElementById(`${p}sf-${lvl.key}`);
+    const cap = document.getElementById(`${p}cap-${lvl.key}`);
+    if (sf && sf.value.trim())   enumSubfields[lvl.key] = sf.value.trim().toLowerCase();
+    if (cap && cap.value.trim()) captions[lvl.key] = cap.value.trim();
+  });
+  if (Object.keys(enumSubfields).length) subfields.enum = enumSubfields;
   CONVENTION_LEVELS.forEach(level => {
     const sf  = document.getElementById(`${p}sf-${level}`);
     const cap = document.getElementById(`${p}cap-${level}`);

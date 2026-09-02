@@ -60,10 +60,10 @@ v. 1 (1956) - v. 51 nos. 1-2 (2006)                                 # warn:D2
 v. 78 - v. 93 no. 3 (1981 - Sep 1996)                               # warn:D2
 v. 6 (1935)
 v. 9-13 (1939-1943)
-no. 26 (May 1994)-no. 37 (May 2000)                                 # [x2] fail:D6
-no. 43 (Jun 2006)-no. 58 (Jul 2013)                                 # [x2] fail:D6
+no. 26 (May 1994)-no. 37 (May 2000)                                 # [x2]
+no. 43 (Jun 2006)-no. 58 (Jul 2013)                                 # [x2]
 v. 59 no. 1 (Jan 2014)-v. 67 no. 1 (Jan 2022)
-no. 41 (May 2002)                                                   # fail:D6
+no. 41 (May 2002)
 v. 59 No. 1 (Jan 2014)-v. 67 No 1 (Jan 2022)
 v. 1 - v. 55 no. 3 (1927-1982)                                      # warn:D2
 v. 15 no. 6 - v. 23 nos. 2/3 (Nov/Dec 1994 - Late Summer 2002)      # warn:D5
@@ -104,7 +104,7 @@ v. 1 no. 1 (1956)-v.51 (2006)                                       # [x3]  # wa
 v. 1 (1956)-v.51 nos.1-2 (2006)                                     # [x3] warn:D2
 v. 1 nos. 1-2 (1956)-v.51 (2006)                                    # warn:D2
 v.1 (1880)
-Series 1, v. 6 no. 1 (Summer/Fall 1992)                             # warn:D8
+Series 1, v. 6 no. 1 (Summer/Fall 1992)
 v. 1 no. 8-v. 2 (Aug 1984-1985)                                     # [x2]  # warn:D2
 
 [section: list-ref]

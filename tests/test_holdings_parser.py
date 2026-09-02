@@ -31,8 +31,8 @@ def test_full_range_with_enumeration_and_chronology():
     assert len(r.ranges) == 1
 
     start, end = r.ranges[0].start, r.ranges[0].end
-    assert (start.vol, start.issue, start.year, start.month) == ("1", "1", "1990", "01")
-    assert (end.vol, end.issue, end.year, end.month) == ("5", "4", "1994", "12")
+    assert (start.value_at(0), start.value_at(1), start.year, start.month) == ("1", "1", "1990", "01")
+    assert (end.value_at(0), end.value_at(1), end.year, end.month) == ("5", "4", "1994", "12")
     assert r.ranges[0].open_ended is False
 
 
@@ -45,8 +45,8 @@ def test_caption_variants_and_seasons_parse_identically():
     assert len(r.ranges) == 1
 
     start, end = r.ranges[0].start, r.ranges[0].end
-    assert (start.vol, start.issue, start.year, start.month) == ("1", "1", "1990", "21")
-    assert (end.vol, end.issue, end.year, end.month) == ("5", "4", "1994", "24")
+    assert (start.value_at(0), start.value_at(1), start.year, start.month) == ("1", "1", "1990", "21")
+    assert (end.value_at(0), end.value_at(1), end.year, end.month) == ("5", "4", "1994", "24")
 
 
 def test_open_ended_range_has_no_end():
@@ -54,7 +54,7 @@ def test_open_ended_range_has_no_end():
     r = parse_866("v.6(1995)-")
     assert r.ranges[0].open_ended is True
     assert r.ranges[0].end is None
-    assert r.ranges[0].start.vol == "6"
+    assert r.ranges[0].start.value_at(0) == "6"
 
 
 def test_compressed_range_keeps_both_endpoints_in_the_start_unit():
@@ -66,7 +66,7 @@ def test_compressed_range_keeps_both_endpoints_in_the_start_unit():
     """
     r = parse_866("v. 1-14 (1953-1966)")
     assert len(r.ranges) == 1
-    assert r.ranges[0].start.vol == "1-14"
+    assert r.ranges[0].start.value_at(0) == "1-14"
     assert r.ranges[0].start.year == "1953-1966"
     assert r.ranges[0].end is None
     assert r.ranges[0].open_ended is False
@@ -75,9 +75,9 @@ def test_compressed_range_keeps_both_endpoints_in_the_start_unit():
 def test_multi_range_statement_splits_on_comma():
     r = parse_866("v.1(1990)-v.3(1992), v.5(1994)-")
     assert len(r.ranges) == 2
-    assert r.ranges[0].start.vol == "1"
-    assert r.ranges[0].end.vol == "3"
-    assert r.ranges[1].start.vol == "5"
+    assert r.ranges[0].start.value_at(0) == "1"
+    assert r.ranges[0].end.value_at(0) == "3"
+    assert r.ranges[1].start.value_at(0) == "5"
     assert r.ranges[1].open_ended is True
 
 
@@ -86,7 +86,7 @@ def test_year_only_range():
     assert len(r.ranges) == 1
     assert r.ranges[0].start.year == "1990"
     assert r.ranges[0].end.year == "1994"
-    assert r.ranges[0].start.vol is None
+    assert r.ranges[0].start.value_at(0) is None
 
 
 @pytest.mark.parametrize("text", ["", "   ", "\t\n"])
@@ -120,18 +120,25 @@ def test_block_dispatch_gate(text, is_block):
 
 
 def test_block_number_inside_parens_is_an_issue():
-    """Positional role rule: inside the parens, a bare number is the issue."""
+    """
+    Positional role rule: inside the parens, a bare number is the issue.
+
+    With no volume stated, that issue is the statement's only enumeration
+    level, so it is the *first* one -- 853 captions run $a downwards from the
+    most significant level present. The caption is what says it is an issue.
+    """
     r = parse_866("1993: (1 [Feb])")
     assert len(r.ranges) == 1
     start = r.ranges[0].start
-    assert (start.vol, start.issue, start.year, start.month) == (None, "1", "1993", "02")
+    assert [(lvl.caption, lvl.value) for lvl in start.enum] == [("no.", "1")]
+    assert (start.year, start.month) == ("1993", "02")
 
 
 def test_block_number_before_parens_is_a_volume():
     """The complementary rule: outside the parens, the number is the volume."""
     r = parse_866("1949: 1 (1-6 [Apr-Sep])")
     start, end = r.ranges[0].start, r.ranges[0].end
-    assert (start.vol, start.issue, start.year) == ("1", "1-6", "1949")
+    assert (start.value_at(0), start.value_at(1), start.year) == ("1", "1-6", "1949")
     assert start.month == "04"
     assert end.month == "09"
 
@@ -142,7 +149,7 @@ def test_multi_year_block_run_on_yields_one_range_per_year():
     assert [hr.start.year for hr in r.ranges] == ["2019", "2020"]
     assert r.ranges[0].start.month == "02"
     assert r.ranges[0].end.month == "11"
-    assert r.ranges[1].start.issue == "7-12"
+    assert [(lvl.caption, lvl.value) for lvl in r.ranges[1].start.enum] == [("no.", "7-12")]
 
 
 def test_unexplained_marker_parses_and_warns():
@@ -264,7 +271,7 @@ def test_captionless_leading_volume_parses():
     r = parse_866("39 no 1 (Spring 1995)")
     assert r.success is True
     start = r.ranges[0].start
-    assert (start.vol, start.issue, start.year, start.month) == ("39", "1", "1995", "21")
+    assert (start.value_at(0), start.value_at(1), start.year, start.month) == ("39", "1", "1995", "21")
 
 
 @pytest.mark.xfail(reason="_split_ranges() does not treat a spaced slash as a "
@@ -278,8 +285,8 @@ def test_slash_separated_ranges_should_both_survive():
     """
     r = parse_866("v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)")
     assert len(r.ranges) == 2
-    assert r.ranges[1].start.vol == "5"
-    assert r.ranges[1].end.vol == "8"
+    assert r.ranges[1].start.value_at(0) == "5"
+    assert r.ranges[1].end.value_at(0) == "8"
 
 
 @pytest.mark.xfail(reason="a brace note defeats the block grammar entirely")
@@ -306,7 +313,7 @@ def test_a_bare_number_with_no_issue_after_it_is_not_a_volume():
     would put a year into $a on every record of this shape.
     """
     r = parse_866("2016?")
-    assert r.ranges[0].start.vol is None
+    assert r.ranges[0].start.value_at(0) is None
     assert r.ranges[0].start.year == "2016"
 
 
@@ -326,7 +333,7 @@ def test_a_captioned_volume_is_unaffected_by_the_relaxed_caption():
     """The ordinary shapes must parse exactly as they did."""
     r = parse_866("v.39 no 1 (Spring 1995)")
     start = r.ranges[0].start
-    assert (start.vol, start.issue, start.year, start.month) == ("39", "1", "1995", "21")
+    assert (start.value_at(0), start.value_at(1), start.year, start.month) == ("39", "1", "1995", "21")
 
 
 # ---------------------------------------------------------------------------
@@ -336,8 +343,8 @@ def test_a_captioned_volume_is_unaffected_by_the_relaxed_caption():
 def _shape(result):
     """A comparable summary of what a statement parsed to."""
     return [
-        (r.start.vol, r.start.issue, r.start.year, r.start.month,
-         None if r.end is None else (r.end.vol, r.end.issue, r.end.year, r.end.month),
+        (r.start.value_at(0), r.start.value_at(1), r.start.year, r.start.month,
+         None if r.end is None else (r.end.value_at(0), r.end.value_at(1), r.end.year, r.end.month),
          r.open_ended)
         for r in result.ranges
     ]
@@ -370,9 +377,9 @@ def test_a_spaced_range_keeps_its_end():
     r = parse_866("v. 1 (2001) - v. 5 (2005)")
     assert len(r.ranges) == 1
     start, end = r.ranges[0].start, r.ranges[0].end
-    assert (start.vol, start.year) == ("1", "2001")
+    assert (start.value_at(0), start.year) == ("1", "2001")
     assert end is not None, "the end of the range was dropped"
-    assert (end.vol, end.year) == ("5", "2005")
+    assert (end.value_at(0), end.year) == ("5", "2005")
 
 
 @pytest.mark.parametrize("text, vol, year", [
@@ -387,7 +394,7 @@ def test_a_compressed_range_is_still_one_unit(text, vol, year):
     """
     r = parse_866(text)
     assert len(r.ranges) == 1
-    assert r.ranges[0].start.vol == vol
+    assert r.ranges[0].start.value_at(0) == vol
     assert r.ranges[0].start.year == year
     assert r.ranges[0].end is None
 
@@ -433,7 +440,7 @@ def test_a_combined_volume_keeps_the_rest_of_its_statement():
     into a refusal. Widening vol_num converts it properly instead.
     """
     result = parse_866("v.7/8(1996:Jul./Aug.)")
-    assert result.ranges[0].start.vol == "7/8"
+    assert result.ranges[0].start.value_at(0) == "7/8"
     assert result.ranges[0].start.year == "1996"
     assert result.ranges[0].start.month == "07/08"
 
@@ -450,3 +457,29 @@ def test_a_month_at_one_end_of_a_chronology_group_is_not_kept():
 
     paired = parse_866("v. 62 no. 1 - v. 63 no. 1 (Jan 1956 - Jan 1957)")
     assert paired.ranges[0].end.month == "01-01"
+
+
+def test_a_series_designation_heads_its_statement_rather_than_splitting_it():
+    """
+    "Series 1, v. 6 no. 1 (Summer/Fall 1992)" is one statement three levels
+    deep, not a range called "Series 1" beside a range called "v. 6 no. 1".
+
+    Splitting it produced two ranges numbered by hierarchies no single 853 can
+    describe, and the volume then landed under the series caption.
+    """
+    r = parse_866("Series 1, v. 6 no. 1 (Summer/Fall 1992)")
+    assert len(r.ranges) == 1
+    start = r.ranges[0].start
+    assert [(lvl.caption, lvl.value) for lvl in start.enum] == [
+        ("ser.", "1"), ("v.", "6"), ("no.", "1")]
+
+
+def test_a_repeated_caption_after_a_comma_is_still_two_ranges():
+    """
+    The other side of that rule. "v. 1, v. 5 (1994)" numbers both sides the
+    same way, so the comma divides two ranges -- which is how a cataloguer
+    writes a gap in holdings.
+    """
+    r = parse_866("v. 1, v. 5 (1994)")
+    assert len(r.ranges) == 2
+    assert [hr.start.value_at(0) for hr in r.ranges] == ["1", "5"]

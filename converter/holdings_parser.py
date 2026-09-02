@@ -96,29 +96,48 @@ def normalise_chron_unit(raw: str) -> str:
 # ---------------------------------------------------------------------------
 
 @dataclass
+class EnumLevel:
+    """
+    One level of enumeration: the caption a statement used, and its value.
+
+    Both matter, and they are separate things.  MARC 853 carries enumeration
+    captions in $a-$f in descending order of significance, and the *word* in
+    each is just a label -- "no." in $a is a serial numbered by issue with no
+    volume above it, which is ordinary.  Tying the level to the word ("issue
+    means $b") is what made those statements unconvertible.
+    """
+    caption: Optional[str] = None    # as written, normalised: "v.", "no.", "pt."
+    value: Optional[str] = None      # "1", "1-5", "1/2"
+
+
+@dataclass
 class EnumChron:
     """One boundary (start or end) of a holdings range."""
-    vol: Optional[str] = None        # volume number string
-    issue: Optional[str] = None      # issue / number string
-    part: Optional[str] = None       # part number string
+    # Enumeration levels, most significant first.  A serial numbered only by
+    # issue has one level whose caption is "no."; a volume/issue/part serial
+    # has three.  Position in this list is the level -- nothing else decides it.
+    enum: List[EnumLevel] = field(default_factory=list)
     year: Optional[str] = None       # four-digit year string
     month: Optional[str] = None      # month or season (normalised)
     day: Optional[str] = None        # day (uncommon for journals)
 
+    def level(self, index: int) -> Optional[EnumLevel]:
+        """The enumeration level at `index`, or None when there is none."""
+        return self.enum[index] if index < len(self.enum) else None
+
+    def value_at(self, index: int) -> Optional[str]:
+        lvl = self.level(index)
+        return lvl.value if lvl else None
+
     def has_enum(self) -> bool:
-        return any([self.vol, self.issue, self.part])
+        return any(lvl.value for lvl in self.enum)
 
     def has_chron(self) -> bool:
         return any([self.year, self.month, self.day])
 
     def __str__(self) -> str:
-        parts = []
-        if self.vol:
-            parts.append(f"v.{self.vol}")
-        if self.issue:
-            parts.append(f"no.{self.issue}")
-        if self.part:
-            parts.append(f"pt.{self.part}")
+        parts = [f"{lvl.caption or ''}{lvl.value}"
+                 for lvl in self.enum if lvl.value]
         chron_parts = []
         if self.year:
             chron_parts.append(self.year)
@@ -137,18 +156,38 @@ class HoldingsRange:
     open_ended: bool = False          # True  ⇒ still being received
     raw: str = ""                     # original text for this range
 
+    def enum_depth(self) -> int:
+        """How many enumeration levels either boundary of this range states."""
+        return max((len(ec.enum) for ec in (self.start, self.end) if ec),
+                   default=0)
+
+    def enum_captions(self) -> List[Optional[str]]:
+        """
+        The caption for each enumeration level, most significant first.
+
+        Taken from whichever boundary states one, since a range often writes
+        its captions only at the start ("v. 1 no. 1-v. 5 no. 4" writes them
+        twice, "v. 1-v. 5 no. 4" only once).
+        """
+        captions: List[Optional[str]] = [None] * self.enum_depth()
+        for ec in (self.start, self.end):
+            if ec is None:
+                continue
+            for i, lvl in enumerate(ec.enum):
+                if captions[i] is None and lvl.caption:
+                    captions[i] = lvl.caption
+        return captions
+
     def caption_levels(self) -> dict:
-        """Return which caption levels appear in this range."""
+        """Which levels appear in this range: enumeration depth plus chronology."""
         levels: dict = {}
+        depth = self.enum_depth()
+        if depth:
+            levels["enum_depth"] = depth
+            levels["enum_captions"] = self.enum_captions()
         for ec in [self.start, self.end]:
             if ec is None:
                 continue
-            if ec.vol is not None:
-                levels["vol"] = True
-            if ec.issue is not None:
-                levels["issue"] = True
-            if ec.part is not None:
-                levels["part"] = True
             if ec.year is not None:
                 levels["year"] = True
             if ec.month is not None:
@@ -166,10 +205,29 @@ class ParseResult:
     needs_review: bool = False   # values were found but could not be placed
 
     def caption_union(self) -> dict:
-        """Union of caption levels across all ranges."""
+        """
+        Union of levels across all ranges.
+
+        Enumeration depth is the deepest any range reaches, and each level's
+        caption comes from the first range that names it -- one 853 has to
+        describe every 863 linked to it, so it declares as many levels as the
+        fullest statement uses.
+        """
         union: dict = {}
+        captions: List[Optional[str]] = []
         for r in self.ranges:
-            union.update(r.caption_levels())
+            levels = r.caption_levels()
+            for key in ("year", "month"):
+                if levels.get(key):
+                    union[key] = True
+            for i, cap in enumerate(levels.get("enum_captions", [])):
+                if i >= len(captions):
+                    captions.append(cap)
+                elif captions[i] is None:
+                    captions[i] = cap
+        if captions:
+            union["enum_depth"] = len(captions)
+            union["enum_captions"] = captions
         return union
 
 
@@ -188,40 +246,87 @@ class ParseResult:
 #   chron_raw – everything inside ( )
 #   year_only – bare year with no parens
 
-_ENUM_CHRON_RE = re.compile(
-    r"""
-    (?:
-      # --- Enumeration block ---
-      # The volume caption is optional so that "39 no 1" reads as v.39 no.1.
-      # _parse_unit() guards that case; on its own this alternative would also
-      # claim a bare year as a volume.
-      (?:(?P<vol_cap>v(?:ol(?:ume)?)?)\s*[.\s]*\s*)?
-      # A volume may be a range ("v.1-5") or a combined issue ("v.7/8"), the
-      # same two forms iss_num below has always accepted.  Without the slash,
-      # "v.7/8(1996:Jul./Aug.)" matched only "v.7" and the rest of the
-      # statement was dropped.
-      (?P<vol_num>\d+[a-zA-Z]?(?:\s*[-/]\s*\d+[a-zA-Z]?)?)
-      (?:
-        [\s:,]\s*
-        (?P<iss_cap>(?:nos?|n|nr|num(?:ber)?s?|iss(?:ue)?s?|pt|part))\s*[.\s]*\s*
-        (?P<iss_num>\d+[a-zA-Z]?(?:\s*[-/]\s*\d+[a-zA-Z]?)?)
-      )?
-      (?:
-        [\s:,]\s*
-        (?P<pt_cap>pt|part)\s*[.\s]*\s*
-        (?P<pt_num>\d+[a-zA-Z]?)
-      )?
-      \s*
-    )?
-    (?:
-      # --- Chronology block ---
-      \(
-        (?P<chron_raw>[^)]+)
-      \)
-    )?
+# Caption words, and the normalised form each is written back as.  The word
+# says what a level is *called*, never which level it is: "no." is ordinary in
+# $a for a serial numbered by issue with no volume above it.
+_CAPTION_WORDS = (
+    (r"v(?:ol(?:ume)?)?", "v."),
+    (r"nos?|n|nr|num(?:ber)?s?|iss(?:ue)?s?", "no."),
+    (r"pts?|parts?", "pt."),
+    (r"ser(?:ies)?", "ser."),
+)
+_CAPTION_ALT = "|".join(alt for alt, _ in _CAPTION_WORDS)
+
+# One enumeration level: an optional caption, then its value.  The value may be
+# a range ("1-5") or a combined designation ("7/8"), the two forms holdings use
+# to compress a level.
+_ENUM_LEVEL_RE = re.compile(
+    rf"""
+    (?:(?P<cap>{_CAPTION_ALT})\s*[.\s]*\s*)?
+    (?P<num>\d+[a-zA-Z]?(?:\s*[-/]\s*\d+[a-zA-Z]?)?)
     """,
     re.IGNORECASE | re.VERBOSE,
 )
+
+# What separates one enumeration level from the next: ":", "," or whitespace.
+_LEVEL_SEP_RE = re.compile(r"^[\s:,]\s*")
+
+# The chronology block, in parentheses after the enumeration.
+_CHRON_BLOCK_RE = re.compile(r"\(\s*(?P<chron_raw>[^)]+)\)")
+
+
+def normalise_caption(raw: Optional[str]) -> Optional[str]:
+    """
+    The standard written form of a caption word: "Vol."/"volume" -> "v.".
+
+    The word is preserved, the style is not.  Without this, "v. 1 no. 1" and
+    "Vol. 1, No. 1" would build 853s that differ only in punctuation and stop
+    sharing one field across a record.
+    """
+    if not raw:
+        return None
+    key = raw.strip().rstrip(".").lower()
+    for alt, canonical in _CAPTION_WORDS:
+        if re.fullmatch(alt, key, re.IGNORECASE):
+            return canonical
+    return raw.strip()
+
+
+def _parse_enum_levels(text: str) -> Tuple[List[EnumLevel], int]:
+    """
+    Read consecutive enumeration levels off the front of `text`.
+
+    Returns the levels and how far into `text` they reached.  Levels are taken
+    in the order they are written -- position is the level, and the caption
+    word is carried along rather than deciding anything.
+    """
+    levels: List[EnumLevel] = []
+    pos = 0
+    while pos < len(text):
+        chunk = text[pos:]
+        if levels:
+            sep = _LEVEL_SEP_RE.match(chunk)
+            if not sep:
+                break
+            chunk = chunk[sep.end():]
+            offset = pos + sep.end()
+        else:
+            offset = pos
+
+        m = _ENUM_LEVEL_RE.match(chunk)
+        if not m or not m.group("num"):
+            break
+        # A second or later level must name itself.  Without that rule the
+        # "18" of "Apr 18, 1996" or a stray number after a caption would be
+        # swallowed as another level.
+        if levels and not m.group("cap"):
+            break
+        levels.append(EnumLevel(caption=normalise_caption(m.group("cap")),
+                                value=m.group("num").strip()))
+        pos = offset + m.end()
+
+    return levels, pos
+
 
 # Simpler pattern for year-only holdings (e.g. "1990" or "1990-1994")
 _YEAR_ONLY_RE = re.compile(r"^\s*(\d{4})\s*$")
@@ -233,6 +338,34 @@ _VOL_START_RE = re.compile(
 )
 _YEAR_START_RE = re.compile(r"^\s*\d{4}\s*(?:$|-)")
 
+def _is_designation_prefix(before: str, after: str) -> bool:
+    """
+    True when `before` heads the statement `after` rather than being a range.
+
+    "Series 1, v. 6 no. 1 (Summer/Fall 1992)" is one statement: the series is a
+    designation the volume sits under, and splitting it off leaves two ranges
+    numbered by hierarchies that no single 853 can describe.  "v. 1, v. 5
+    (1994)" is two ranges, and reads the same way to a cataloguer, so the test
+    is whether the two sides number by the same caption: a repeated caption is
+    a second range, a caption that appears only on the left is a heading.
+
+    A designation states no chronology -- once it does, it is a range of its
+    own whatever it is called.
+    """
+    if "(" in before or ")" in before:
+        return False
+    left, consumed = _parse_enum_levels(before)
+    if not left or consumed < len(before.strip()):
+        return False
+    if any(lvl.caption is None for lvl in left):
+        return False
+    right, _ = _parse_enum_levels(after)
+    right_captions = {lvl.caption for lvl in right if lvl.caption}
+    if not right_captions:
+        return False
+    return not any(lvl.caption in right_captions for lvl in left)
+
+
 def _split_ranges(text: str) -> List[str]:
     """
     Split a holdings string into individual range strings.
@@ -243,11 +376,13 @@ def _split_ranges(text: str) -> List[str]:
         OR preceded by a closing parenthesis.
 
     This avoids splitting "Vol. 1, No. 1 (Spring 1990)" on the comma
-    between the volume and issue captions.
+    between the volume and issue captions, and -- see
+    _is_designation_prefix -- on the comma after a series designation.
     """
     # Collect candidate split positions
     depth = 0
     candidates: List[int] = []
+    segment_start = 0
     chars = list(text)
     for i, ch in enumerate(chars):
         if ch == "(":
@@ -262,8 +397,12 @@ def _split_ranges(text: str) -> List[str]:
             preceded_by_close = before.endswith(")")
             followed_by_vol = bool(_VOL_START_RE.match(after))
             followed_by_year = bool(_YEAR_START_RE.match(after))
-            if preceded_by_close or followed_by_vol or followed_by_year:
-                candidates.append(i)
+            if not (preceded_by_close or followed_by_vol or followed_by_year):
+                continue
+            if _is_designation_prefix(text[segment_start:i], after):
+                continue
+            candidates.append(i)
+            segment_start = i + 1
 
     if not candidates:
         return [text.strip()]
@@ -434,11 +573,17 @@ def _parse_unit(text: str,
     # Year-only shorthand
     m = _YEAR_ONLY_RE.match(text)
     if m:
-        ec = EnumChron(year=m.group(1))
-        return ec
+        return EnumChron(year=m.group(1))
 
-    m = _ENUM_CHRON_RE.match(text)
-    if not m or (not m.group("vol_num") and not m.group("chron_raw")):
+    levels, pos = _parse_enum_levels(text)
+
+    rest = text[pos:].lstrip()
+    consumed = len(text) - len(rest)
+    chron = _CHRON_BLOCK_RE.match(rest)
+    if chron:
+        consumed += chron.end()
+
+    if not levels and not chron:
         return None
 
     # The match has to account for the whole unit, whether or not a caption is
@@ -447,41 +592,30 @@ def _parse_unit(text: str,
     # only as far as "v. 58"; converting either alone is worse than converting
     # nothing, because the 866 is removed once anything is written from it and
     # the rest of the statement goes with it.
-    #
-    # This guard used to sit inside the captionless branch below, so it fired
-    # only for "34 no 3, 4 (...)" and never for the same shape with a "v." in
-    # front -- which is the common one.
-    if m.end() != len(text):
+    if consumed != len(text):
         if warnings is not None:
             note = (
-                f"Read '{text[:m.end()].strip()}' but could not account for "
-                f"'{text[m.end():].strip()}' — nothing was converted from this "
+                f"Read '{text[:consumed].strip()}' but could not account for "
+                f"'{text[consumed:].strip()}' — nothing was converted from this "
                 "statement rather than convert part of it."
             )
             if note not in warnings:
                 warnings.append(note)
         return None
 
-    if m.group("vol_num") and not m.group("vol_cap") and not m.group("iss_cap"):
-        # A number with no caption of its own is only a volume when something
-        # else in the statement says so: an issue caption must follow it.
-        # "39 no 1" is v.39 no.1, because a number sitting a level above an
-        # issue is a volume.  Without that anchor there is nothing to read the
-        # level from, and "2016?" would become volume 2016 rather than an
-        # uncertain year.
+    # A number with no caption of its own is only an enumeration level when
+    # something else in the statement says so: a captioned level must follow
+    # it.  "39 no 1" is v.39 no.1, because a number sitting a level above an
+    # issue is a volume.  Without that anchor there is nothing to read the
+    # level from, and "2016?" would become a volume rather than an uncertain
+    # year.
+    if levels and levels[0].caption is None and len(levels) == 1:
         return None
 
-    ec = EnumChron()
+    ec = EnumChron(enum=levels)
 
-    if m.group("vol_num"):
-        ec.vol = m.group("vol_num")
-    if m.group("iss_num"):
-        ec.issue = m.group("iss_num")
-    if m.group("pt_num"):
-        ec.part = m.group("pt_num")
-
-    if m.group("chron_raw"):
-        ec.year, ec.month = _parse_chron(m.group("chron_raw"), warnings)
+    if chron:
+        ec.year, ec.month = _parse_chron(chron.group("chron_raw"), warnings)
 
     return ec if (ec.has_enum() or ec.has_chron()) else None
 
@@ -727,7 +861,15 @@ def _parse_block_format(text: str) -> ParseResult:
             if not any([vol, issue, year, c_start]):
                 continue
 
-            start = EnumChron(vol=vol, issue=issue, year=year, month=c_start)
+            # Positional, and it always was: a number *before* the parens is
+            # the higher level and numbers *inside* are the lower one.  The
+            # block grammar names neither, so the captions are the defaults.
+            enum: List[EnumLevel] = []
+            if vol:
+                enum.append(EnumLevel(caption="v.", value=vol))
+            if issue:
+                enum.append(EnumLevel(caption="no.", value=issue))
+            start = EnumChron(enum=enum, year=year, month=c_start)
             end = EnumChron(month=c_end) if c_end and c_end != c_start else None
             result.ranges.append(
                 HoldingsRange(start=start, end=end, raw=item or body.strip())
@@ -770,7 +912,7 @@ def parse_866(text: str) -> ParseResult:
     Examples
     --------
     >>> r = parse_866("v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)")
-    >>> r.ranges[0].start.vol
+    >>> r.ranges[0].start.enum[0].value
     '1'
     >>> r.ranges[0].end.year
     '1994'

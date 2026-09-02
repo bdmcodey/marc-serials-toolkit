@@ -44,6 +44,7 @@ from holdings_parser import parse_866
 from marc_converter import (convert_holdings, convert_record, ConversionResult,
                             FREQUENCY_CODES, CONVENTION_STANDARD, CONVENTION_HOUSE,
                             CONVENTION_LEVELS, convention_presets,
+                            enum_level_fields,
                             resolve_convention)
 
 
@@ -388,6 +389,7 @@ def index():
                            has_pymarc=HAS_PYMARC,
                            frequency_codes=FREQUENCY_CODES,
                            convention_levels=CONVENTION_LEVELS,
+                           enum_levels=enum_level_fields(),
                            convention_presets=convention_presets(),
                            about=_load_about())
 
@@ -433,16 +435,14 @@ def api_parse_text():
                     "raw": r.raw,
                     "open_ended": r.open_ended,
                     "start": {
-                        "vol": r.start.vol,
-                        "issue": r.start.issue,
-                        "part": r.start.part,
+                        "enum": [{"caption": lvl.caption, "value": lvl.value}
+                                 for lvl in r.start.enum],
                         "year": r.start.year,
                         "month": r.start.month,
                     },
                     "end": {
-                        "vol": r.end.vol if r.end else None,
-                        "issue": r.end.issue if r.end else None,
-                        "part": r.end.part if r.end else None,
+                        "enum": [{"caption": lvl.caption, "value": lvl.value}
+                                 for lvl in r.end.enum] if r.end else [],
                         "year": r.end.year if r.end else None,
                         "month": r.end.month if r.end else None,
                     } if r.end else None,

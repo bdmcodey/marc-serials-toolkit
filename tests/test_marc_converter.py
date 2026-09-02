@@ -62,7 +62,9 @@ def test_both_presets_cover_every_level():
     presets = convention_presets()
     assert set(presets) == {"standard", "house"}
     for preset in presets.values():
-        assert set(preset["subfields"]) == set(CONVENTION_LEVELS)
+        # Chronology levels are named; enumeration is a sequence of positions.
+        assert set(preset["subfields"]) == set(CONVENTION_LEVELS) | {"enum"}
+        assert len(preset["subfields"]["enum"]) >= 3
 
 
 def test_standard_and_house_differ_where_expected():
@@ -70,8 +72,10 @@ def test_standard_and_house_differ_where_expected():
     house, _ = resolve_convention("house")
 
     # MARC 21 puts enumeration first; local practice leads with the year.
-    assert standard["subfields"]["vol"] == "a"
+    assert standard["subfields"]["enum"][0] == "a"
+    assert standard["subfields"]["year"] == "i"
     assert house["subfields"]["year"] == "a"
+    assert house["subfields"]["enum"][0] == "b"
     assert standard["indicators"] == ("3", "1")
     assert house["indicators"] == ("2", "0")
     # House practice writes chronology as text ("Mar") rather than a code.
@@ -85,25 +89,61 @@ def test_unknown_convention_falls_back_to_standard():
 
 
 def test_valid_override_is_applied():
-    spec, rejections = resolve_convention("standard", subfields={"vol": "d"})
-    assert spec["subfields"]["vol"] == "d"
+    spec, rejections = resolve_convention("standard", subfields={"year": "k"})
+    assert spec["subfields"]["year"] == "k"
     assert rejections == []
 
 
-@pytest.mark.parametrize("subfields, kept_level, kept_code, expected_in_message", [
-    ({"vol": "z"},    "vol",   "a", "$a-$m"),      # outside _ALLOWED_SUBFIELDS
-    ({"vol": "ab"},   "vol",   "a", "$a-$m"),      # not a single character
-    ({"vol": ""},     "vol",   "a", "$a-$m"),      # empty
-    ({"issue": "a"},  "issue", "b", "already used by vol"),   # collision
+def test_enumeration_can_be_reseated_as_a_whole_sequence():
+    """
+    Enumeration has no level names to override one at a time, so a caller
+    states the sequence: first level first.
+    """
+    spec, rejections = resolve_convention("standard", subfields={"enum": ("c", "d", "e")})
+    assert spec["subfields"]["enum"] == ("c", "d", "e")
+    assert rejections == []
+
+
+def test_a_single_enumeration_level_can_be_moved_by_position():
+    """
+    A screen showing only the first few levels patches those positions and
+    leaves the convention's depth alone.  "e1" is the first level.
+    """
+    spec, rejections = resolve_convention("standard", subfields={"enum": {"e1": "g"}})
+    assert spec["subfields"]["enum"] == ("g", "b", "c", "d", "e", "f")
+    assert rejections == []
+
+
+def test_the_old_level_names_still_reach_their_positions():
+    """
+    Settings saved against the three-level model name vol/issue/part.  Those
+    are positions 1-3 now, and a stored setting should not quietly stop
+    working.
+    """
+    spec, rejections = resolve_convention("standard", subfields={"issue": "g"})
+    assert spec["subfields"]["enum"] == ("a", "g", "c", "d", "e", "f")
+    assert rejections == []
+
+
+@pytest.mark.parametrize("subfields, expected_in_message", [
+    ({"enum": ("z", "b")}, "$a-$m"),       # outside _ALLOWED_SUBFIELDS
+    ({"enum": ("ab", "b")}, "$a-$m"),      # not a single character
+    ({"enum": ("", "b")},  "$a-$m"),       # empty
+    ({"enum": ("b", "b")}, "would carry two enumeration levels"),
+    ({"enum": ("i", "b")}, "already used by chronology"),
+    ({"year": "z"},        "$a-$m"),
+    ({"year": "a"},        "already used by enumeration"),
+    ({"month": "i"},       "already used by year"),
 ])
 def test_bad_subfield_codes_are_rejected_back_to_the_preset(
-        subfields, kept_level, kept_code, expected_in_message):
+        subfields, expected_in_message):
     """
     Every rejection must do two things: keep the safe value, and say what
     happened. A silent fallback would be as dangerous as accepting the code.
     """
+    preset = convention_presets()["standard"]["subfields"]
     spec, rejections = resolve_convention("standard", subfields=subfields)
-    assert spec["subfields"][kept_level] == kept_code
+    assert spec["subfields"] == preset
     assert len(rejections) == 1
     assert expected_in_message in rejections[0]
 
@@ -115,9 +155,9 @@ def test_unknown_level_is_reported_not_added():
 
 
 def test_reassigning_a_level_to_its_current_code_is_not_a_collision():
-    """vol already holds $a; setting it to $a again is a no-op, not a clash."""
-    spec, rejections = resolve_convention("standard", subfields={"vol": "a"})
-    assert spec["subfields"]["vol"] == "a"
+    """year already holds $i; setting it to $i again is a no-op, not a clash."""
+    spec, rejections = resolve_convention("standard", subfields={"year": "i"})
+    assert spec["subfields"]["year"] == "i"
     assert rejections == []
 
 
@@ -126,32 +166,47 @@ def test_resolving_never_mutates_the_stored_presets():
     A shallow copy here would let one request's overrides leak into every later
     request in a long-lived process -- the worst kind of bug to reproduce.
     """
-    before = convention_presets()["standard"]["subfields"]["vol"]
-    resolve_convention("standard", subfields={"vol": "d"})
-    assert convention_presets()["standard"]["subfields"]["vol"] == before
+    before = convention_presets()["standard"]["subfields"]
+    resolve_convention("standard", subfields={"year": "k", "enum": {"e1": "g"}})
+    assert convention_presets()["standard"]["subfields"] == before
 
 
 # ---------------------------------------------------------------------------
 # Caption helpers
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("caption, level", [
-    ("v.", "vol"), ("vol.", "vol"), ("Volume", "vol"),
-    ("no.", "issue"), ("number", "issue"), ("iss.", "issue"),
-    ("pt.", "part"),
+@pytest.mark.parametrize("caption, slot", [
+    # Enumeration captions are words, and MARC 21 does not say which words --
+    # so every one of them is simply "an enumeration level".
+    ("v.", "enum"), ("vol.", "enum"), ("Volume", "enum"),
+    ("no.", "enum"), ("number", "enum"), ("iss.", "enum"),
+    ("pt.", "enum"), ("Report no.", "enum"),
     ("(year)", "year"),
     ("(month)", "month"), ("(season)", "month"),
     ("", None), ("$x", None),
 ])
-def test_caption_slot_maps_display_captions_to_levels(caption, level):
-    assert caption_slot(caption) == level
+def test_caption_slot_tells_enumeration_from_chronology(caption, slot):
+    assert caption_slot(caption) == slot
 
 
 def test_read_853_slots_ignores_the_linking_subfield():
     """$8 is linking, not a caption, and must never be read as a level."""
     slots = read_853_slots(_existing_853(("8", "3"), ("a", "(year)"),
                                          ("b", "v."), ("c", "no.")))
-    assert slots == {"year": "a", "vol": "b", "issue": "c"}
+    # Enumeration keeps the order the field states it in; chronology is named.
+    assert slots == {"year": "a", "enum": ("b", "c")}
+
+
+def test_read_853_captions_keeps_the_words_the_field_uses():
+    """
+    Conforming to an existing 853 means reusing its captions, whatever words
+    it chose -- "Report no." is as valid a caption as "no.".
+    """
+    from marc_converter import read_853_captions
+    captions = read_853_captions(_existing_853(("8", "3"), ("a", "Bd."),
+                                               ("b", "Heft"), ("i", "(year)"),
+                                               ("w", "m")))
+    assert captions == ["Bd.", "Heft"]
 
 
 def test_read_853_slots_of_nothing_is_empty():
@@ -574,7 +629,7 @@ def test_an_issue_only_the_end_states_is_dropped_and_named():
 
     assert sub(f863, "a") == "1-55"
     assert sub(f863, "b") is None
-    assert any("(3)" in w and "issue" in w for w in result.warnings), result.warnings
+    assert any("(3)" in w and "no" in w for w in result.warnings), result.warnings
 
 
 def test_a_single_chronology_group_still_covers_the_whole_range():
@@ -666,3 +721,58 @@ def test_a_day_level_date_keeps_its_month_and_year():
     assert sub(f863, "i") == "1996-1997"
     assert sub(f863, "j") == "04-12"
     assert any("(18)" in w for w in result.warnings), result.warnings
+
+
+def test_a_value_whose_level_the_853_contradicts_is_left_out_and_named():
+    """
+    One 853 is the caption pattern for every 863 linked to it. Two statements
+    numbering by different hierarchies cannot share one, and writing the second
+    one's value anyway would file "no. 5" under "v." -- read downstream as
+    volume 5, wrong in a way nothing could detect.
+    """
+    result = convert_holdings(parse_866("v.1(1990), no.5(1995)"))
+
+    assert result.field_853.display() == "853 31 $8 1 $a v. $i (year)"
+    assert sub(result.fields_863[0], "a") == "1"
+    assert sub(result.fields_863[1], "a") is None      # the 5 is not written
+    assert any("no.5" in w and "calls that level 'v.'" in w
+               for w in result.warnings), result.warnings
+
+
+def test_a_three_level_statement_fills_three_enumeration_subfields():
+    """
+    Enumeration is positional and MARC 21 gives it $a-$f, so nothing about the
+    third level is special -- it is simply the third caption declared.
+    """
+    result = convert_holdings(parse_866("v. 1 no. 2 pt. 3 (1990)-v. 4 no. 5 pt. 6 (1995)"))
+
+    assert result.field_853.display() == \
+        "853 31 $8 1 $a v. $b no. $c pt. $i (year)"
+    assert result.fields_863[0].display() == \
+        "863 40 $8 1.1 $a 1-4 $b 2-5 $c 3-6 $i 1990-1995"
+
+
+def test_a_statement_numbered_only_by_issue_starts_at_the_first_subfield():
+    """
+    D6. "no. 26 (May 1994)" has no volume, and MARC 21 runs captions from $a
+    downwards in descending significance -- so its issue level is $a no., not
+    an empty $a with the issue pushed into $b.
+    """
+    result = convert_holdings(parse_866("no. 26 (May 1994)-no. 37 (May 2000)"))
+
+    assert result.field_853.display() == \
+        "853 31 $8 1 $a no. $i (year) $j (month)"
+    assert result.fields_863[0].display() == \
+        "863 40 $8 1.1 $a 26-37 $i 1994-2000 $j 05-05"
+
+
+def test_a_level_the_screen_cannot_see_yields_to_one_it_can():
+    """
+    The settings dialog edits three enumeration levels; the standard convention
+    has six. Moving the first onto $d collides with the fourth, which the
+    cataloguer never saw. Their choice wins, the unseen level drops out, and
+    the depth that costs is reported rather than left to be discovered.
+    """
+    spec, rejections = resolve_convention("standard", subfields={"enum": {"e1": "d"}})
+    assert spec["subfields"]["enum"] == ("d", "b", "c", "e", "f")
+    assert any("room for 5 levels" in r for r in rejections)

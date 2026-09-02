@@ -341,6 +341,13 @@
       color: var(--warn); font-weight: 600;
     }
     .role-table select { min-width: 8rem; }
+    /* Caption and level belong to enumeration alone and sit at the end of the
+       row, so they stay narrow and let the decision columns lead. */
+    .role-table .role-enum-level { min-width: 7rem; }
+    .role-caption {
+      width: 7rem;
+      font-family: var(--font-mono); font-size: var(--fs-xs);
+    }
     .role-scroll { overflow-x: auto; }
 
     /* The 866 under examination: the top of the reading order that runs
@@ -579,6 +586,13 @@ v.6(1995)-"></textarea>
           <div class="conv-head">Level</div>
           <div class="conv-head">$</div>
           <div class="conv-head">Caption</div>
+          {% for lvl in enum_levels %}
+          <div class="conv-level">{{ lvl.label }}</div>
+          <input type="text" class="conv-sf" id="bsf-{{ lvl.key }}" maxlength="1"
+                 aria-label="{{ lvl.label }} subfield" />
+          <input type="text" id="bcap-{{ lvl.key }}" placeholder="{{ lvl.default_caption }}"
+                 aria-label="{{ lvl.label }} caption" />
+          {% endfor %}
           {% for level in convention_levels %}
           <div class="conv-level">{{ level }}</div>
           <input type="text" class="conv-sf" id="bsf-{{ level }}" maxlength="1"
@@ -717,19 +731,32 @@ v.6(1995)-"></textarea>
 </dialog>
 {% endif %}
 
+<!-- The caption words a cataloguer reaches for most often. Suggestions only:
+     the box takes any text, because MARC 21 does not restrict the words. -->
+<datalist id="caption-words">
+  {% for value, label in caption_choices %}
+  <option value="{{ value }}">{{ label }}</option>
+  {% endfor %}
+</datalist>
+
 <script>
 // ─────────────────────────────────────────────────────────────────────────
 // Constants from the server, so the maps live in exactly one place.
 // ─────────────────────────────────────────────────────────────────────────
 const CONVENTION_PRESETS = {{ convention_presets | tojson }};
 const CONVENTION_LEVELS  = {{ convention_levels | tojson }};
-const LEVEL_LABELS       = {{ level_labels | tojson }};
-const IGNORE_LEVEL       = {{ ignore_level | tojson }};
+// Enumeration has no level names, only positions: "e1" is the first level.
+const ENUM_LEVELS        = {{ enum_levels | tojson }};
+const KIND_LABELS        = {{ kind_labels | tojson }};
+const CAPTION_CHOICES    = {{ caption_choices | tojson }};
+const IGNORE_KIND        = {{ ignore_kind | tojson }};
 const IGNORE_LABEL       = {{ ignore_label | tojson }};
-const UNRESOLVED_LEVEL   = {{ unresolved_level | tojson }};
-const DEFAULT_CAPTIONS   = {
-  vol: 'v.', issue: 'no.', part: 'pt.', year: '(year)', month: '(month)'
-};
+const UNRESOLVED_KIND    = {{ unresolved_kind | tojson }};
+const ENUM_KIND          = 'enum';
+// 853 carries enumeration captions in $a-$f, so six levels is the deepest a
+// record can state. Anything past that has nowhere to go.
+const MAX_ENUM_LEVELS    = 6;
+const DEFAULT_CAPTIONS   = { year: '(year)', month: '(month)' };
 const ALLOWED_SUBFIELDS = 'abcdefghijklm';
 
 // ── State ────────────────────────────────────────────────────────────────
@@ -799,6 +826,15 @@ async function postJson(url, payload) {
 
 function applyPreset(name) {
   const preset = CONVENTION_PRESETS[name] || CONVENTION_PRESETS.standard;
+  ENUM_LEVELS.forEach((lvl, i) => {
+    const sf  = document.getElementById(`bsf-${lvl.key}`);
+    const cap = document.getElementById(`bcap-${lvl.key}`);
+    if (sf) sf.value = (preset.subfields.enum || [])[i] || '';
+    // Left empty on purpose: an enumeration caption is the word the statement
+    // itself used, and filling these in would overwrite "no. 26" with "v. 26".
+    // The placeholder shows what a statement that names no caption gets.
+    if (cap) cap.value = '';
+  });
   CONVENTION_LEVELS.forEach(level => {
     const sf  = document.getElementById(`bsf-${level}`);
     const cap = document.getElementById(`bcap-${level}`);
@@ -815,7 +851,7 @@ function applyPreset(name) {
 /** Flag subfields MARC will not accept, or that two levels are fighting over. */
 function markInvalidSubfields() {
   const seen = {};
-  CONVENTION_LEVELS.forEach(level => {
+  ENUM_LEVELS.map(l => l.key).concat(CONVENTION_LEVELS).forEach(level => {
     const el = document.getElementById(`bsf-${level}`);
     if (!el) return;
     const v = (el.value || '').trim().toLowerCase();
@@ -828,6 +864,14 @@ function markInvalidSubfields() {
 /** Collect the editor into the shape every conversion endpoint expects. */
 function conventionPayload() {
   const subfields = {}, captions = {};
+  const enumSubfields = {};
+  ENUM_LEVELS.forEach(lvl => {
+    const sf  = document.getElementById(`bsf-${lvl.key}`);
+    const cap = document.getElementById(`bcap-${lvl.key}`);
+    if (sf && sf.value.trim())   enumSubfields[lvl.key] = sf.value.trim().toLowerCase();
+    if (cap && cap.value.trim()) captions[lvl.key]      = cap.value.trim();
+  });
+  if (Object.keys(enumSubfields).length) subfields.enum = enumSubfields;
   CONVENTION_LEVELS.forEach(level => {
     const sf  = document.getElementById(`bsf-${level}`);
     const cap = document.getElementById(`bcap-${level}`);
@@ -1188,7 +1232,7 @@ async function autoConfirm(groups) {
   const ready = groups.filter(g =>
     !g.too_complex &&
     g.regex &&
-    !(g.suggested_roles || []).some(r => r.level === UNRESOLVED_LEVEL || r.suggested) &&
+    !(g.suggested_roles || []).some(r => r.kind === UNRESOLVED_KIND || r.suggested) &&
     !dismissed.has(patternIdFor(g)) &&
     !library.some(p => p.id === patternIdFor(g))
   );
@@ -1284,7 +1328,7 @@ function buildPatternCard(group, idx) {
       <span class="pill ${rate === 100 ? 'has-866' : 'decide'}">${rate}% matched</span>
       <span class="pill confirmed-pill" ${confirmed ? '' : 'hidden'}>Confirmed</span>
       <span class="pill decide role-warning" ${
-        roles.some(r => r.level === UNRESOLVED_LEVEL || r.suggested) ? '' : 'hidden'}>
+        roles.some(r => r.kind === UNRESOLVED_KIND || r.suggested) ? '' : 'hidden'}>
         needs a decision</span>
       <button type="button" class="btn btn-secondary btn-sm pc-toggle">Review</button>
     </div>
@@ -1301,7 +1345,8 @@ function buildPatternCard(group, idx) {
       <div class="role-scroll">
         <table class="role-table">
           <thead>
-            <tr><th>Captured</th><th>Value</th><th>Boundary</th><th>Means</th></tr>
+            <tr><th>Captured</th><th>Value</th><th>Boundary</th><th>Means</th>
+                <th>Caption</th><th>Level</th></tr>
           </thead>
           <tbody class="role-rows"></tbody>
         </table>
@@ -1398,13 +1443,21 @@ function buildExamplesHtml(examples) {
 function renderRoleRows(card, roles, values) {
   const body = card.querySelector('.role-rows');
   body.innerHTML = roles.map(role => {
-    // A suggested level is shown chosen but still counts as undecided: the
-    // cataloguer is being offered a reading, not told one.
-    const undecided = role.level === UNRESOLVED_LEVEL || role.suggested;
+    // A suggested reading is shown chosen but still counts as undecided: the
+    // cataloguer is being offered one, not told one.
+    const undecided = role.kind === UNRESOLVED_KIND || role.suggested;
     const value = (values || {})[role.group] || '';
-    const levelOptions = Object.entries(LEVEL_LABELS).map(([lvl, label]) =>
-      `<option value="${lvl}" ${role.level === lvl ? 'selected' : ''}>${escHtml(label)}</option>`
+    const kindOptions = Object.entries(KIND_LABELS).map(([kind, label]) =>
+      `<option value="${kind}" ${role.kind === kind ? 'selected' : ''}>${escHtml(label)}</option>`
     ).join('');
+    // Level is "by position" unless the cataloguer says otherwise. Position is
+    // what MARC 21 means by $a-$f, so the order the values appear in is
+    // normally the answer -- but a statement that states its levels out of
+    // order needs to be able to say so.
+    const levelOptions = Array.from({length: MAX_ENUM_LEVELS}, (_, i) =>
+      `<option value="${i}" ${role.level === i ? 'selected' : ''}>${ordinal(i + 1)}</option>`
+    ).join('');
+    const enumOnly = role.kind === ENUM_KIND ? '' : 'hidden';
     return `
       <tr class="${undecided ? 'needs-decision' : ''}" data-group="${escHtml(role.group)}">
         <td class="role-group">${escHtml(role.group)}</td>
@@ -1417,27 +1470,65 @@ function renderRoleRows(card, roles, values) {
           </select>
         </td>
         <td>
-          <select class="role-level" aria-label="Meaning of ${escHtml(role.group)}">
-            <option value="" ${role.level === UNRESOLVED_LEVEL ? 'selected' : ''} disabled>— choose —</option>
-            ${levelOptions}
-            <option value="${IGNORE_LEVEL}" ${role.level === IGNORE_LEVEL ? 'selected' : ''}>
+          <select class="role-kind" aria-label="Meaning of ${escHtml(role.group)}">
+            <option value="" ${role.kind === UNRESOLVED_KIND ? 'selected' : ''} disabled>— choose —</option>
+            ${kindOptions}
+            <option value="${IGNORE_KIND}" ${role.kind === IGNORE_KIND ? 'selected' : ''}>
               ${escHtml(IGNORE_LABEL)}</option>
+          </select>
+        </td>
+        <td class="enum-only" ${enumOnly}>
+          <input type="text" class="role-caption" list="caption-words"
+                 value="${escHtml(role.caption || '')}" placeholder="v."
+                 aria-label="Caption for ${escHtml(role.group)}" />
+        </td>
+        <td class="enum-only" ${enumOnly}>
+          <select class="role-enum-level" aria-label="Enumeration level of ${escHtml(role.group)}">
+            <option value="">By position</option>
+            ${levelOptions}
           </select>
         </td>
       </tr>`;
   }).join('');
 }
 
+function ordinal(n) {
+  const suffix = (n % 100 >= 11 && n % 100 <= 13) ? 'th'
+               : ['th', 'st', 'nd', 'rd'][n % 10] || 'th';
+  return `${n}${suffix}`;
+}
+
+/**
+ * Show or hide a row's caption and level boxes to match what it now means.
+ *
+ * Only enumeration has either: a year has no caption to choose and no level to
+ * sit at, so leaving the boxes on screen would invite filling in something that
+ * goes nowhere.
+ */
+function syncEnumCells(tr) {
+  const isEnum = tr.querySelector('.role-kind').value === ENUM_KIND;
+  tr.querySelectorAll('.enum-only').forEach(td => { td.hidden = !isEnum; });
+}
+
 /** Read the role table back out. */
 function collectRoles(card) {
-  return Array.from(card.querySelectorAll('.role-rows tr')).map(tr => ({
-    group:    tr.dataset.group,
-    boundary: tr.querySelector('.role-boundary').value,
-    level:    tr.querySelector('.role-level').value || UNRESOLVED_LEVEL,
-    // Reading the table back is the cataloguer accepting what it shows, so a
-    // suggestion stops being one the moment it is collected.
-    suggested: false,
-  }));
+  return Array.from(card.querySelectorAll('.role-rows tr')).map(tr => {
+    const kind    = tr.querySelector('.role-kind').value || UNRESOLVED_KIND;
+    const caption = tr.querySelector('.role-caption').value.trim();
+    const level   = tr.querySelector('.role-enum-level').value;
+    return {
+      group:    tr.dataset.group,
+      boundary: tr.querySelector('.role-boundary').value,
+      kind,
+      // Caption and level belong to enumeration alone, and an empty level
+      // means "wherever position puts it" -- the server numbers those.
+      caption: kind === ENUM_KIND && caption ? caption : null,
+      level:   kind === ENUM_KIND && level !== '' ? Number(level) : null,
+      // Reading the table back is the cataloguer accepting what it shows, so a
+      // suggestion stops being one the moment it is collected.
+      suggested: false,
+    };
+  });
 }
 
 /**
@@ -1448,7 +1539,7 @@ function collectRoles(card) {
  * already selected fires no change event, so there would be no way to accept.
  */
 function undecidedCount(card) {
-  return collectRoles(card).filter(r => r.level === UNRESOLVED_LEVEL).length;
+  return collectRoles(card).filter(r => r.kind === UNRESOLVED_KIND).length;
 }
 
 function wireCard(card) {
@@ -1465,7 +1556,11 @@ function wireCard(card) {
   // MARC output move when you correct something, not pressing a button to find
   // out afterwards.
   card.querySelector('.role-rows').addEventListener('change', e => {
-    e.target.closest('tr')?.classList.remove('needs-decision');
+    const tr = e.target.closest('tr');
+    if (tr) {
+      tr.classList.remove('needs-decision');
+      if (e.target.classList.contains('role-kind')) syncEnumCells(tr);
+    }
     card._roles = collectRoles(card);
     updateCardWarnings(card);
     refreshPreview(card);
@@ -1515,7 +1610,7 @@ function refreshPreview(card) {
 async function runPreview(card) {
   const target = card.querySelector('.pattern-preview');
   const roles  = collectRoles(card);
-  const undecided = roles.filter(r => r.level === UNRESOLVED_LEVEL);
+  const undecided = roles.filter(r => r.kind === UNRESOLVED_KIND);
 
   if (undecided.length) {
     target.innerHTML = `<div class="alert alert-warn">

@@ -30,6 +30,7 @@ from typing import Iterable, Optional, Sequence
 
 from holdings_parser import (
     EnumChron,
+    EnumLevel,
     HoldingsRange,
     ParseResult,
     parse_866,
@@ -42,58 +43,70 @@ from pattern_detector import split_multi_range
 
 
 # ── Roles ─────────────────────────────────────────────────────────────────────
+#
+# A captured value is one of three things: an enumeration level, a chronology
+# level, or something not encoded.  Enumeration levels have no names -- only a
+# position in the hierarchy and a caption word -- which is why they carry both
+# separately, and why the cataloguer can change either.
 
-LEVEL_VOL     = "vol"
-LEVEL_ISSUE   = "issue"
-LEVEL_PART    = "part"
-LEVEL_YEAR    = "year"
-LEVEL_MONTH   = "month"
-LEVEL_IGNORE  = "ignore"        # captured, deliberately not encoded
+KIND_ENUM    = "enum"
+KIND_YEAR    = "year"
+KIND_MONTH   = "month"
+KIND_IGNORE  = "ignore"        # captured, deliberately not encoded
 
 # Chosen by the cataloguer, never by inference: the pattern captured something
 # whose level cannot be read off the statement's structure.
-LEVEL_UNRESOLVED = "unresolved"
+KIND_UNRESOLVED = "unresolved"
 
-# The levels a confirmed pattern may use.  UNRESOLVED is not among them --
-# a pattern carrying one is not ready to be confirmed.
-ENCODABLE_LEVELS = (LEVEL_VOL, LEVEL_ISSUE, LEVEL_PART, LEVEL_YEAR, LEVEL_MONTH)
-VALID_LEVELS     = ENCODABLE_LEVELS + (LEVEL_IGNORE,)
+ENCODABLE_KINDS = (KIND_ENUM, KIND_YEAR, KIND_MONTH)
+VALID_KINDS     = ENCODABLE_KINDS + (KIND_IGNORE,)
 
 BOUNDARY_START = "start"
 BOUNDARY_END   = "end"
 VALID_BOUNDARIES = (BOUNDARY_START, BOUNDARY_END)
 
-# Level -> the EnumChron attribute it fills.
-_LEVEL_ATTR = {
-    LEVEL_VOL:   "vol",
-    LEVEL_ISSUE: "issue",
-    LEVEL_PART:  "part",
-    LEVEL_YEAR:  "year",
-    LEVEL_MONTH: "month",
+# Captions a cataloguer can pick from, in the words they already use.  Picking
+# one sets the *caption*; the level comes from where the value sits in the
+# statement, and either can be overridden.
+CAPTION_CHOICES = (
+    ("v.",   "Volume"),
+    ("no.",  "Issue / number"),
+    ("pt.",  "Part"),
+    ("ser.", "Series"),
+)
+CAPTION_LABELS = dict(CAPTION_CHOICES)
+
+# How the detector names the slot in "{context}_{slot}[_N]", and what each
+# suggests.  A bare NUMBER with no caption in front of it is named "num", which
+# is precisely the case the parser refuses to guess at, so it is left
+# unresolved for the cataloguer rather than defaulted.
+_SLOT_KIND = {
+    "vol":   (KIND_ENUM, "v."),
+    "iss":   (KIND_ENUM, "no."),
+    "part":  (KIND_ENUM, "pt."),
+    "year":  (KIND_YEAR, None),
+    "month": (KIND_MONTH, None),
+    "num":   (KIND_UNRESOLVED, None),
 }
 
-# How the detector names the slot in "{context}_{slot}[_N]".  A bare NUMBER with
-# no caption in front of it is named "num", and that is precisely the case the
-# parser refuses to guess at (holdings_parser._parse_degenerate), so it is left
-# unresolved for the cataloguer rather than defaulted to a level.
-_SLOT_LEVEL = {
-    "vol":   LEVEL_VOL,
-    "iss":   LEVEL_ISSUE,
-    "part":  LEVEL_PART,
-    "year":  LEVEL_YEAR,
-    "month": LEVEL_MONTH,
-    "num":   LEVEL_UNRESOLVED,
+# Cataloguer-facing names for what a value is, used by the confirmation screen.
+KIND_LABELS = {
+    KIND_ENUM:       "Enumeration",
+    KIND_YEAR:       "Year",
+    KIND_MONTH:      "Month / season",
+    KIND_IGNORE:     "Not encoded",
+    KIND_UNRESOLVED: "Not yet decided",
 }
 
-# Cataloguer-facing names for the levels, used by the confirmation screen.
-LEVEL_LABELS = {
-    LEVEL_VOL:        "Volume",
-    LEVEL_ISSUE:      "Issue / number",
-    LEVEL_PART:       "Part",
-    LEVEL_YEAR:       "Year",
-    LEVEL_MONTH:      "Month / season",
-    LEVEL_IGNORE:     "Not encoded",
-    LEVEL_UNRESOLVED: "Not yet decided",
+# Legacy role vocabulary, still found in exported pattern libraries.
+_LEGACY_LEVELS = {
+    "vol":   (KIND_ENUM, "v."),
+    "issue": (KIND_ENUM, "no."),
+    "part":  (KIND_ENUM, "pt."),
+    "year":  (KIND_YEAR, None),
+    "month": (KIND_MONTH, None),
+    "ignore": (KIND_IGNORE, None),
+    "unresolved": (KIND_UNRESOLVED, None),
 }
 
 _TRAILING_INDEX_RE = re.compile(r"_(\d+)$")
@@ -104,37 +117,84 @@ class GroupRole:
     """What one regex capture group means in MARC terms."""
     group: str                       # the named group, e.g. "end_year_2"
     boundary: str = BOUNDARY_START   # start | end
-    level: str = LEVEL_UNRESOLVED    # see VALID_LEVELS
-    # True when the level was read off a cataloguing convention rather than off
+    kind: str = KIND_UNRESOLVED      # see VALID_KINDS
+    # Enumeration only: which level of the hierarchy, 0 being the most
+    # significant, and the caption word that level carries.  Both are the
+    # cataloguer's to change -- the level decides the subfield, the caption
+    # decides what the 853 calls it.
+    level: Optional[int] = None
+    caption: Optional[str] = None
+    # True when the kind was read off a cataloguing convention rather than off
     # the statement -- a usable default to show, but not one to act on unasked.
     suggested: bool = False
 
     @property
     def resolved(self) -> bool:
-        return self.level in VALID_LEVELS
+        return self.kind in VALID_KINDS
 
     @property
     def needs_a_decision(self) -> bool:
         """Unresolved, or resolved only by convention and not yet confirmed."""
-        return self.level == LEVEL_UNRESOLVED or self.suggested
+        return self.kind == KIND_UNRESOLVED or self.suggested
 
     @property
     def encodes(self) -> bool:
-        return self.level in ENCODABLE_LEVELS
+        return self.kind in ENCODABLE_KINDS
 
     def to_dict(self) -> dict:
         return {"group": self.group, "boundary": self.boundary,
-                "level": self.level, "suggested": self.suggested,
-                "level_label": LEVEL_LABELS.get(self.level, self.level)}
+                "kind": self.kind, "level": self.level,
+                "caption": self.caption, "suggested": self.suggested,
+                "kind_label": KIND_LABELS.get(self.kind, self.kind),
+                "caption_label": CAPTION_LABELS.get(self.caption or "", "")}
 
     @classmethod
     def from_dict(cls, data: dict) -> "GroupRole":
+        kind = str(data.get("kind") or "").strip().lower()
+        caption = data.get("caption")
+        # A library exported before enumeration became positional stores
+        # "level": "vol". Read it as the caption it was really choosing; the
+        # position is recomputed from the group order.
+        if not kind:
+            legacy = str(data.get("level") or "").strip().lower()
+            kind, legacy_caption = _LEGACY_LEVELS.get(
+                legacy, (KIND_UNRESOLVED, None))
+            caption = caption or legacy_caption
+            level = None
+        else:
+            raw_level = data.get("level")
+            level = raw_level if isinstance(raw_level, int) else None
         return cls(
             group=str(data.get("group") or ""),
             boundary=str(data.get("boundary") or BOUNDARY_START).strip().lower(),
-            level=str(data.get("level") or LEVEL_UNRESOLVED).strip().lower(),
+            kind=kind or KIND_UNRESOLVED,
+            level=level,
+            caption=str(caption).strip() if caption else None,
             suggested=bool(data.get("suggested")),
         )
+
+
+def assign_levels(roles: Sequence[GroupRole]) -> list[GroupRole]:
+    """
+    Number the enumeration levels of each boundary by the order they appear.
+
+    Position in the statement is the level, so the first enumeration value on a
+    boundary is level 0 whatever its caption says.  A level the cataloguer has
+    set by hand is left alone; the rest fill the gaps around it in order.
+    """
+    for boundary in VALID_BOUNDARIES:
+        enum_roles = [r for r in roles
+                      if r.kind == KIND_ENUM and r.boundary == boundary]
+        taken = {r.level for r in enum_roles if r.level is not None}
+        nxt = 0
+        for role in enum_roles:
+            if role.level is not None:
+                continue
+            while nxt in taken:
+                nxt += 1
+            role.level = nxt
+            taken.add(nxt)
+    return list(roles)
 
 
 def _slot_of(name: str) -> str:
@@ -155,16 +215,20 @@ def infer_roles(named_groups: Sequence[str]) -> list[GroupRole]:
     """
     Propose a role for every capture group, for the cataloguer to confirm.
 
-    Both the level and the boundary are read from the group's name, but the
-    boundary is recomputed rather than trusted: within a level, the *first*
-    group to appear is the start boundary and the second is the end.  The
-    detector names groups by the same rule, so on its own output the two agree
-    everywhere -- but a cataloguer may edit the expression by hand, and a
-    library exported before the detector counted per level may still name two
-    values end_year.  Recomputing costs nothing and makes both cases right.
+    Kind and boundary are read from the group's name, but the boundary is
+    recomputed rather than trusted: within a level, the *first* group to appear
+    is the start boundary and the second is the end.  The detector names groups
+    by the same rule, so on its own output the two agree everywhere -- but a
+    cataloguer may edit the expression by hand, and a library exported before
+    the detector counted per level may still name two values end_year.
 
-    A third or later group at the same level has no defensible default, so it
-    is offered as "not encoded" rather than guessed at.
+    Enumeration levels are numbered by the order they appear, because that
+    order *is* the hierarchy.  The caption each one suggests comes from the
+    caption word the detector saw, so a statement written with "no." is offered
+    "no." rather than being told it is really a volume.
+
+    A third or later group at the same chronology level has no defensible
+    default, so it is offered as "not encoded" rather than guessed at.
     """
     roles: list[GroupRole] = []
     seen: dict[str, int] = {}
@@ -172,32 +236,39 @@ def infer_roles(named_groups: Sequence[str]) -> list[GroupRole]:
 
     for i, name in enumerate(named_groups):
         slot = slots[i]
-        level = _SLOT_LEVEL.get(slot, LEVEL_UNRESOLVED)
+        kind, caption = _SLOT_KIND.get(slot, (KIND_UNRESOLVED, None))
         suggested = False
 
-        # A captionless number sitting immediately above an issue is a volume:
-        # "39 no 1" is v.39 no.1. holdings_parser reads the same statement the
-        # same way. It is a convention rather than something the statement says,
-        # so it is offered as a default and still asked about -- unlike the
-        # levels above, which the captions state outright.
-        if level == LEVEL_UNRESOLVED and slot == "num" \
+        # A captionless number sitting immediately above a captioned one is an
+        # enumeration level: "39 no 1" numbers by volume then issue.  The
+        # statement does not say so, so it is offered as a default and still
+        # asked about -- unlike a captioned value, which says what it is.
+        if kind == KIND_UNRESOLVED and slot == "num" \
                 and i + 1 < len(slots) and slots[i + 1] == "iss":
-            level, suggested = LEVEL_VOL, True
+            kind, caption, suggested = KIND_ENUM, "v.", True
 
-        if level not in ENCODABLE_LEVELS:
-            roles.append(GroupRole(group=name, boundary=BOUNDARY_START, level=level))
+        if kind not in ENCODABLE_KINDS:
+            roles.append(GroupRole(group=name, boundary=BOUNDARY_START,
+                                   kind=kind))
             continue
 
-        n = seen.get(level, 0)
-        seen[level] = n + 1
+        # Enumeration repeats per boundary; chronology gets one start and one
+        # end, and a third value at the same level is not encodable.
+        counter = f"{kind}:{caption}" if kind == KIND_ENUM else kind
+        n = seen.get(counter, 0)
+        seen[counter] = n + 1
         if n == 0:
-            roles.append(GroupRole(name, BOUNDARY_START, level, suggested))
+            boundary = BOUNDARY_START
         elif n == 1:
-            roles.append(GroupRole(name, BOUNDARY_END, level, suggested))
+            boundary = BOUNDARY_END
         else:
-            roles.append(GroupRole(name, BOUNDARY_START, LEVEL_IGNORE))
+            roles.append(GroupRole(group=name, boundary=BOUNDARY_START,
+                                   kind=KIND_IGNORE))
+            continue
+        roles.append(GroupRole(name, boundary, kind,
+                               caption=caption, suggested=suggested))
 
-    return roles
+    return assign_levels(roles)
 
 
 def roles_from_regex(regex: str) -> list[GroupRole]:
@@ -220,7 +291,7 @@ def merge_roles(named_groups: Sequence[str],
     for role in infer_roles(named_groups):
         prior = kept.get(role.group)
         out.append(prior if prior is not None else role)
-    return out
+    return assign_levels(out)
 
 
 # ── Building a ParseResult from a match ───────────────────────────────────────
@@ -228,25 +299,34 @@ def merge_roles(named_groups: Sequence[str],
 _OPEN_ENDED_RE = re.compile(r"-\s*$")
 
 
-def _value_for(level: str, raw: str) -> str:
+def _value_for(kind: str, raw: str) -> str:
     """
-    The value to store for a captured string at `level`.
+    The value to store for a captured string of `kind`.
 
     Chronology goes through the parser's own encoder so "Jan." becomes "01",
     "Winter" becomes "24" and "Jan/Feb" becomes "01/02", exactly as on the
     parser path.  Everything else is stored as written.
     """
-    if level == LEVEL_MONTH:
+    if kind == KIND_MONTH:
         return _chron_unit_value(raw)
     return raw
 
 
 def _range_from_match(segment: str, match: "re.Match",
                       roles: Sequence[GroupRole],
-                      warnings: list[str]) -> Optional[HoldingsRange]:
-    """Assemble one HoldingsRange from a match and the confirmed roles."""
+                      warnings: list[str],
+                      undecided: Optional[list] = None) -> Optional[HoldingsRange]:
+    """
+    Assemble one HoldingsRange from a match and the confirmed roles.
+
+    `undecided`, when given, collects values the pattern captured for a role
+    nobody has decided about yet -- see the note where they are recorded.
+    """
     captured = match.groupdict()
     start, end = EnumChron(), EnumChron()
+    enum_slots: dict = {BOUNDARY_START: {}, BOUNDARY_END: {}}
+    if undecided is None:
+        undecided = []
 
     for role in roles:
         raw = (captured.get(role.group) or "").strip()
@@ -255,11 +335,33 @@ def _range_from_match(segment: str, match: "re.Match",
         if not role.encodes:
             warnings.append(
                 f"'{raw}' was matched by the pattern but is not encoded: "
-                f"its role is set to '{LEVEL_LABELS.get(role.level, role.level)}'."
+                f"it is set to '{KIND_LABELS.get(role.kind, role.kind)}'."
             )
+            # A value nobody has decided about is not a value anyone chose to
+            # leave out. A stored pattern can never be in this state -- the
+            # library refuses one -- so this is the preview screen, where the
+            # honest answer is that the statement still needs a cataloguer.
+            if role.kind == KIND_UNRESOLVED:
+                undecided.append(raw)
             continue
         target = start if role.boundary == BOUNDARY_START else end
-        setattr(target, _LEVEL_ATTR[role.level], _value_for(role.level, raw))
+        if role.kind == KIND_ENUM:
+            index = role.level if role.level is not None else len(
+                enum_slots[role.boundary])
+            enum_slots[role.boundary][index] = EnumLevel(
+                caption=role.caption, value=raw)
+        else:
+            setattr(target, role.kind, _value_for(role.kind, raw))
+
+    # Levels are written into the position the cataloguer gave them, and a gap
+    # is filled with an empty level rather than shifting everything up -- the
+    # position is the meaning.
+    for boundary, slots in enum_slots.items():
+        if not slots:
+            continue
+        target = start if boundary == BOUNDARY_START else end
+        target.enum = [slots.get(i, EnumLevel())
+                       for i in range(max(slots) + 1)]
 
     if not (start.has_enum() or start.has_chron()
             or end.has_enum() or end.has_chron()):
@@ -314,6 +416,7 @@ def build_parse_result(
     segments = [s for s in (split_multi_range(text) if split else [text]) if s.strip()]
     result = ParseResult(raw=text)
     any_match = False
+    undecided: list[str] = []
 
     for seg in segments:
         seg = seg.strip()
@@ -337,7 +440,7 @@ def build_parse_result(
             continue
 
         any_match = True
-        hr = _range_from_match(seg, m, roles, result.warnings)
+        hr = _range_from_match(seg, m, roles, result.warnings, undecided)
         if hr is not None:
             result.ranges.append(hr)
         else:
@@ -347,6 +450,7 @@ def build_parse_result(
 
     if not any_match or not result.ranges:
         return None
+    result.needs_review = bool(undecided)
     return result
 
 

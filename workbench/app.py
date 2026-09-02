@@ -51,13 +51,15 @@ except ImportError:
 
 from holdings_parser import parse_866
 from marc_converter import (CONVENTION_LEVELS, CONVENTION_STANDARD,
+                            enum_level_fields,
                             FREQUENCY_CODES, convention_presets,
                             convert_holdings, convert_record, resolve_convention)
 from pattern_detector import detect_patterns, split_multi_range
 
 import pattern_library as plib
-from pattern_bridge import (ENCODABLE_LEVELS, LEVEL_IGNORE, LEVEL_LABELS,
-                            LEVEL_UNRESOLVED, PARSER_SOURCE, UNMATCHED_SOURCE,
+from pattern_bridge import (CAPTION_CHOICES, ENCODABLE_KINDS, KIND_IGNORE,
+                            KIND_LABELS, KIND_UNRESOLVED,
+                            PARSER_SOURCE, UNMATCHED_SOURCE,
                             apply_patterns, build_parse_result, infer_roles)
 
 # ---------------------------------------------------------------------------
@@ -527,11 +529,13 @@ def index():
         has_pymarc=HAS_PYMARC,
         frequency_codes=FREQUENCY_CODES,
         convention_levels=CONVENTION_LEVELS,
+        enum_levels=enum_level_fields(),
         convention_presets=convention_presets(),
-        level_labels={lvl: LEVEL_LABELS[lvl] for lvl in ENCODABLE_LEVELS},
-        ignore_level=LEVEL_IGNORE,
-        ignore_label=LEVEL_LABELS[LEVEL_IGNORE],
-        unresolved_level=LEVEL_UNRESOLVED,
+        kind_labels={k: KIND_LABELS[k] for k in ENCODABLE_KINDS},
+        caption_choices=list(CAPTION_CHOICES),
+        ignore_kind=KIND_IGNORE,
+        ignore_label=KIND_LABELS[KIND_IGNORE],
+        unresolved_kind=KIND_UNRESOLVED,
         about=_load_about(),
     )
 
@@ -730,9 +734,10 @@ def api_pattern_preview():
     except re.error as exc:
         return jsonify({"error": f"Invalid regex: {exc}"}), 400
 
-    roles = [plib.GroupRole.from_dict(r) for r in (data.get("roles") or [])
-             if isinstance(r, dict)]
-    unresolved = [r.group for r in roles if r.level == LEVEL_UNRESOLVED]
+    roles = plib.assign_levels([plib.GroupRole.from_dict(r)
+                                for r in (data.get("roles") or [])
+                                if isinstance(r, dict)])
+    unresolved = [r.group for r in roles if r.kind == KIND_UNRESOLVED]
 
     conv_opts, rejections = _convention_opts(data)
     captions = data.get("captions") or None
