@@ -161,6 +161,15 @@ Converter refuses to guess and holds such statements for review, and no amount
 of better parsing can fix it: the information is not in the statement. A
 cataloguer who knows the collection can supply it in a moment, once.
 
+For enumeration the screen asks two further things, both with a default it
+suggests rather than imposes: the **caption** — the word the 853 will declare,
+offered from the familiar list but editable to whatever the statement uses — and
+the **level** it sits at, which defaults to the order the values appear in.
+Enumeration is an ordered list of any depth, not volume-then-issue-then-part:
+MARC 21 puts captions in `$a`–`$f` "in descending order of significance" and says
+nothing about which words go in them, so a title numbered by issue alone quite
+properly gets `$a no.`
+
 Statements no confirmed pattern matches are parsed by
 `holdings_parser.parse_866()` exactly as the Converter parses them, so an empty
 pattern library produces output identical to the Converter's — asserted byte for

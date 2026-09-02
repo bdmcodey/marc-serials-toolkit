@@ -24,9 +24,12 @@ from typing import Any, Optional, Sequence
 from pattern_bridge import (
     BOUNDARY_START,
     GroupRole,
-    LEVEL_IGNORE,
+    KIND_ENUM,
+    KIND_IGNORE,
+    KIND_UNRESOLVED,
     VALID_BOUNDARIES,
-    VALID_LEVELS,
+    VALID_KINDS,
+    assign_levels,
     merge_roles,
 )
 
@@ -117,11 +120,18 @@ def validate_pattern(data: Any) -> tuple[Optional[ConfirmedPattern], list[str]]:
     decided: set[str] = set()
     claimed: dict[tuple, str] = {}
 
+    # Levels are settled before anything is checked: a screen that leaves the
+    # level to position sends none, and two of those must not look like two
+    # claims on the same subfield.
+    incoming: list[GroupRole] = []
     for entry in raw_roles:
         if not isinstance(entry, dict):
             errors.append(f"'{label}': a role entry is not an object.")
             continue
-        role = GroupRole.from_dict(entry)
+        incoming.append(GroupRole.from_dict(entry))
+    assign_levels(incoming)
+
+    for role in incoming:
         decided.add(role.group)
         if role.group not in known:
             errors.append(
@@ -138,18 +148,30 @@ def validate_pattern(data: Any) -> tuple[Optional[ConfirmedPattern], list[str]]:
                 f"'{role.boundary}' (expected start or end)."
             )
             continue
-        if role.level not in VALID_LEVELS:
+        if role.kind == KIND_UNRESOLVED:
             errors.append(
-                f"'{label}': '{role.group}' has an unknown level '{role.level}'."
+                f"'{label}': '{role.group}' has no level decided. Every "
+                "captured value needs one, or 'Not encoded'."
             )
             continue
-        if role.level != LEVEL_IGNORE:
-            key = (role.boundary, role.level)
+        if role.kind not in VALID_KINDS:
+            errors.append(
+                f"'{label}': '{role.group}' has an unknown kind '{role.kind}'."
+            )
+            continue
+        if role.kind != KIND_IGNORE:
+            # Two values cannot share a subfield. For enumeration that means
+            # the same boundary and the same *level*; the caption word may
+            # repeat freely, since it names a level rather than being one.
+            key = ((role.boundary, role.kind, role.level)
+                   if role.kind == KIND_ENUM else (role.boundary, role.kind))
             if key in claimed:
+                where = (f"{role.boundary} enumeration level {(role.level or 0) + 1}"
+                         if role.kind == KIND_ENUM
+                         else f"{role.boundary} {role.kind}")
                 errors.append(
                     f"'{label}': '{role.group}' and '{claimed[key]}' are both set "
-                    f"to the {role.boundary} {role.level}; only one value can go "
-                    "in that subfield."
+                    f"to the {where}; only one value can go in that subfield."
                 )
                 continue
             claimed[key] = role.group

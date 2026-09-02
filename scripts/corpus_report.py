@@ -66,7 +66,8 @@ for _d in (REPO_ROOT / "converter", REPO_ROOT / "pattern-detector",
         sys.path.insert(0, str(_d))
 
 from holdings_parser import parse_866, MARC_CHRON_CODES   # noqa: E402
-from marc_converter import convert_holdings, read_853_slots  # noqa: E402
+from marc_converter import (convert_holdings, read_853_slots,  # noqa: E402
+                            enum_subfield)
 from pattern_detector import detect_patterns, get_signature  # noqa: E402
 
 
@@ -254,13 +255,13 @@ class Outcome:
             if hr.end is None or seq >= len(self.conversion.fields_863):
                 continue
             present = {sf.code for sf in self.conversion.fields_863[seq].subfields}
-            for level in ("vol", "issue", "part"):
-                if getattr(hr.start, level) is not None:
+            for level in range(hr.enum_depth()):
+                if hr.start.value_at(level) is not None:
                     continue
-                end_v = getattr(hr.end, level)
+                end_v = hr.end.value_at(level)
                 if end_v is None:
                     continue
-                code = slots.get(level)
+                code = enum_subfield(slots, level)
                 if code and code not in present:
                     # Announced or silent? The converter now names the value it
                     # could not encode, which moves it from "lost" to "accounted
@@ -306,17 +307,23 @@ class Outcome:
                 continue
             emitted = {sf.code: sf.value
                        for sf in self.conversion.fields_863[seq].subfields}
-            for hierarchy in (("vol", "issue", "part"), ("year", "month")):
+            hierarchies = (list(range(hr.enum_depth())), ["year", "month"])
+            for hierarchy in hierarchies:
                 ranged = False
                 for level in hierarchy:
-                    start_v = getattr(hr.start, level)
-                    end_v = getattr(hr.end, level)
+                    if isinstance(level, int):
+                        start_v = hr.start.value_at(level)
+                        end_v = hr.end.value_at(level)
+                    else:
+                        start_v = getattr(hr.start, level)
+                        end_v = getattr(hr.end, level)
                     if start_v is None or end_v is None:
                         continue
                     if start_v != end_v:
                         ranged = True
                         continue
-                    code = slots.get(level)
+                    code = (enum_subfield(slots, level)
+                            if isinstance(level, int) else slots.get(level))
                     # A value that is already a range is left alone: "no. 3-4 -
                     # no. 3-4" would become the unreadable "3-4-3-4".
                     if "-" in start_v:

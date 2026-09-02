@@ -21,12 +21,11 @@ from pattern_bridge import (
     BOUNDARY_END,
     GroupRole,
     BOUNDARY_START,
-    LEVEL_IGNORE,
-    LEVEL_ISSUE,
-    LEVEL_MONTH,
-    LEVEL_UNRESOLVED,
-    LEVEL_VOL,
-    LEVEL_YEAR,
+    KIND_ENUM,
+    KIND_IGNORE,
+    KIND_MONTH,
+    KIND_UNRESOLVED,
+    KIND_YEAR,
     apply_patterns,
     build_parse_result,
     infer_roles,
@@ -48,9 +47,18 @@ def detect_one(statement: str):
 
 
 def roles_for(statement: str) -> dict:
-    """{group name: (boundary, level)} as inferred for one statement."""
+    """
+    {group name: (boundary, kind)} as inferred for one statement.
+
+    Enumeration reports its level and caption too, since those are the whole
+    point of the positional model: (boundary, "enum", level, caption).
+    """
     group = detect_one(statement)
-    return {r.group: (r.boundary, r.level) for r in infer_roles(group.named_groups)}
+    out = {}
+    for r in infer_roles(group.named_groups):
+        out[r.group] = ((r.boundary, r.kind, r.level, r.caption)
+                        if r.kind == KIND_ENUM else (r.boundary, r.kind))
+    return out
 
 
 def parse_with(statement: str, roles=None, split: bool = False):
@@ -62,11 +70,13 @@ def parse_with(statement: str, roles=None, split: bool = False):
     )
 
 
-def decide(roles, group_name, boundary, level):
+def decide(roles, group_name, boundary, kind, level=None, caption=None):
     """A cataloguer correcting one row of the role table."""
     for role in roles:
         if role.group == group_name:
-            role.boundary, role.level = boundary, level
+            role.boundary, role.kind = boundary, kind
+            if kind == KIND_ENUM:
+                role.level, role.caption = level, caption
     return roles
 
 
@@ -76,10 +86,10 @@ def decide(roles, group_name, boundary, level):
 
 def test_plain_range_infers_start_and_end():
     assert roles_for("v.1(1990)-v.5(1994)") == {
-        "start_vol":  (BOUNDARY_START, LEVEL_VOL),
-        "start_year": (BOUNDARY_START, LEVEL_YEAR),
-        "end_vol":    (BOUNDARY_END,   LEVEL_VOL),
-        "end_year":   (BOUNDARY_END,   LEVEL_YEAR),
+        "start_vol":  (BOUNDARY_START, KIND_ENUM, 0, "v."),
+        "start_year": (BOUNDARY_START, KIND_YEAR),
+        "end_vol":    (BOUNDARY_END,   KIND_ENUM, 0, "v."),
+        "end_year":   (BOUNDARY_END,   KIND_YEAR),
     }
 
 
@@ -91,19 +101,20 @@ def test_a_compressed_range_names_both_of_its_boundaries():
     end_year, and every value after the volume hyphen landed on the wrong side.
     """
     assert roles_for("v.1-5(1990-1994)") == {
-        "start_vol":  (BOUNDARY_START, LEVEL_VOL),
-        "end_vol":    (BOUNDARY_END,   LEVEL_VOL),
-        "start_year": (BOUNDARY_START, LEVEL_YEAR),
-        "end_year":   (BOUNDARY_END,   LEVEL_YEAR),
+        "start_vol":  (BOUNDARY_START, KIND_ENUM, 0, "v."),
+        "end_vol":    (BOUNDARY_END,   KIND_ENUM, 0, "v."),
+        "start_year": (BOUNDARY_START, KIND_YEAR),
+        "end_year":   (BOUNDARY_END,   KIND_YEAR),
     }
 
 
 def test_chronology_only_at_the_end_still_spans_the_range():
     roles = roles_for("v.1:no.1-v.2:no.4(1990-1991)")
-    assert roles["start_year"] == (BOUNDARY_START, LEVEL_YEAR)
-    assert roles["end_year"]   == (BOUNDARY_END,   LEVEL_YEAR)
-    assert roles["start_vol"]  == (BOUNDARY_START, LEVEL_VOL)
-    assert roles["end_vol"]    == (BOUNDARY_END,   LEVEL_VOL)
+    assert roles["start_year"] == (BOUNDARY_START, KIND_YEAR)
+    assert roles["end_year"]   == (BOUNDARY_END,   KIND_YEAR)
+    assert roles["start_vol"]  == (BOUNDARY_START, KIND_ENUM, 0, "v.")
+    assert roles["end_vol"]    == (BOUNDARY_END,   KIND_ENUM, 0, "v.")
+    assert roles["start_iss"]  == (BOUNDARY_START, KIND_ENUM, 1, "no.")
 
 
 def test_a_number_with_no_caption_is_left_for_the_cataloguer():
@@ -116,28 +127,28 @@ def test_a_number_with_no_caption_is_left_for_the_cataloguer():
     "v." does not reach across to the 5, and nothing else says what the 5 is.
     """
     roles = roles_for("v.1(1990)-5(1994)")
-    assert roles["start_num"][1] == LEVEL_UNRESOLVED
-    assert roles["start_vol"][1] == LEVEL_VOL      # the captioned side is fine
+    assert roles["start_num"][1] == KIND_UNRESOLVED
+    assert roles["start_vol"][1] == KIND_ENUM      # the captioned side is fine
 
 
 def test_seasons_are_inferred_as_chronology():
     roles = roles_for("v.1:no.1(1990:Spring)-v.5:no.4(1994:Winter)")
-    assert roles["start_month"] == (BOUNDARY_START, LEVEL_MONTH)
-    assert roles["end_month"]   == (BOUNDARY_END,   LEVEL_MONTH)
+    assert roles["start_month"] == (BOUNDARY_START, KIND_MONTH)
+    assert roles["end_month"]   == (BOUNDARY_END,   KIND_MONTH)
 
 
 def test_a_third_value_at_one_level_is_not_guessed_at():
     """Two boundaries exist; a third value at the same level belongs to neither."""
     roles = infer_roles(["start_year", "end_year", "start_year_3"])
-    assert roles[2].level == LEVEL_IGNORE
+    assert roles[2].kind == KIND_IGNORE
 
 
 def test_invented_group_names_are_left_undecided():
     """A cataloguer may edit the expression; an invented name means nothing."""
-    roles = {r.group: r.level for r in infer_roles(["foo", "bar_baz", "start_vol"])}
-    assert roles["foo"] == LEVEL_UNRESOLVED
-    assert roles["bar_baz"] == LEVEL_UNRESOLVED
-    assert roles["start_vol"] == LEVEL_VOL
+    roles = {r.group: r.kind for r in infer_roles(["foo", "bar_baz", "start_vol"])}
+    assert roles["foo"] == KIND_UNRESOLVED
+    assert roles["bar_baz"] == KIND_UNRESOLVED
+    assert roles["start_vol"] == KIND_ENUM
 
 
 def test_roles_from_regex_reads_the_expression_itself():
@@ -151,13 +162,13 @@ def test_editing_the_expression_keeps_decisions_already_made():
     corrected these rows once and should not have to do it again.
     """
     original = infer_roles(["start_vol", "end_num", "end_year"])
-    decide(original, "end_num", BOUNDARY_END, LEVEL_VOL)
+    decide(original, "end_num", BOUNDARY_END, KIND_ENUM, level=0, caption="v.")
 
-    merged = {r.group: (r.boundary, r.level)
+    merged = {r.group: (r.boundary, r.kind, r.level, r.caption)
               for r in merge_roles(["start_vol", "end_num", "end_year", "end_month"],
                                    original)}
-    assert merged["end_num"] == (BOUNDARY_END, LEVEL_VOL)      # kept
-    assert merged["end_month"][1] == LEVEL_MONTH               # newly inferred
+    assert merged["end_num"] == (BOUNDARY_END, KIND_ENUM, 0, "v.")   # kept
+    assert merged["end_month"][1] == KIND_MONTH                      # newly inferred
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +179,8 @@ def test_values_land_on_the_right_boundary():
     result = parse_with("v.1(1990)-v.5(1994)")
     assert len(result.ranges) == 1
     hr = result.ranges[0]
-    assert (hr.start.vol, hr.start.year) == ("1", "1990")
-    assert (hr.end.vol, hr.end.year) == ("5", "1994")
+    assert (hr.start.value_at(0), hr.start.year) == ("1", "1990")
+    assert (hr.end.value_at(0), hr.end.year) == ("5", "1994")
 
 
 def test_months_are_encoded_as_marc_chronology_codes():
@@ -200,20 +211,20 @@ def test_a_corrected_role_changes_the_parsed_result():
     """The whole point of the confirmation screen, at the data level."""
     group = detect_one("v.1(1990)-5(1994)")
     roles = infer_roles(group.named_groups)
-    decide(roles, "start_num", BOUNDARY_END, LEVEL_VOL)
+    decide(roles, "start_num", BOUNDARY_END, KIND_ENUM)
 
     hr = build_parse_result(
         "v.1(1990)-5(1994)", re.compile(group.regex, re.IGNORECASE), roles, False
     ).ranges[0]
 
-    assert (hr.start.vol, hr.start.year) == ("1", "1990")
-    assert (hr.end.vol, hr.end.year) == ("5", "1994")
+    assert (hr.start.value_at(0), hr.start.year) == ("1", "1990")
+    assert (hr.end.value_at(0), hr.end.year) == ("5", "1994")
 
 
 def test_a_value_set_to_not_encoded_is_reported_rather_than_dropped():
     group = detect_one("v.1(1990)-5(1994)")
     roles = decide(infer_roles(group.named_groups), "start_num",
-                   BOUNDARY_START, LEVEL_IGNORE)
+                   BOUNDARY_START, KIND_IGNORE)
 
     result = build_parse_result(
         "v.1(1990)-5(1994)", re.compile(group.regex, re.IGNORECASE), roles, False
@@ -230,8 +241,8 @@ def test_multi_range_statements_become_several_ranges():
         infer_roles(group.named_groups), split=True,
     )
     assert len(result.ranges) == 2
-    assert result.ranges[0].start.vol == "1"
-    assert result.ranges[1].start.vol == "5"
+    assert result.ranges[0].start.value_at(0) == "1"
+    assert result.ranges[1].start.value_at(0) == "5"
     assert result.ranges[1].open_ended is True
 
 
@@ -250,7 +261,7 @@ def test_a_segment_the_pattern_misses_falls_to_the_parser_not_the_floor():
         infer_roles(group.named_groups), split=True,
     )
     assert len(result.ranges) == 2
-    assert result.ranges[1].start.issue == "2"
+    assert result.ranges[1].start.value_at(1) == "2"
     assert any("standard parser" in w for w in result.warnings)
 
 
@@ -317,12 +328,13 @@ def test_a_pattern_can_convert_what_the_parser_holds_for_review():
 
     group = detect_one("?: 16")
     number = next(g for g in group.named_groups if g.endswith("num"))
-    pattern = confirmed("?: 16", decisions=[(number, BOUNDARY_START, LEVEL_ISSUE)])
+    pattern = confirmed("?: 16", decisions=[(number, BOUNDARY_START, KIND_ENUM)])
 
     result, source = apply_patterns("?: 16", [pattern])
     assert source == pattern.id
     assert result.needs_review is False
-    assert result.ranges[0].start.issue == "16"
+    # Nothing said which level it is, so it is the first one the record has.
+    assert result.ranges[0].start.value_at(0) == "16"
 
 
 def test_higher_priority_patterns_are_tried_first():
@@ -390,18 +402,48 @@ def test_a_matching_statement_converts_either_way():
 # ---------------------------------------------------------------------------
 
 def test_two_roles_cannot_claim_one_subfield():
+    """
+    Two values set to the same enumeration level of the same boundary would
+    write to one subfield, and the second would quietly win.
+    """
     group = detect_one("v.1(1990)-v.5(1994)")
     _, errors = plib.validate_pattern({
         "label": "clash",
         "regex": group.regex,
         "roles": [
-            {"group": "start_vol",  "boundary": "start", "level": "vol"},
-            {"group": "start_year", "boundary": "start", "level": "vol"},
-            {"group": "end_vol",    "boundary": "end",   "level": "vol"},
-            {"group": "end_year",   "boundary": "end",   "level": "year"},
+            {"group": "start_vol",  "boundary": "start", "kind": "enum", "level": 0},
+            {"group": "start_year", "boundary": "start", "kind": "enum", "level": 0},
+            {"group": "end_vol",    "boundary": "end",   "kind": "enum", "level": 0},
+            {"group": "end_year",   "boundary": "end",   "kind": "year"},
         ],
     })
     assert any("only one value can go" in e for e in errors)
+
+
+def test_two_unnumbered_enumeration_levels_are_not_a_clash():
+    """
+    A screen that leaves the level to position sends none at all. Two of those
+    are the first and second level, not two claims on the first -- reading them
+    as a clash would make the ordinary case unsavable.
+    """
+    group = detect_one("v.1:no.1-v.2:no.4(1990-1991)")
+    pattern, errors = plib.validate_pattern({
+        "label": "positional",
+        "regex": group.regex,
+        "roles": [{"group": g, "boundary": b, "kind": k, "caption": c}
+                  for g, b, k, c in [
+                      ("start_vol",  "start", "enum",  "v."),
+                      ("start_iss",  "start", "enum",  "no."),
+                      ("end_vol",    "end",   "enum",  "v."),
+                      ("end_iss",    "end",   "enum",  "no."),
+                      ("start_year", "start", "year",  None),
+                      ("end_year",   "end",   "year",  None),
+                  ]],
+    })
+    assert not errors, errors
+    levels = {r.group: r.level for r in pattern.roles}
+    assert levels["start_vol"] == 0 and levels["start_iss"] == 1
+    assert levels["end_vol"] == 0 and levels["end_iss"] == 1
 
 
 def test_every_captured_value_needs_a_decision():
@@ -422,13 +464,28 @@ def test_a_role_naming_a_group_that_does_not_exist_is_rejected():
     assert any("does not capture" in e for e in errors)
 
 
-def test_an_unknown_level_is_rejected():
+def test_a_role_that_names_nothing_readable_is_rejected():
+    """
+    A stored library is read back with no way to ask what it meant, so a role
+    naming a level this version does not know is refused rather than guessed
+    at. It arrives as undecided, which is the one state a stored pattern may
+    not be in.
+    """
     group = detect_one("v.1(1990)-v.5(1994)")
     _, errors = plib.validate_pattern({
         "label": "odd", "regex": group.regex,
         "roles": [{"group": "start_vol", "boundary": "start", "level": "colour"}],
     })
-    assert any("unknown level" in e for e in errors)
+    assert any("no level decided" in e for e in errors)
+
+
+def test_an_unknown_kind_is_rejected():
+    group = detect_one("v.1(1990)-v.5(1994)")
+    _, errors = plib.validate_pattern({
+        "label": "odd", "regex": group.regex,
+        "roles": [{"group": "start_vol", "boundary": "start", "kind": "colour"}],
+    })
+    assert any("unknown kind" in e for e in errors)
 
 
 def test_an_expression_too_long_to_test_is_rejected():
@@ -454,7 +511,7 @@ def test_a_pattern_that_encodes_nothing_is_rejected():
     group = detect_one("v.1(1990)-v.5(1994)")
     _, errors = plib.validate_pattern({
         "label": "empty", "regex": group.regex,
-        "roles": [{"group": g, "boundary": "start", "level": LEVEL_IGNORE}
+        "roles": [{"group": g, "boundary": "start", "level": KIND_IGNORE}
                   for g in group.named_groups],
     })
     assert any("no holdings" in e for e in errors)
@@ -486,7 +543,8 @@ def test_a_captionless_number_above_an_issue_is_suggested_as_a_volume():
     group = detect_one("39 no 1 (Spring 1995)")
     roles = {r.group: r for r in infer_roles(group.named_groups)}
 
-    assert roles["start_num"].level == LEVEL_VOL
+    assert roles["start_num"].kind == KIND_ENUM
+    assert roles["start_num"].caption == "v."
     assert roles["start_num"].suggested is True
     assert roles["start_num"].needs_a_decision is True
     # The captioned levels are stated outright and need no confirming.
@@ -497,7 +555,7 @@ def test_a_captionless_number_with_no_issue_after_it_is_not_suggested():
     """Nothing to sit above means nothing to infer from."""
     for statement in ("4 (Summer, Autumn 1990)", "?: 16"):
         roles = {r.group: r for r in infer_roles(detect_one(statement).named_groups)}
-        assert roles["start_num"].level == LEVEL_UNRESOLVED, statement
+        assert roles["start_num"].kind == KIND_UNRESOLVED, statement
         assert roles["start_num"].suggested is False, statement
 
 
@@ -509,7 +567,7 @@ def test_an_ordinary_pattern_suggests_nothing():
 
 
 def test_a_suggested_role_survives_the_round_trip():
-    role = GroupRole("start_num", BOUNDARY_START, LEVEL_VOL, suggested=True)
+    role = GroupRole("start_num", BOUNDARY_START, KIND_ENUM, suggested=True)
     assert GroupRole.from_dict(role.to_dict()).suggested is True
 
 
@@ -568,7 +626,34 @@ def test_a_partly_matching_pattern_falls_back_to_the_parser_intact():
     )
     parsed, source = apply_patterns(victim, [pattern])
     assert source == "parser"
-    assert parsed.ranges[0].start.vol == "1"      # the first boundary survives
-    assert parsed.ranges[0].start.issue == "1"
+    assert parsed.ranges[0].start.value_at(0) == "1"      # the first boundary survives
+    assert parsed.ranges[0].start.value_at(1) == "1"
     assert parsed.ranges[0].start.year == "1995"
-    assert parsed.ranges[0].end.vol == "12"
+    assert parsed.ranges[0].end.value_at(0) == "12"
+
+
+def test_a_value_nobody_has_decided_about_forces_review():
+    """
+    An undecided role is not the same as one set to 'Not encoded'. The second
+    is a cataloguer's choice; the first is a value that reached the screen and
+    was never accounted for, which is the one thing that must not pass quietly.
+    """
+    group = detect_one("Series 1, v. 6 no. 1 (Summer/Fall 1992)")
+    roles = infer_roles(group.named_groups)
+    assert any(r.kind == KIND_UNRESOLVED for r in roles)
+
+    result = parse_with("Series 1, v. 6 no. 1 (Summer/Fall 1992)", roles=roles)
+    assert result.needs_review is True
+    assert any("not encoded" in w for w in result.warnings)
+
+
+def test_a_value_deliberately_left_out_does_not_force_review():
+    """The complement: 'Not encoded' is an answer, so it settles the row."""
+    group = detect_one("Series 1, v. 6 no. 1 (Summer/Fall 1992)")
+    roles = infer_roles(group.named_groups)
+    for role in roles:
+        if role.kind == KIND_UNRESOLVED:
+            role.kind = KIND_IGNORE
+
+    result = parse_with("Series 1, v. 6 no. 1 (Summer/Fall 1992)", roles=roles)
+    assert result.needs_review is False
