@@ -1,58 +1,217 @@
 # Handoff — MARC Serials Toolkit
 
-Written 5 August 2026, moving development from Windows to macOS.
+Rewritten 2 September 2026, at the point where Workbench UI work becomes the
+main thread. Supersedes the August handoff, which covered moving development
+from Windows to macOS; the operational sections that still apply are kept below.
 
 ## Where things stand
 
-**Everything is committed and pushed.** `main` is at `368b287` ("Adding
-changelog and version information"), the working tree is clean, and local is
-neither ahead of nor behind `origin/main`. There is no work-in-progress to
-recover — a clone gets you the exact state development stopped at.
+`main` is at **`ed46d33`** ("Make enumeration an ordered hierarchy of any depth
+(D6, D8) (#16)"), version **0.7.0**, everything merged and pushed. The suite is
+**348 passed, 8 skipped, 2 xfailed** in about a second.
 
-Current version is **0.5.0**, recorded in `shared/about.json`.
+```bash
+python -m pytest                       # 348 green
+python scripts/corpus_report.py        # the corpus summary
+python scripts/corpus_report.py --drift   # only tags that no longer hold
+```
 
-## Getting running on the Mac
+`--drift` should say *"No drift: every tag in the corpus still describes what
+the tools do."* If it does not, the last change moved something — read what it
+says before assuming it is a regression. It is often a fix, and the corpus tag
+is what needs updating.
+
+**The three tools are joined up.** The Workbench (`workbench/`) is the one to
+open first: it detects patterns over an uploaded `.mrc`, asks a cataloguer to
+confirm what each captured value means, and converts with the answer. Statements
+no confirmed pattern matches fall through to `holdings_parser.parse_866()`, so
+an empty pattern library gives output byte-identical to the Converter's — pinned
+in `tests/test_workbench_api.py`.
+
+## Getting running
 
 ```bash
 git clone https://github.com/bdmcodey/marc-serials-toolkit.git
 cd marc-serials-toolkit
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r converter/requirements.txt
+pip install -r converter/requirements.txt      # covers all three apps
+pip install -r requirements-dev.txt            # pytest
 ```
-
-Both apps share the same two dependencies, so one install covers both. Verified
-against Python 3.13.1, Flask 3.1.2, pymarc 5.2.3.
 
 Run each app from **its own directory** — they resolve templates and the shared
 stylesheet relative to their own file location:
 
 ```bash
-cd converter && python3 app.py
+cd workbench        && python3 app.py    # 5003  <- start here
+cd converter        && python3 app.py    # 5000
+cd pattern-detector && python3 app.py    # 5001
 ```
+
+`WORKBENCH_PORT`, `CONVERTER_PORT` and `DETECTOR_PORT` override the defaults.
+They are named separately so all three can be exported at once. Deployment runs
+under gunicorn and ignores them.
+
+## Read these three files before changing anything
+
+1. **`CORPUS-FINDINGS.md`** — the defect log D1–D18, what each one was, which
+   version fixed it, and *why the fix took the shape it did*. Several sections
+   record reasoning that later turned out to be wrong and say so. Do not
+   re-litigate a fixed defect without reading its section; the obvious fix was
+   usually tried and rejected for a reason stated there.
+2. **`data/textual_holdings_corpus.txt`** — 112 real 866 `$a` statements
+   transcribed from catalogue records, each tagged with the defect it exercises
+   (`# warn:D2`, `# fail:D7`). The tags are load-bearing: `--drift` compares
+   them against live behaviour, so a code change that alters an outcome shows up
+   as a tag disagreement rather than needing to be remembered.
+3. **`shared/about.json`** — the cataloguer-facing changelog, read per request
+   so editing it needs no restart. Add a new entry at the top, bump `version`,
+   and write about the *output or the screen*, never the code. Say what a
+   cataloguer will see differently.
+
+**Editing `about.json`:** insert the entry as text rather than round-tripping
+through `json.dumps`. The file holds `\uXXXX` escapes (em dashes, curly quotes)
+and a re-encode with `ensure_ascii=False` rewrites every one of them, burying a
+one-entry change in a whole-file diff.
+
+## What the Workbench looks like from the inside
+
+```
+workbench/
+  app.py                12 JSON endpoints; the whole UI is one page driven by them
+  pattern_bridge.py     a detector regex + a cataloguer's decisions -> ParseResult
+  pattern_library.py    validating, storing, importing/exporting confirmed patterns
+  templates/tool.html   ~2100 lines: markup, page CSS, all JS. Three <section
+                        class="step"> panels — #step-source, #step-patterns,
+                        #step-convert — revealed in order.
+```
+
+The join is `pattern_bridge.build_parse_result()`. Three rules in it are load
+bearing and each has a comment saying why:
+
+- **A pattern must `fullmatch` a segment.** A partial match is treated as no
+  match at all. `re.search` let a pattern claim the tail of a statement and
+  silently drop everything before it.
+- **With the parser as fallback, an unmatched segment goes to `parse_866()`.**
+  A pattern covering most of a statement must not cost the rest of it.
+- **Without the fallback, it is all or nothing.** The 866 is deleted once
+  anything is written from it, so converting half a statement deletes holdings.
+  Half is the one outcome worse than none.
+
+`GroupRole` is the unit of a cataloguer's decision: `group`, `boundary`
+(start/end), `kind` (`enum` / `year` / `month` / `ignore` / `unresolved`), and —
+for enumeration only — `level` and `caption`. `assign_levels()` numbers any
+enumeration role whose level is `None` by the order it appears, so a screen can
+leave the level alone and get the right answer.
+
+## Decisions already made — do not quietly reverse these
+
+**Enumeration is an ordered list of any depth, not volume-then-issue-then-part.**
+MARC 21 puts 853 captions in `$a`–`$f` "in descending order of significance" and
+says nothing about which words go in them. Position decides the subfield; the
+caption is the word the statement used, kept as written. A serial numbered only
+by issue quite properly gets `$a no.` This was D6, and the three-level model is
+what made it unfixable.
+
+**A caption word is a label, never a level.** `caption_slot()` answers only
+"enumeration, year or month". If you find yourself writing a map from `no.` to
+a subfield, stop — that is the bug that was just removed.
+
+**One 853 governs every 863 linked to it.** Two statements on one record that
+number by different hierarchies cannot share one, so a value whose level the
+853 contradicts is left out and named rather than filed under the wrong caption.
+
+**A number with no caption is not guessed at.** The `16` in `?: 16` carries
+nothing to say which level it belongs to, so the parser holds the statement for
+review rather than defaulting it to a volume. No amount of better parsing can
+fix this — the information is not in the statement. The Workbench's confirm step
+is the mechanism that *can*, because a cataloguer who knows the collection
+supplies it once. The one exception is a captionless number sitting immediately
+above a captioned issue (`39 no 1`), which is offered as a suggestion and still
+has to be accepted.
+
+**Second-level chronology that cannot be attributed to a boundary is dropped**,
+not guessed at, in both directions. This is the cataloguer's own ruling and
+matches how MARC-based systems read the fields.
+
+**Silence must never mean success.** Every source token should end in exactly
+one of three buckets: encoded, deliberately dropped with a reason on the record,
+or unaccounted — and unaccounted must force review. This is the "bounded errors"
+framework behind the conference talk. The corpus is currently at **one** silent
+loss out of 112, down from 36. Protect that number above the clean-conversion
+rate; statements have moved *out* of "clean" on purpose more than once.
+
+## What is next on the Workbench
+
+Three UI requests, in the order they were raised. None is started.
+
+1. **A skip button** — remove a pattern or a record from conversion entirely,
+   leaving it untouched. The record list already carries per-record state
+   (`reviewed`, a `Set` in `tool.html`), so this is a third state alongside it,
+   plus a filter chip in `#review-bar`.
+2. **The pattern library needs to collapse.** With a large `.mrc` loaded it is
+   unusable at length — scrolling past it to reach the next step is the whole
+   interaction. Each pattern is a `.pattern-card` with a `.pc-toggle` that
+   already opens and closes its body; what is missing is a collapse for the
+   *section*, and probably a default of collapsed once past some count.
+3. **Jump from a record in Convert back to its pattern**, unhiding the library
+   if collapsed, so a mistake spotted during review can be fixed at its source.
+   The hard half is the consequence: any record already marked reviewed that the
+   edited pattern touches has to go back to unreviewed, or the review state
+   quietly lies. `_source_labels()` and the `by_source` counts in
+   `/api/batch-convert` already know which pattern read which statement.
+
+### Still open in the defect log
+
+- **D7** — genuinely captionless statements (`8,13,15,17,19,20-(1982-1994)`).
+  Expected to keep failing in the parser; the confirm step is what could convert
+  them, which makes them a Workbench test case rather than a parser bug.
+- **D10, D11** — by design, documented as such. D10's run-on is the last
+  remaining silent loss: `_bracket_chron_unit` drops day-level dates from it.
+  D4's fix could be extended to cover it.
+- **D14** — the detector and converter disagree about
+  `8,13,15,17,19,20-(1982-1994)`. A design decision to make explicitly.
+- Two `xfail` tests in `tests/test_holdings_parser.py` describe known defects and
+  say what the behaviour should be — a spaced-slash separator, and a brace note
+  defeating the block grammar. Fixing one turns its test green.
+
+### One judgement call worth revisiting
+
+The settings dialogs edit three enumeration levels while the standard convention
+has six. Moving level 1 onto `$d` collides with the unedited fourth level; the
+cataloguer's choice wins, the unseen level drops out, and the lost depth is
+reported ("room for 5 levels, not 6"). Refusing the change instead is a one-line
+switch in `resolve_convention()`.
+
+## Things that will bite you
+
+**Template edits need a restart.** None of the apps runs in debug mode, so Jinja
+caches compiled templates — editing `tool.html` and reloading shows the *old*
+page. Either restart, or run with `FLASK_DEBUG=1 python3 app.py`.
+`shared/ui.css` is served as a file and needs no restart, though the browser may
+cache it, so hard-reload.
+
+**Orphaned servers hold the port.** A stopped process sometimes keeps running
+and keeps answering, serving a stale template. If an edit "doesn't take effect",
+check for a second process before you start debugging the code — but check the
+process name first and only kill your own Python:
 
 ```bash
-cd pattern-detector && python3 app.py
+pkill -f 'python3 app.py'
 ```
 
-Converter is on <http://localhost:5000>, detector on <http://localhost:5001>.
-They are independent Flask apps and can run at the same time.
-
-**On macOS, port 5000 is already taken** by AirPlay Receiver — see below. Either
-turn that off, or override the port:
+**macOS AirPlay Receiver owns port 5000.** The listener is ControlCenter, a
+system process — *do not* kill it. Confirm what you are looking at first:
 
 ```bash
-cd converter && CONVERTER_PORT=5002 python3 app.py
+lsof -i:5000 -sTCP:LISTEN -P
 ```
 
-`CONVERTER_PORT` and `DETECTOR_PORT` override the defaults (5000 / 5001). They
-are named separately so both can be exported at once without colliding.
-Deployment runs under gunicorn and ignores them.
+Either run the converter on another port with `CONVERTER_PORT`, or switch
+AirPlay Receiver off in System Settings → General → AirDrop & Handoff.
 
-## Things that will bite you on the Mac
-
-**The test MARC files are not in the repo.** `.gitignore` excludes `*.mrc`
-except `data/example_holdings.mrc`, deliberately, so real holdings data stays out
-of version control. Everything was tested against files on the USC share:
+**The private test MARC files are not in the repo.** `.gitignore` excludes
+`*.mrc` except the two synthetic files in `data/`, deliberately, so real
+holdings data stays out of version control.
 
 | file | size | character |
 |---|---|---|
@@ -61,104 +220,41 @@ of version control. Everything was tested against files on the USC share:
 
 They live at
 `//mongo.usc.edu/rfolders/codey/Desktop/Projects/serials-enhancement/`. On macOS
-mount the share first, after which paths become `/Volumes/...`:
+mount the share first (`open 'smb://mongo.usc.edu/rfolders'`), after which paths
+become `/Volumes/...`. The calibration tests skip unless you point at them:
 
 ```bash
-open 'smb://mongo.usc.edu/rfolders'
+MARC_TEST_DATA_DIR=/path/to/mounted/share python -m pytest -m calibration
 ```
 
-Any script carrying the Windows UNC path needs that prefix swapped.
-
-**Template edits need a restart.** Neither app runs in debug mode, so Jinja
-caches compiled templates — editing `index.html` or `tool.html` and reloading
-shows the *old* page. Either restart, or run with `FLASK_DEBUG=1 python3 app.py`.
-`shared/ui.css` is served as a file and needs no restart, though the browser may
-cache it, so hard-reload.
-
-**macOS AirPlay Receiver owns port 5000.** The listener on 5000 is
-ControlCenter, a system process — *do not* kill it to free the port. Confirm
-what you are looking at before killing anything:
-
-```bash
-lsof -i:5000 -sTCP:LISTEN -P
-```
-
-If that names ControlCenter, either run the converter on another port with
-`CONVERTER_PORT`, or switch AirPlay Receiver off in System Settings > General >
-AirDrop & Handoff.
-
-**Orphaned servers hold the port.** This cost real time on Windows: a stopped
-process sometimes kept running and kept answering, serving a stale template. The
-same can happen here, but check the process name first — only kill your own
-Python:
-
-```bash
-pkill -f 'python3 app.py'
-```
-
-If an edit "doesn't take effect", check for a second process before you start
-debugging the code.
-
-**Line endings.** Files in the repo are LF. Git on Windows warned about CRLF
-conversion on every write; that disappears on macOS. Leave `core.autocrlf` unset.
-
-## Layout
-
-```
-converter/            866 -> 853/863 converter (Flask, port 5000)
-  app.py                routes: upload, preview, convert, batch, download
-  holdings_parser.py    866 text -> structured ranges. TWO grammars:
-                        enumeration-first (v.1:no.2(1990)) and a separate
-                        chronology-first "block" grammar (1993: (1 [Feb]))
-  marc_converter.py     ranges -> 853/863; convention resolution;
-                        convert_record() decides $8 linking across a record
-  templates/index.html  UI: markup, app-specific CSS, all JS
-
-pattern-detector/     866 -> regex clusterer (Flask, port 5001)
-  app.py                routes: detect, upload, test-regex
-  pattern_detector.py   tokenise, cluster by signature, build regexes
-  templates/tool.html   UI
-
-shared/               served by BOTH apps
-  ui.css                design tokens, themes, components, layout
-  about.json            version + plain-language changelog (single source)
-
-deploy/               systemd units + nginx config for the hosted demo
-data/                 synthetic sample only
-ai-regex/             experimental LLM regex generation, not part of the web tools
-pnx-lookup/           separate local tool, untouched this session
-```
-
-The two web apps duplicate a little presentational markup — the about-dialog
-block — because they have separate `template_folder`s. Content stays
-single-sourced in `shared/about.json`; only about twenty lines of Jinja repeat.
-That was a deliberate call over introducing a shared template path.
+**Line endings.** Files in the repo are LF. Leave `core.autocrlf` unset.
 
 ## Calibrated values — do not change casually
 
 **`MAX_PATTERN_TOKENS = 40`** in `pattern_detector.py`. Clusters longer than this
 are reported as "too idiosyncratic to express as a pattern" instead of
-generating a regex. Calibrated against both MARC files: real statements cost
-15–45 regex characters per token, so above roughly 45 tokens the detector emits
-regexes its own Test button rejects at 2,000 characters. At 40 the longest regex
-observed was 1,506.
+generating a regex. Calibrated against both private MARC files: real statements
+cost 15–45 regex characters per token, so above roughly 45 tokens the detector
+emits regexes its own Test button rejects at 2,000 characters.
 
 **`_ALLOWED_SUBFIELDS = "a".."m"`** in `marc_converter.py`. An 853 carries
 captions in `$a`–`$h` for enumeration and `$i`–`$m` for chronology. Everything a
 convention must not touch — `$8` linking, `$u`, `$v`, `$w`, `$x`–`$z` — falls
-outside that range, so a single allowlist covers the whole rule.
+outside that range, so one allowlist covers the whole rule. `read_853_slots()`
+and `read_853_captions()` filter by it too, so a `$w m` frequency code is not
+read as a caption.
 
 **Conversion conventions.** `standard` follows MARC 21; `house` reproduces the
-local practice found in existing records (year in `$a`, chronology as text). Both
-are starting points: the UI lets the cataloger override every subfield, and
+local practice found in existing records (year in `$a`, chronology as text).
+Both are starting points: every subfield stays editable, and
 `resolve_convention()` rejects invalid or colliding codes back to the preset
-rather than writing them into records.
+rather than writing them into records. It accepts enumeration as a whole
+sequence, as a positional patch (`{"enum": {"e1": "d"}}`), and still accepts the
+old `vol`/`issue`/`part` keys as positions 1–3 so a stored setting keeps working.
 
-## No automated test suite
+## Expected output counts
 
-This is the biggest gap. All verification was ad-hoc probe scripts, run once and
-discarded. If you touch parsing or field generation, re-check these by hand —
-they held consistently, and any deviation means something broke.
+Measured against the private files above. Any deviation means something broke.
 
 | check | expected |
 |---|---|
@@ -167,40 +263,37 @@ they held consistently, and any deviation means something broke.
 | `$8` integrity, both files | no duplicate 853 `$8`, no orphaned 863, idempotent across repeated runs |
 | parse rate, unkempt | 48 / 51 |
 | parse rate, well-formed | 114 / 116 |
-| detector, all three files | 100% match on every cluster that generates a regex |
 | detector, max regex length | 2,000 characters or fewer |
 
-Turning these into a real test file is the single highest-value next task.
+## Layout
 
-## Known loose ends
+```
+workbench/            detect -> confirm -> convert, in one app (port 5003)
+converter/            866 -> 853/863 converter (port 5000)
+  holdings_parser.py    866 text -> structured ranges. TWO grammars:
+                        enumeration-first (v.1:no.2(1990)) and a separate
+                        chronology-first "block" grammar (1993: (1 [Feb])),
+                        dispatched by _looks_like_block()
+  marc_converter.py     ranges -> 853/863; convention resolution;
+                        convert_record() decides $8 linking across a record
+pattern-detector/     866 -> regex clusterer (port 5001)
+shared/               ui.css and about.json, served by all three apps
+tests/                pytest suite covering all three apps
+scripts/              corpus_report.py — reports, asserts nothing
+data/                 synthetic .mrc samples + the textual holdings corpus
+deploy/               systemd units + nginx config for the hosted demo
+ai-regex/             experimental LLM regex generation, not part of the tools
+pnx-lookup/           separate local tool
+```
 
-- **`gunicorn` is in neither `requirements.txt`**, though both systemd units
-  depend on it. `deploy/README.md` installs it by hand.
-- **`split_multi_range()`** in the detector splits only on `,` and `;` at paren
-  depth 0, so a long statement using another separator (` / `) arrives whole and
-  can trip the token guard. This is the upstream cause of most "too
-  idiosyncratic" flags.
-- **Detector and converter are not integrated.** Investigated and deliberately
-  not done: the detector's generated regexes cannot drive the converter, because
-  on irregular data its capture groups are positional mush (`start_num_7`) with
-  no semantics. A shared ingest plus detector-as-triage is the version worth
-  building — not regex-driven parsing.
-- **The record list shows only two or three records at a time** at 1280×900, a
-  consequence of accessible sizing (44px targets, 18px body). Deliberate; worth
-  revisiting with the cataloger in front of it.
-- **The version-badge footer costs about 54px** of vertical space, 70px at the
-  largest text setting. Moving the badge into the existing header would reclaim
-  it if that trade turns out to be wrong.
-- **Licensing is unresolved.** MIT was withdrawn pending institutional IP review;
-  see `NOTICE.md`. No license is currently granted, and the intent is
-  AGPL-3.0-or-later. Note that the git history still contains the old MIT
-  `LICENSE` file — deleting it did not remove it from earlier commits, which
-  `NOTICE.md` states plainly.
+The apps duplicate about twenty lines of Jinja — the about-dialog block —
+because they have separate `template_folder`s. Content stays single-sourced in
+`shared/about.json`. That was a deliberate call over introducing a shared
+template path.
 
 ## Deployment
 
-Not a long-term hosted service — this is a demonstration. The existing setup
-is two gunicorn services behind nginx:
+A demonstration, not a long-term service: gunicorn behind nginx.
 
 ```bash
 cd ~/marc-serials-toolkit && git pull && sudo systemctl restart mcsite-converter mcsite-patterns
@@ -211,14 +304,15 @@ the trailing-slash `proxy_pass` strips the path prefix. **Templates therefore us
 relative URLs** (`api/detect`, `ui.css`) — an absolute `/ui.css` would break
 behind the proxy. Keep that convention.
 
-## Keeping the changelog current
+## Loose ends
 
-`shared/about.json` is read per request, so editing it and reloading is enough —
-no restart needed. Add a new entry at the top of `changelog`, bump `version`, and
-write for catalogers: say what changed about their output or their screen, not
-what changed in the code. The existing entries are the model.
-
-This matters more than it looks. The output has already changed materially
-between versions — 0.5.0 took one file from 113 generated 853s down to 38, and
-0.3.0 took another from 6% to 94% parseable. The changelog is how a cataloger
-finds out why this week's results differ from last week's.
+- **`gunicorn` is in neither `requirements.txt`**, though both systemd units
+  depend on it. `deploy/README.md` installs it by hand.
+- **The record list shows only two or three records at a time** at 1280×900, a
+  consequence of accessible sizing (44px targets, 18px body). Deliberate; worth
+  revisiting with the cataloguer in front of it.
+- **Licensing is unresolved.** MIT was withdrawn pending institutional IP review;
+  see `NOTICE.md`. No license is currently granted, and the intent is
+  AGPL-3.0-or-later. The git history still contains the old MIT `LICENSE` file —
+  deleting it did not remove it from earlier commits, which `NOTICE.md` states
+  plainly.
