@@ -807,9 +807,13 @@ The first two are done; the rest are Workbench UI and are not started.
   from conversion entirely, leaving it untouched.
 - ~~**Split on top-level commas, semicolons or slashes should default to
   OFF.**~~ Done in 0.6.4.
-- **The pattern library needs to collapse.** It is unusable at length with a
-  large `.mrc` loaded; scrolling past it to reach the next step is the whole
-  interaction.
+- ~~**The pattern library needs to collapse.**~~ Done in 0.7.1. Two folds, not
+  one: patterns needing nothing from the cataloguer (confirmed, or too
+  idiosyncratic to express) now sit in a collapsed group, and the whole
+  Patterns step folds to a line carrying its own counts. On the corpus, 37 of
+  44 cards fold away and the step goes from ~4,600px to ~1,300px, or ~124px
+  folded. The folded line names what still needs a decision, so folding never
+  hides work.
 - **Jump from a record in Convert back to its pattern**, unhiding the library if
   collapsed, so a mistake spotted during review can be fixed at its source. Any
   record already reviewed that the edited pattern touches has to go back to
