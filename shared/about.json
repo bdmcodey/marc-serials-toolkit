@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "released": "2026-09-03",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,33 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.7.3",
+      "date": "2026-09-03",
+      "summary": "The filters now answer for the whole file, and a record can send you back to the pattern that read it.",
+      "changes": [
+        {
+          "tool": "Workbench",
+          "text": "Fixed: the filters in Convert only knew about the fifty records whose previews were loaded, and every record past those passed every filter. \"Needs attention\" on a 120-record file showed the eight records that needed it and seventy-eight that did not. The counts behind the filters are now worked out for every record in the file, so a filter shows what it says it shows."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Paging now walks what the filter is showing rather than the file in order. With a filter on, \"records 1-50 of 120\" was answering a question nobody asked; it now reads \"showing 1-50 of 120 matching\", and disappears when everything matching already fits on one page."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Every record row now shows what it would produce, not just the first fifty."
+        },
+        {
+          "tool": "Workbench",
+          "text": "A record read by one of your patterns has an \"Edit this pattern\" link beside it. It opens that pattern in step 2 wherever it is \u2014 unfolding the step, opening the group it sits in, and opening the pattern itself \u2014 because a mistake is nearly always spotted while reviewing records, and the place to fix it is the pattern."
+        },
+        {
+          "tool": "Workbench",
+          "text": "Editing a pattern now puts the records it read back to \"not yet reviewed\", and says how many. A tick means somebody looked at this record's MARC; once the pattern changes that MARC is different and nobody has looked at it. Records the pattern never read keep their tick."
+        }
+      ]
+    },
     {
       "version": "0.7.2",
       "date": "2026-09-03",

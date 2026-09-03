@@ -818,10 +818,18 @@ The first two are done; the rest are Workbench UI and are not started.
   44 cards fold away and the step goes from ~4,600px to ~1,300px, or ~124px
   folded. The folded line names what still needs a decision, so folding never
   hides work.
-- **Jump from a record in Convert back to its pattern**, unhiding the library if
-  collapsed, so a mistake spotted during review can be fixed at its source. Any
-  record already reviewed that the edited pattern touches has to go back to
-  unreviewed.
+- ~~**Jump from a record in Convert back to its pattern**~~ Done in 0.7.3. The
+  link unfolds step 2, opens the group the pattern sits in, and opens the
+  pattern itself. The re-review half needed something the screen did not have:
+  a per-record record of *which pattern read it*, for the whole file rather
+  than the loaded page. Adding that also fixed the filter bug below.
+- ~~**The Convert filters only saw the loaded page.**~~ Fixed in 0.7.3. Found
+  by the cataloguer, not by the corpus: previews were fetched fifty at a time,
+  and `recordMatchesFilter` returned `true` for a record it had no data for —
+  so every record past the first page passed every filter. On a 120-record file
+  "needs attention" showed 86 records where 8 matched. The counts now come from
+  `/api/review-index`, which answers for every record, and paging walks what
+  the filter shows rather than the file in order.
 
 ## A note on this corpus
 

@@ -29,7 +29,8 @@ WORKBENCH_ROUTES = {
     "/api/upload-marc", "/api/detect", "/api/test-regex",
     "/api/pattern-preview", "/api/patterns",
     "/api/patterns/export", "/api/patterns/import",
-    "/api/preview-record", "/api/preview-records", "/api/convert-record",
+    "/api/preview-record", "/api/preview-records", "/api/review-index",
+    "/api/convert-record",
     "/api/batch-convert", "/api/download-converted",
 }
 
@@ -121,7 +122,8 @@ def test_the_workbench_page_carries_its_fold_controls(workbench_client):
     page = workbench_client.get("/").get_data(as_text=True)
     for anchor in ('id="btn-toggle-patterns"', 'id="patterns-body"',
                    'id="patterns-summary"', 'aria-controls="patterns-body"',
-                   'class="rec-skip"', 'pc-skip', 'data-filter="skipped"'):
+                   'class="rec-skip"', 'pc-skip', 'data-filter="skipped"',
+                   'jump-to-pattern', 'id="review-notice"'):
         assert anchor in page, anchor
 
 
