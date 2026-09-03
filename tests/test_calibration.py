@@ -34,7 +34,8 @@ from pattern_detector import detect_patterns
 pytestmark = pytest.mark.calibration
 
 
-# Recorded in HANDOFF.md, measured at version 0.5.0.
+# Measured at version 0.5.0, when these files were the only verification there
+# was. Kept as the baseline the table above describes.
 EXPECTED = {
     "wellformed": {
         "convention": "standard",

@@ -306,8 +306,9 @@ Special Issue (October/November 1995)
 
 These the monolith never handled either, and they should stay failing. Nothing in
 `8,13,15,...` says whether those are volumes, issues or years, and refusing is
-the documented, correct behaviour — the same argument `HANDOFF.md` makes about
-`?: 16`. A cataloguer supplies the level; the parser cannot.
+the documented, correct behaviour — the same argument the README makes about
+`?: 16` under "How the Workbench joins the two tools". A cataloguer supplies the
+level; the parser cannot.
 
 `Special Issue` and `50th Anniversary Issue` are worth one note: the Workbench's
 confirm step is exactly the mechanism that could convert these, since a human
