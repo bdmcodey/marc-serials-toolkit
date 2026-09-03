@@ -617,6 +617,28 @@ def test_the_index_knows_which_records_a_pattern_read(workbench_client,
     assert used_by_pattern, rows
 
 
+def test_a_flagged_record_reaches_the_needs_attention_count(workbench_client,
+                                                            messy_marc_bytes):
+    """
+    A record the tool cannot vouch for is counted apart from a held one -- it
+    has fields; what it needs is a look, not a pattern -- but both have to
+    reach the cataloguer, so the review index carries the count.
+    """
+    upload_marc(workbench_client, messy_marc_bytes)
+    rows = workbench_client.post("/api/review-index", json=SETTINGS).get_json()["records"]
+    assert all("flagged" in row for row in rows)
+
+
+def test_a_preview_says_when_it_cannot_vouch_for_what_it_wrote(workbench_client,
+                                                               messy_marc_bytes):
+    upload_marc(workbench_client, messy_marc_bytes)
+    body = workbench_client.post("/api/preview-records", json={
+        **SETTINGS, "offset": 0, "limit": 50}).get_json()
+    for row in body["records"]:
+        for preview in row["previews"]:
+            assert "flagged" in preview
+
+
 def test_a_skipped_record_comes_out_exactly_as_it_went_in(workbench_client,
                                                           example_marc_bytes):
     """

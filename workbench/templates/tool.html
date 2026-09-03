@@ -1198,6 +1198,7 @@ function paintRecordStatus() {
     const bits = [];
     if (entry.converted) bits.push(`<span class="pill has-866">${entry.converted} converted</span>`);
     if (entry.held) bits.push(`<span class="pill decide">${entry.held} held</span>`);
+    if (entry.flagged) bits.push(`<span class="pill decide">${entry.flagged} to check</span>`);
     slot.innerHTML = bits.join(' ');
   });
 }
@@ -1209,7 +1210,7 @@ function recordMatchesFilter(entry, index) {
   // showed the rest of the file alongside its actual matches.
   if (!entry) return reviewFilter === 'all';
   switch (reviewFilter) {
-    case 'held':       return entry.held > 0;
+    case 'held':       return entry.held > 0 || entry.flagged > 0;
     case 'pattern':    return entry.sources.some(
                         sc => sc !== 'parser' && sc !== 'unmatched' && sc !== 'skipped');
     case 'parser':     return entry.sources.includes('parser');
@@ -2407,6 +2408,10 @@ async function renderRecordDetail(idx) {
           <div>
             <div class="pair-col-label">863 — generated</div>
             ${pv.fields_863.map(f => fieldHtml(f, 'f863')).join('')}
+            ${(pv.warnings || []).length ? `
+              <div class="mt-1">
+                ${pv.warnings.map(w => `<div class="alert alert-warn small">${escHtml(w)}</div>`).join('')}
+              </div>` : ''}
           </div>
         </div>`).join('')}
     </div>`).join('');

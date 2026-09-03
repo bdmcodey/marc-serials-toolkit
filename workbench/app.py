@@ -445,6 +445,7 @@ def _review_row(record, index, *, patterns, fallback, conv_opts, captions,
         "title": _record_title(record) or f"Record {index + 1}",
         "converted": 0,
         "held": 0,
+        "flagged": 0,
         "sources": [],
         "has_866": False,
         "skipped": skipped,
@@ -473,6 +474,10 @@ def _review_row(record, index, *, patterns, fallback, conv_opts, captions,
 
     row["converted"] = sum(1 for p in previews if p["fields_863"])
     row["held"] = sum(1 for p in previews if not p["fields_863"])
+    # Converted, and the tool cannot vouch for it. Counted apart from "held"
+    # because these records *do* have fields -- what they need is a look, not
+    # a pattern.
+    row["flagged"] = sum(1 for p in previews if p.get("flagged"))
     row["sources"] = sorted({p["source"] for p in previews})
     if with_previews:
         row["previews"] = previews
@@ -502,6 +507,7 @@ def _previews_from(rc, rejections=(), existing_853s=(), sources=(),
             "warnings": c.warnings + list(rejections),
             "conformed": c.conformed,
             "needs_review": c.needs_review,
+            "flagged": c.flagged,
             "link": link,
             "existing": bool(c.conformed and display),
             "source": source,

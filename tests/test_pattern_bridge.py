@@ -745,3 +745,40 @@ def test_a_skip_survives_export_and_import():
     restored, errors = plib.from_export(plib.to_export(patterns))
     assert not errors
     assert restored[0].skip is True
+
+
+def test_a_list_confirmed_as_a_hierarchy_is_flagged_end_to_end():
+    """
+    D14, by the route a cataloguer actually takes: the detector clusters the
+    list happily, the confirm screen offers six undecided numbers, and nothing
+    stops them being assigned as six enumeration levels.
+
+    The record is still written -- the tool cannot know which reading is right
+    -- but it no longer comes out looking unremarkable.
+    """
+    from marc_converter import convert_holdings
+
+    statement = "8,13,15,17,19,20-(1982-1994)"
+    group = detect_one(statement)
+    roles = infer_roles(group.named_groups)
+
+    level = 0
+    for role in roles:
+        if role.kind == KIND_UNRESOLVED:
+            role.kind, role.level = KIND_ENUM, level
+            level += 1
+    assert level == 6, "the statement should offer six undecided numbers"
+
+    pattern, errors = plib.validate_pattern({
+        "id": "d14", "label": group.human_label, "regex": group.regex,
+        "roles": [r.to_dict() for r in roles], "split": False,
+    })
+    assert not errors, errors
+
+    result, source = apply_patterns(statement, [pattern])
+    assert source == pattern.id
+    conversion = convert_holdings(result)
+
+    assert conversion.fields_863                      # still written
+    assert conversion.flagged is True
+    assert any("separate holdings" in w for w in conversion.warnings)

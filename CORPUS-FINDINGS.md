@@ -9,10 +9,11 @@ deliberate, separately reviewable decision. Everything here was found before
 anything was changed.
 
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
-(0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0, 2 September 2026).
+(0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4,
+3 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
-why the code looks the way it does now. **D7, D10, D11 and D14 remain open** —
-see the list at the end.
+why the code looks the way it does now. **D7, D10 and D11 remain open** — see
+the list at the end.
 
 Reproduce every number below with:
 
@@ -411,7 +412,7 @@ UNKNOWN run sits would be enough.
 `v. 58 Suppl. (Sep 2003)` reads `VOL‹text›(CHRONYEAR)` and no longer looks
 identical to a clean statement. No two clusters in the corpus share a label now.
 
-### D14 — detector and converter disagree, and the Workbench sits between them
+### D14 — detector and converter disagree, and the Workbench sits between them · **RESOLVED in 0.7.4**
 
 `8,13,15,17,19,20-(1982-1994)` clusters happily as `#,#,#,#,#,#-(YEAR-YEAR)`,
 generates a valid regex, and matches itself 100%. The converter refuses it
@@ -422,6 +423,47 @@ mean", and those genuinely differ — but the Workbench presents a confirmed
 pattern as a thing that converts. A cataloguer who confirms this pattern has
 supplied the missing level, so this may be the intended path working as designed;
 worth deciding explicitly rather than leaving to inference.
+
+**Decided in 0.7.4, and the finding got worse before it got better.** Re-checked
+after the 0.7.0 enumeration rework, the disagreement turned out to be the
+symptom rather than the disease. Confirming this pattern the obvious way — six
+captured numbers, six enumeration levels, which is exactly what the Level column
+invites — produced:
+
+```
+853 31 $8 1 $a v. $b no. $c pt. $d ser. $e level 5 $f level 6 $i (year)
+863 40 $8 1.1 $a 8 $b 13 $c 15 $d 17 $e 19 $f 20 $i 1982-1994
+```
+
+with **no warning and `needs_review` false**. That reads as one issue numbered
+six levels deep. The statement means six separate holdings. It is not a silent
+*loss* — it is a silent *invention*, which is worse, and 0.7.0 is what made it
+reachable: three levels became six, so the wrong reading became expressible.
+
+The honest constraint is that nothing in the tool can tell a genuinely deep
+serial from a list once the values are in hand. So the fix does not refuse and
+does not drop: `_check_enumeration_depth()` flags any record claiming more than
+three enumeration levels, names the alternative reading, and sets a new
+`ConversionResult.flagged` — distinct from `needs_review`, which writes nothing
+at all. Here the fields are written, because the cataloguer needs to see them to
+judge them; what changed is that the record cannot pass unlooked-at.
+
+Three is the threshold on evidence: MARC 21 allows six (`$a`–`$f`), but this
+corpus reaches three exactly once across 112 statements, 89 ranges use two, and
+none use four. A guard firing on ordinary depth would be noise, and noise is how
+a real warning gets missed.
+
+Two things followed. "Needs attention" in the Workbench now means what it says —
+it counted only records where *nothing* converted, so a record could need
+attention precisely because of what was written and never appear. And converter
+warnings are now shown beside the 863 they describe; they were rendered only for
+statements that produced no fields, so anything the converter said about a
+record it *did* convert never reached the screen at all.
+
+The original framing — should the detector refuse what the converter refuses? —
+is answered no. The detector's job is shape, and making it decline would remove
+the only route a cataloguer has to ever handling these. The disagreement is
+fine; the silence was not.
 
 Two smaller ones:
 
@@ -781,9 +823,9 @@ everything correctly" is not.
 - **D7** — genuinely captionless statements. Expected to keep failing; the
   Workbench's confirm step is the mechanism that could convert them.
 - **D10, D11** — by design, and documented as such.
-- **D14** — the detector and converter disagree about
-  `8,13,15,17,19,20-(1982-1994)`. A design decision to make explicitly, not a
-  bug to fix.
+- ~~**D14**~~ Resolved in 0.7.4 — and it was a bug after all, just not the one
+  logged: a record claiming implausible enumeration depth is now flagged rather
+  than passing as ordinary. See D14's section.
 - The run-on in `block-grammar` still drops its day-level dates, which is the
   single remaining silent loss and is `_bracket_chron_unit`'s documented
   behaviour. D4's fix could be extended to it.
