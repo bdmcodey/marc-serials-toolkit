@@ -483,3 +483,60 @@ def test_a_repeated_caption_after_a_comma_is_still_two_ranges():
     r = parse_866("v. 1, v. 5 (1994)")
     assert len(r.ranges) == 2
     assert [hr.start.value_at(0) for hr in r.ranges] == ["1", "5"]
+
+
+# ---------------------------------------------------------------------------
+# Day-level chronology
+# ---------------------------------------------------------------------------
+
+def test_a_bracketed_day_range_keeps_both_days():
+    """
+    D10. "[Jan 28-Dec 29]" carries a month range and a day range, and the day
+    half used to be discarded inside _bracket_chron_unit without a word. On a
+    run-on statement that is fourteen dates gone from one record.
+    """
+    r = parse_866("1983: 5 (7-30 [Jan 28-Dec 29])")
+    hr = r.ranges[0]
+    assert (hr.start.month, hr.start.day) == ("01", "28")
+    assert (hr.end.month, hr.end.day) == ("12", "29")
+
+
+def test_two_days_in_one_month_still_make_a_range():
+    """
+    "[Jan 5-Jan 26]" is one month and two days. The end boundary used to be
+    dropped when the months matched, which would now lose the second day.
+    """
+    r = parse_866("1984: 6 (1-4 [Jan 5-Jan 26])")
+    hr = r.ranges[0]
+    assert (hr.start.month, hr.start.day) == ("01", "5")
+    assert (hr.end.month, hr.end.day) == ("01", "26")
+
+
+def test_a_single_bracketed_date_has_no_end():
+    r = parse_866("1984: 6 (6 [Feb 9])")
+    hr = r.ranges[0]
+    assert (hr.start.month, hr.start.day) == ("02", "9")
+    assert hr.end is None
+
+
+def test_a_day_in_the_enumeration_first_grammar_is_kept():
+    """D4's other half: "Apr 18, 1996" now keeps the day rather than naming it."""
+    r = parse_866("v.1(Apr 18, 1996)")
+    assert (r.ranges[0].start.year, r.ranges[0].start.month,
+            r.ranges[0].start.day) == ("1996", "04", "18")
+
+
+def test_a_day_only_one_end_gives_is_dropped_and_named():
+    """
+    The same rule the month follows, and for the same reason: a lone value in
+    $k pairs positionally with $i and $j, so it would claim the range ends on
+    the 18th as well as beginning on it.
+    """
+    r = parse_866("v. 34 no. 8/9-v. 35 no. 23/24 (Apr 18, 1996-Dec 1997)")
+    # The parens sit at the end of the statement, so the chronology group is
+    # the end unit's -- the converter spreads it across both boundaries.
+    chron = r.ranges[0].end
+    assert chron.year == "1996-1997"
+    assert chron.month == "04-12"
+    assert chron.day is None
+    assert any("day (18)" in w for w in r.warnings), r.warnings

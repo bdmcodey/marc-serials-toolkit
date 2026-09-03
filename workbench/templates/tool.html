@@ -796,7 +796,9 @@ const CONVENTION_PRESETS = {{ convention_presets | tojson }};
 const CONVENTION_LEVELS  = {{ convention_levels | tojson }};
 // Enumeration has no level names, only positions: "e1" is the first level.
 const ENUM_LEVELS        = {{ enum_levels | tojson }};
-const KIND_LABELS        = {{ kind_labels | tojson }};
+// Pairs rather than an object: Flask sorts JSON keys, and alphabetical
+// order put Day ahead of Enumeration.
+const KIND_CHOICES       = {{ kind_choices | tojson }};
 const CAPTION_CHOICES    = {{ caption_choices | tojson }};
 const IGNORE_KIND        = {{ ignore_kind | tojson }};
 const IGNORE_LABEL       = {{ ignore_label | tojson }};
@@ -805,7 +807,7 @@ const ENUM_KIND          = 'enum';
 // 853 carries enumeration captions in $a-$f, so six levels is the deepest a
 // record can state. Anything past that has nowhere to go.
 const MAX_ENUM_LEVELS    = 6;
-const DEFAULT_CAPTIONS   = { year: '(year)', month: '(month)' };
+const DEFAULT_CAPTIONS   = { year: '(year)', month: '(month)', day: '(day)' };
 const ALLOWED_SUBFIELDS = 'abcdefghijklm';
 
 // ── State ────────────────────────────────────────────────────────────────
@@ -1801,7 +1803,7 @@ function renderRoleRows(card, roles, values) {
     // cataloguer is being offered one, not told one.
     const undecided = role.kind === UNRESOLVED_KIND || role.suggested;
     const value = (values || {})[role.group] || '';
-    const kindOptions = Object.entries(KIND_LABELS).map(([kind, label]) =>
+    const kindOptions = KIND_CHOICES.map(([kind, label]) =>
       `<option value="${kind}" ${role.kind === kind ? 'selected' : ''}>${escHtml(label)}</option>`
     ).join('');
     // Level is "by position" unless the cataloguer says otherwise. Position is

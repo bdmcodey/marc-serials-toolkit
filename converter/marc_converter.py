@@ -60,6 +60,7 @@ DEFAULT_CAPTIONS = {
     "year":  "(year)",
     "month": "(month)",
     "season": "(season)",
+    "day":   "(day)",
 }
 
 # What to call an enumeration level the statement did not caption -- the "39"
@@ -94,7 +95,10 @@ CONVENTION_HOUSE    = "house"
 # words they hold, so nothing here names a level either.
 _SUBFIELD_MAPS: Dict[str, Dict[str, Any]] = {
     CONVENTION_STANDARD: {"enum": ("a", "b", "c", "d", "e", "f"),
-                          "year": "i", "month": "j"},
+                          "year": "i", "month": "j", "day": "k"},
+    # No day subfield: the local records this reproduces have no precedent for
+    # one, and inventing a code would be worse than saying the day cannot be
+    # placed. A statement carrying one is named, not silently levelled off.
     CONVENTION_HOUSE:    {"enum": ("b", "c", "d", "e", "f"),
                           "year": "a", "month": "i"},
 }
@@ -108,7 +112,7 @@ _INDICATORS = {
 # The chronology levels a convention can place, in the order they are offered
 # to the user.  Enumeration is not in this list: it has no fixed names, only
 # positions, and its subfields come from the "enum" sequence above.
-CONVENTION_LEVELS = ("year", "month")
+CONVENTION_LEVELS = ("year", "month", "day")
 
 # How many enumeration levels the settings dialog offers to move.  Records go
 # deeper only rarely, and any level past these keeps the convention's own code.
@@ -378,6 +382,11 @@ def caption_slot(caption: str) -> Optional[str]:
         return "year"
     if "season" in c or "month" in c or "chron" in c:
         return "month"
+    # Before the enumeration fallback: "(day)" is short and wordlike, so
+    # without this it reads as an enumeration caption and $k comes back as a
+    # numbering level.
+    if "day" in c:
+        return "day"
     # Anything else short enough to be a caption is an enumeration caption.
     # MARC 21 does not restrict the words, and cataloguers use more than three
     # of them -- "Bd.", "Heft", "Report no.", "n.s. v."
@@ -609,6 +618,11 @@ def _build_853(
     if levels.get("month"):
         cap = caps["season"] if _uses_season_chronology(parse_result) else caps["month"]
         planned.append((smap["month"], cap))
+    # Only when the convention can actually place it: an 853 declaring a
+    # caption its 863s never fill describes a level the record does not have.
+    # _build_863_for_range names the day in that case; the 853 stays quiet.
+    if levels.get("day") and smap.get("day"):
+        planned.append((smap["day"], caps["day"]))
 
     # Sorted by subfield so the field reads correctly under either convention
     # (HOUSE puts the year first, in $a).
@@ -639,13 +653,14 @@ def _build_853(
 # The two level hierarchies an 863 carries, each most significant first.
 # Enumeration and chronology are independent: a volume ranging says nothing
 # about whether the year does.
-_CHRON_LEVELS = ("year", "month")
+_CHRON_LEVELS = ("year", "month", "day")
 
 # Cataloguer-facing names, with their article, for warnings about a level that
 # could not be written.
 _LEVEL_WORDS = {
     "year":  ("a", "year"),
     "month": ("a", "month or season"),
+    "day":   ("a", "day"),
 }
 
 
@@ -666,12 +681,18 @@ _CHRON_VALUE_RE = re.compile(rf"^{_CHRON_CODE}(?:[-/]{_CHRON_CODE})*-?$")
 _YEAR_VALUE_RE = re.compile(r"^\d{4}(?:[-/]\d{4})*-?$")
 
 
+# A day subfield holds days of the month, joined the same way.
+_DAY_VALUE_RE = re.compile(r"^(?:0?[1-9]|[12]\d|3[01])(?:[-/](?:0?[1-9]|[12]\d|3[01]))*-?$")
+
+
 def _is_codeable(level, value: str) -> bool:
     """Whether `value` may be written into the coded subfield for `level`."""
     if level == "month":
         return bool(_CHRON_VALUE_RE.match(value))
     if level == "year":
         return bool(_YEAR_VALUE_RE.match(value))
+    if level == "day":
+        return bool(_DAY_VALUE_RE.match(value))
     return True
 
 
@@ -737,6 +758,21 @@ def _check_enumeration_depth(levels: Dict[str, Any],
         if note not in warnings:
             warnings.append(note)
     return True
+
+
+def _note_no_subfield(warnings: Optional[List[str]], level: str,
+                      value: str) -> None:
+    """Record a chronology level this convention has nowhere to put."""
+    if warnings is None:
+        return
+    article, word = _LEVEL_WORDS.get(level, ("a", level))
+    note = (
+        f"This convention has no subfield for {article} {word}, so the "
+        f"{word} ({value}) was left out. MARC 21 puts it in 863 $k; the "
+        f"standard convention writes it."
+    )
+    if note not in warnings:
+        warnings.append(note)
 
 
 def _note_caption_conflict(warnings: Optional[List[str]], stated: str,
@@ -961,9 +997,16 @@ def _build_863_for_range(
         value = chron_values.get(name)
         if not value:
             continue
+        code = smap.get(name)
+        if not code:
+            # The convention has no subfield for this level -- the house one
+            # has no day. Levelling the value off in silence is the one thing
+            # not to do, so it is named instead.
+            _note_no_subfield(warnings, name, value)
+            continue
         if name == "month" and chron_as_text:
             value = _chron_text(value)
-        planned.append((smap[name], value))
+        planned.append((code, value))
 
     for code, value in sorted(planned, key=lambda p: p[0]):
         sfs.append(SubfieldData(code, value))

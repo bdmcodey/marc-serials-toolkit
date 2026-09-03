@@ -63,7 +63,10 @@ def test_both_presets_cover_every_level():
     assert set(presets) == {"standard", "house"}
     for preset in presets.values():
         # Chronology levels are named; enumeration is a sequence of positions.
-        assert set(preset["subfields"]) == set(CONVENTION_LEVELS) | {"enum"}
+        # A convention need not offer every chronology level -- the house one
+        # has no day subfield -- but it may not invent levels either.
+        assert set(preset["subfields"]) <= set(CONVENTION_LEVELS) | {"enum"}
+        assert {"enum", "year", "month"} <= set(preset["subfields"])
         assert len(preset["subfields"]["enum"]) >= 3
 
 
@@ -89,9 +92,22 @@ def test_unknown_convention_falls_back_to_standard():
 
 
 def test_valid_override_is_applied():
-    spec, rejections = resolve_convention("standard", subfields={"year": "k"})
-    assert spec["subfields"]["year"] == "k"
+    spec, rejections = resolve_convention("standard", subfields={"year": "l"})
+    assert spec["subfields"]["year"] == "l"
     assert rejections == []
+
+
+def test_a_convention_without_a_day_subfield_says_so_rather_than_inventing_one():
+    """
+    MARC 21 puts the third chronology level in $k. The house convention
+    reproduces local records that have no precedent for one, so it has no day
+    slot at all -- and a statement carrying a day is named rather than quietly
+    levelled off to the month.
+    """
+    standard, _ = resolve_convention("standard")
+    house, _ = resolve_convention("house")
+    assert standard["subfields"]["day"] == "k"
+    assert "day" not in house["subfields"]
 
 
 def test_enumeration_can_be_reseated_as_a_whole_sequence():
@@ -836,3 +852,58 @@ def test_a_flagged_record_still_carries_its_fields():
     assert _check_enumeration_depth(
         {"enum_captions": ["v.", "no.", "pt.", "ser."]}, warnings) is True
     assert len(warnings) == 1
+
+
+# ---------------------------------------------------------------------------
+# Day-level chronology in 863 $k
+# ---------------------------------------------------------------------------
+
+def test_a_day_reaches_the_third_chronology_subfield():
+    """MARC 21 863: $i first chronology level, $j second, $k third."""
+    result = convert_holdings(parse_866("1983: 5 (7-30 [Jan 28-Dec 29])"))
+
+    assert result.field_853.display() == \
+        "853 31 $8 1 $a v. $b no. $i (year) $j (month) $k (day)"
+    assert result.fields_863[0].display() == \
+        "863 40 $8 1.1 $a 5 $b 7-30 $i 1983 $j 01-12 $k 28-29"
+
+
+def test_a_convention_with_no_day_subfield_names_the_day_it_cannot_place():
+    """
+    The house convention reproduces local records with no precedent for a day
+    subfield, so it has none. Levelling the day off in silence is the one
+    thing not to do.
+    """
+    spec, _ = resolve_convention("house")
+    result = convert_holdings(parse_866("1983: 5 (7-30 [Jan 28-Dec 29])"),
+                              convention_spec=spec)
+
+    assert "$k" not in result.field_853.display()
+    assert any("no subfield for a day" in w for w in result.warnings), result.warnings
+
+
+def test_the_853_declares_no_day_a_convention_cannot_write():
+    """An 853 caption its own 863s never fill describes a level that is not there."""
+    spec, _ = resolve_convention("house")
+    result = convert_holdings(parse_866("1983: 5 (7-30 [Jan 28-Dec 29])"),
+                              convention_spec=spec)
+    assert "(day)" not in result.field_853.display()
+
+
+def test_a_statement_with_no_day_declares_none():
+    result = convert_holdings(parse_866("v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)"))
+    assert result.field_853.display() == \
+        "853 31 $8 1 $a v. $b no. $i (year) $j (month)"
+    assert "$k" not in result.fields_863[0].display()
+
+
+def test_the_day_caption_is_not_read_as_an_enumeration_level():
+    """
+    "(day)" is short and wordlike, so without an explicit test it falls through
+    to the enumeration branch and an existing 853's $k comes back as a
+    numbering level.
+    """
+    assert caption_slot("(day)") == "day"
+    slots = read_853_slots(_existing_853(("8", "1"), ("a", "v."), ("i", "(year)"),
+                                         ("j", "(month)"), ("k", "(day)")))
+    assert slots == {"enum": ("a",), "year": "i", "month": "j", "day": "k"}

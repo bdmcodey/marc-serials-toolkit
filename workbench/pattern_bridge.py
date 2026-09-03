@@ -52,13 +52,14 @@ from pattern_detector import split_multi_range
 KIND_ENUM    = "enum"
 KIND_YEAR    = "year"
 KIND_MONTH   = "month"
+KIND_DAY     = "day"
 KIND_IGNORE  = "ignore"        # captured, deliberately not encoded
 
 # Chosen by the cataloguer, never by inference: the pattern captured something
 # whose level cannot be read off the statement's structure.
 KIND_UNRESOLVED = "unresolved"
 
-ENCODABLE_KINDS = (KIND_ENUM, KIND_YEAR, KIND_MONTH)
+ENCODABLE_KINDS = (KIND_ENUM, KIND_YEAR, KIND_MONTH, KIND_DAY)
 VALID_KINDS     = ENCODABLE_KINDS + (KIND_IGNORE,)
 
 BOUNDARY_START = "start"
@@ -86,6 +87,9 @@ _SLOT_KIND = {
     "part":  (KIND_ENUM, "pt."),
     "year":  (KIND_YEAR, None),
     "month": (KIND_MONTH, None),
+    # The detector has no day token -- a day is a bare NUMBER -- so nothing
+    # infers one. A cataloguer who recognises one says so; that is what the
+    # confirm step is for.
     "num":   (KIND_UNRESOLVED, None),
 }
 
@@ -94,6 +98,7 @@ KIND_LABELS = {
     KIND_ENUM:       "Enumeration",
     KIND_YEAR:       "Year",
     KIND_MONTH:      "Month / season",
+    KIND_DAY:        "Day",
     KIND_IGNORE:     "Not encoded",
     KIND_UNRESOLVED: "Not yet decided",
 }
@@ -105,6 +110,7 @@ _LEGACY_LEVELS = {
     "part":  (KIND_ENUM, "pt."),
     "year":  (KIND_YEAR, None),
     "month": (KIND_MONTH, None),
+    "day":   (KIND_DAY, None),
     "ignore": (KIND_IGNORE, None),
     "unresolved": (KIND_UNRESOLVED, None),
 }

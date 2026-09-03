@@ -192,6 +192,8 @@ class HoldingsRange:
                 levels["year"] = True
             if ec.month is not None:
                 levels["month"] = True
+            if ec.day is not None:
+                levels["day"] = True
         return levels
 
 
@@ -217,7 +219,7 @@ class ParseResult:
         captions: List[Optional[str]] = []
         for r in self.ranges:
             levels = r.caption_levels()
-            for key in ("year", "month"):
+            for key in ("year", "month", "day"):
                 if levels.get(key):
                     union[key] = True
             for i, cap in enumerate(levels.get("enum_captions", [])):
@@ -436,59 +438,58 @@ def _chron_unit_value(raw: str) -> str:
 
 def _parse_chron_single(raw: str,
                         warnings: Optional[List[str]] = None,
-                        ) -> Tuple[Optional[str], Optional[str]]:
+                        ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Parse ONE chronology boundary (no range hyphen), e.g.:
       '1990'  '1990:Mar.'  'Spring 1990'  '1990 Spring'  'Mar. 1990'  'Jan'
-      'Apr 18, 1996'  -> ('1996', '04'), the day noted and not encoded
-    Returns (year, month_code_or_text).
+      'Apr 18, 1996'  -> ('1996', '04', '18')
+    Returns (year, month_code_or_text, day).
     """
     raw = raw.strip()
     if not raw:
-        return None, None
+        return None, None, None
 
     # Bare year
     m = re.match(r"^(\d{4})$", raw)
     if m:
-        return m.group(1), None
+        return m.group(1), None, None
 
     # Mon D, YYYY -- a day-level date.  Every other alternative here wants the
     # year adjacent to the month, so "Apr 18, 1996" matched none of them and
     # the whole boundary was returned as (None, None): the month and the year
-    # went with the day.  863 $k holds a day and nothing in this tool models
-    # one yet, so the day is dropped -- as the block grammar already drops it
-    # -- but the month and year are kept, and the day is named.
+    # went with the day.  All three levels are kept now; 863 $k holds the day.
     m = re.match(r"^([A-Za-z.]+)\s+(\d{1,2})\s*,?\s+(\d{4})$", raw)
     if m and chron_unit_code(m.group(1)) is not None:
-        if warnings is not None:
-            note = (f"Day-level date '{raw}' recorded to the month; "
-                    f"the day ({m.group(2)}) is not encoded.")
-            if note not in warnings:
-                warnings.append(note)
-        return m.group(3), _chron_unit_value(m.group(1))
+        return m.group(3), _chron_unit_value(m.group(1)), m.group(2).lstrip("0") or "0"
 
     # YYYY:Mon. or YYYY Season (year first)
     m = re.match(r"(\d{4})\s*[:\s]\s*([A-Za-z./]+(?:\s+[A-Za-z./]+)?)$", raw)
     if m:
-        return m.group(1), _chron_unit_value(m.group(2))
+        return m.group(1), _chron_unit_value(m.group(2)), None
 
     # Mon. YYYY or Season YYYY (chron before year)
     m = re.match(r"([A-Za-z./]+(?:\s+[A-Za-z./]+)?)\s*[:\s]\s*(\d{4})$", raw)
     if m:
-        return m.group(2), _chron_unit_value(m.group(1))
+        return m.group(2), _chron_unit_value(m.group(1)), None
+
+    # Mon D -- a day-level date with the year supplied by the other boundary
+    # or by the block it sits in, e.g. the 'Jan 28' in '[Jan 28-Dec 29]'.
+    m = re.match(r"^([A-Za-z.]+)\s+(\d{1,2})$", raw)
+    if m and chron_unit_code(m.group(1)) is not None:
+        return None, _chron_unit_value(m.group(1)), m.group(2).lstrip("0") or "0"
 
     # Bare month/season name (year supplied by the other boundary,
     # e.g. the 'Jan' in 'Jan-Jun 1984')
     m = re.match(r"^([A-Za-z./]+)$", raw)
     if m:
-        return None, _chron_unit_value(m.group(1))
+        return None, _chron_unit_value(m.group(1)), None
 
-    return None, None
+    return None, None, None
 
 
 def _parse_chron(raw: str,
                  warnings: Optional[List[str]] = None,
-                 ) -> Tuple[Optional[str], Optional[str]]:
+                 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Parse a chronology string, including ranges within a single group:
       '1990'          -> ('1990', None)
@@ -499,15 +500,16 @@ def _parse_chron(raw: str,
       '1981-Sep 1996' -> ('1981-1996', None)   # one end only: cannot be placed
       '1990-1994'     -> ('1990-1994', None)
     Months and seasons are returned as MARC chronology codes
-    (01-12, seasons 21-24) for use in 863 $j.
-    Returns (year, month).
+    (01-12, seasons 21-24) for use in 863 $j; a day, when the statement gives
+    one, goes to 863 $k.
+    Returns (year, month, day).
     """
     raw = raw.strip()
 
     if "-" in raw:
         left, right = (p.strip() for p in raw.split("-", 1))
-        l_year, l_month = _parse_chron_single(left, warnings)
-        r_year, r_month = _parse_chron_single(right, warnings)
+        l_year, l_month, l_day = _parse_chron_single(left, warnings)
+        r_year, r_month, r_day = _parse_chron_single(right, warnings)
 
         # Year: share the right-hand year if the left boundary omits it.
         # Equal years collapse: the year is the most significant chronology
@@ -518,45 +520,56 @@ def _parse_chron(raw: str,
         else:
             year = l_year or r_year
 
-        # Month/season.  Two ends naming the same month keep both --
-        # "Jan 1956 - Jan 1957" is '01-01', not '01'.  Collapsing it lost the
-        # pairing with the years either side, leaving "$i 1956-1957 $j 01",
-        # which reads as one January spanning two years.
-        #
-        # One end naming a month and the other not -- "1981 - Sep 1996",
-        # "Aug 1984-1985" -- cannot be recorded at all.  A reader pairs the
-        # subfields positionally, so "$i 1981-1996 $j 09" says the run *begins*
-        # in September 1981, which the statement never claimed.  There is no
-        # notation for a chronology that belongs to one end only, so the month
-        # is dropped and named.  This is the only place that can tell the two
-        # cases apart: by the time the converter sees a lone '09' it cannot know
-        # whether the other end said the same thing or said nothing.
-        if l_month and r_month:
-            month = f"{l_month}-{r_month}"
-        elif l_month or r_month:
-            month = None
-            if warnings is not None:
-                lone = l_month or r_month
-                note = (
-                    f"Only one end of '{raw}' gives a month or season ({lone}); "
-                    "with nothing at the other end it cannot be recorded as a "
-                    "range, so it was left out."
-                )
-                if note not in warnings:
-                    warnings.append(note)
-        else:
-            month = None
+        month = _pair_or_drop(l_month, r_month, raw, "month or season", warnings)
+        # The day follows exactly the same rule, and for the same reason: a
+        # lone '18' in $k pairs positionally with whatever $i and $j hold, so
+        # it would claim a precision the other end of the range never gave.
+        day = _pair_or_drop(l_day, r_day, raw, "day", warnings)
 
-        if year or month:
-            return year, month
-        return raw, None  # unparseable: preserve raw so nothing is lost
+        if year or month or day:
+            return year, month, day
+        return raw, None, None  # unparseable: preserve raw so nothing is lost
 
-    year, month = _parse_chron_single(raw, warnings)
-    if year or month:
-        return year, month
+    year, month, day = _parse_chron_single(raw, warnings)
+    if year or month or day:
+        return year, month, day
 
     # Give up - return raw as year string so the data is not dropped
-    return raw, None
+    return raw, None, None
+
+
+def _pair_or_drop(left: Optional[str], right: Optional[str], raw: str,
+                  what: str, warnings: Optional[List[str]]) -> Optional[str]:
+    """
+    Join the two ends of one chronology level, or drop a value only one gives.
+
+    Two ends naming the same month keep both -- "Jan 1956 - Jan 1957" is
+    '01-01', not '01'.  Collapsing it lost the pairing with the years either
+    side, leaving "$i 1956-1957 $j 01", which reads as one January spanning two
+    years.
+
+    One end naming a value and the other not -- "1981 - Sep 1996", "Aug
+    1984-1985" -- cannot be recorded at all.  A reader pairs the subfields
+    positionally, so "$i 1981-1996 $j 09" says the run *begins* in September
+    1981, which the statement never claimed.  There is no notation for a
+    chronology belonging to one end only, so the value is dropped and named.
+    This is the only place that can tell the two cases apart: by the time the
+    converter sees a lone '09' it cannot know whether the other end said the
+    same thing or said nothing.
+    """
+    if left and right:
+        return f"{left}-{right}"
+    if not (left or right):
+        return None
+    if warnings is not None:
+        lone = left or right
+        note = (
+            f"Only one end of '{raw}' gives a {what} ({lone}); with nothing at "
+            "the other end it cannot be recorded as a range, so it was left out."
+        )
+        if note not in warnings:
+            warnings.append(note)
+    return None
 
 
 def _parse_unit(text: str,
@@ -615,7 +628,7 @@ def _parse_unit(text: str,
     ec = EnumChron(enum=levels)
 
     if chron:
-        ec.year, ec.month = _parse_chron(chron.group("chron_raw"), warnings)
+        ec.year, ec.month, ec.day = _parse_chron(chron.group("chron_raw"), warnings)
 
     return ec if (ec.has_enum() or ec.has_chron()) else None
 
@@ -770,40 +783,43 @@ def _looks_like_block(text: str) -> bool:
     return bool(_BLOCK_SNIFF_RE.match(text))
 
 
-def _bracket_chron_unit(raw: str) -> Optional[str]:
+def _bracket_chron_unit(raw: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    MARC chronology code for one side of a bracketed group.
+    MARC chronology for one side of a bracketed group, as (month, day).
 
-    'Jun 1'    -> '06'      (trailing day dropped)
-    'Jul/Aug'  -> '07/08'   (combined issue, via _chron_unit_value)
-    'summer'   -> '22'
-    'Sum'      -> 'Sum'     (unrecognised: preserved, not dropped)
-    """
-    raw = raw.strip()
-    if not raw:
-        return None
-    m = re.match(r"([A-Za-z]+(?:\s*/\s*[A-Za-z]+)*)", raw)
-    if not m:
-        return None
-    return _chron_unit_value(re.sub(r"\s*", "", m.group(1)))
-
-
-def _parse_bracket_chron(raw: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Parse a bracketed chronology group into (start, end) codes.
-
-    '[Feb]'            -> ('02', None)
-    '[Feb-Nov]'        -> ('02', '11')
-    '[Jan 5-Jan 26]'   -> ('01', '01')
-    '[Jul/Aug]'        -> ('07/08', None)
+    'Jun 1'    -> ('06', '1')
+    'Jul/Aug'  -> ('07/08', None)   (combined issue, via _chron_unit_value)
+    'summer'   -> ('22', None)
+    'Sum'      -> ('Sum', None)     (unrecognised: preserved, not dropped)
     """
     raw = raw.strip()
     if not raw:
         return None, None
+    m = re.match(r"([A-Za-z]+(?:\s*/\s*[A-Za-z]+)*)\s*(\d{1,2})?", raw)
+    if not m:
+        return None, None
+    month = _chron_unit_value(re.sub(r"\s*", "", m.group(1)))
+    day = (m.group(2) or "").lstrip("0") or m.group(2)
+    return month, day or None
+
+
+def _parse_bracket_chron(raw: str) -> Tuple[Tuple[Optional[str], Optional[str]],
+                                            Tuple[Optional[str], Optional[str]]]:
+    """
+    Parse a bracketed chronology group into ((start month, day), (end month, day)).
+
+    '[Feb]'            -> (('02', None),  (None, None))
+    '[Feb-Nov]'        -> (('02', None),  ('11', None))
+    '[Jan 5-Jan 26]'   -> (('01', '5'),   ('01', '26'))
+    '[Jul/Aug]'        -> (('07/08', None), (None, None))
+    """
+    raw = raw.strip()
+    if not raw:
+        return (None, None), (None, None)
     if "-" in raw:
         left, right = (p.strip() for p in raw.split("-", 1))
         return _bracket_chron_unit(left), _bracket_chron_unit(right)
-    return _bracket_chron_unit(raw), None
+    return _bracket_chron_unit(raw), (None, None)
 
 
 def _parse_block_format(text: str) -> ParseResult:
@@ -856,7 +872,8 @@ def _parse_block_format(text: str) -> ParseResult:
             if not im:
                 continue
             issue = (im.group("iss") or "").strip() or None
-            c_start, c_end = _parse_bracket_chron(im.group("chron") or "")
+            (c_start, d_start), (c_end, d_end) = \
+                _parse_bracket_chron(im.group("chron") or "")
 
             if not any([vol, issue, year, c_start]):
                 continue
@@ -869,8 +886,13 @@ def _parse_block_format(text: str) -> ParseResult:
                 enum.append(EnumLevel(caption="v.", value=vol))
             if issue:
                 enum.append(EnumLevel(caption="no.", value=issue))
-            start = EnumChron(enum=enum, year=year, month=c_start)
-            end = EnumChron(month=c_end) if c_end and c_end != c_start else None
+            start = EnumChron(enum=enum, year=year, month=c_start, day=d_start)
+            # The end boundary exists when either chronology level differs:
+            # "[Jan 5-Jan 26]" is one month and two days, and dropping the end
+            # because the months match would lose the second day.
+            end = (EnumChron(month=c_end, day=d_end)
+                   if (c_end and c_end != c_start) or (d_end and d_end != d_start)
+                   else None)
             result.ranges.append(
                 HoldingsRange(start=start, end=end, raw=item or body.strip())
             )

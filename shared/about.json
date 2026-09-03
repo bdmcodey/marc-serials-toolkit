@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "released": "2026-09-03",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,33 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.8.0",
+      "date": "2026-09-03",
+      "summary": "Day-level dates are recorded. Nothing in the test corpus is now lost without saying so.",
+      "changes": [
+        {
+          "tool": "Converter",
+          "text": "A date given to the day is now recorded to the day, in 863 $k under an 853 $k (day) caption. \"1983: 5 (7-30 [Jan 28-Dec 29])\" gives $i 1983 $j 01-12 $k 28-29. Until now the day was discarded from every bracketed date without a word \u2014 on one run-on statement in the test corpus that was fourteen dates gone from a single record, and it was the last thing the tools lost in silence."
+        },
+        {
+          "tool": "Converter",
+          "text": "\"Apr 18, 1996\" keeps its day too. It was previously recorded to the month with a note saying the day could not be encoded; there is now a subfield for it."
+        },
+        {
+          "tool": "Converter",
+          "text": "A day only one end of a range gives is still left out and named, exactly as a month is. \"Apr 18, 1996-Dec 1997\" records 1996-1997 and April-December but no day: a lone 18 in $k pairs with the other subfields positionally, so it would say the holdings end on the 18th as well as beginning on it."
+        },
+        {
+          "tool": "Converter",
+          "text": "The caption and subfield settings now offer a day row, set to $k under the standard convention. The house convention has no day subfield \u2014 the local records it reproduces have no precedent for one \u2014 so a statement carrying a day converts without it and says which day it could not place, rather than quietly rounding to the month."
+        },
+        {
+          "tool": "Workbench",
+          "text": "\"Day\" is now one of the meanings you can give a captured value on the confirmation screen, so a pattern can record day-level dates the same way the standard parser does."
+        }
+      ]
+    },
     {
       "version": "0.7.4",
       "date": "2026-09-03",
