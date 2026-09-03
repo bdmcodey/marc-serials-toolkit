@@ -635,7 +635,7 @@ def index():
         convention_levels=CONVENTION_LEVELS,
         enum_levels=enum_level_fields(),
         convention_presets=convention_presets(),
-        kind_labels={k: KIND_LABELS[k] for k in ENCODABLE_KINDS},
+        kind_choices=[(k, KIND_LABELS[k]) for k in ENCODABLE_KINDS],
         caption_choices=list(CAPTION_CHOICES),
         ignore_kind=KIND_IGNORE,
         ignore_label=KIND_LABELS[KIND_IGNORE],

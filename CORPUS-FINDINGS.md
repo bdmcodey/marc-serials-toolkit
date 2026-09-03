@@ -9,11 +9,11 @@ deliberate, separately reviewable decision. Everything here was found before
 anything was changed.
 
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
-(0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4,
-3 September 2026).
+(0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
+D10 (0.8.0, 3 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
-why the code looks the way it does now. **D7, D10 and D11 remain open** — see
-the list at the end.
+why the code looks the way it does now. **D7 and D11 remain open** — see the
+list at the end.
 
 Reproduce every number below with:
 
@@ -25,12 +25,12 @@ python scripts/corpus_report.py --drift    # only the tags that no longer hold
 
 ## Headline
 
-| | at 0.6.0 | now (0.7.0) |
+| | at 0.6.0 | now (0.8.0) |
 |---|---|---|
 | statements | 112 unique (127 before de-duplication), 10 sections | — |
 | converted cleanly | 67 (60%) | **78 (70%)** |
-| converted with values **silently** dropped | 36 (32%) | **1 (1%)** |
-| converted, and told the cataloguer what it dropped | 3 | **20** |
+| converted with values **silently** dropped | 36 (32%) | **0** |
+| converted, and told the cataloguer what it dropped | 3 | **21** |
 | produced no fields at all | 6 (5%) | **13 (12%)** |
 | detector clusters | 55, 39 of them singletons | **44, 31 singletons** |
 | one shape split across several clusters | 45 statements, 15 confirmations | **0** |
@@ -44,9 +44,11 @@ less written, and what is written is true. The clean rate rose again in 0.7.0
 for a different reason: four statements the model simply could not express now
 convert whole (D6, D8).
 
-The number that matters is not the refusals. It was the **36 silent losses**;
-one remains, and it is the run-on whose day-level dates the block grammar drops
-by design (D10).
+The number that matters is not the refusals. It was the **36 silent losses**.
+There are now **none**: the last one was the run-on whose day-level dates the
+block grammar discarded, and 0.8.0 records them (D10). Every value the corpus
+states is now either encoded or named — which is the whole claim the bounded-
+errors framework makes, held on 112 real statements.
 
 The partial-match count *rose*, from 37 to 64, and that is not a regression:
 the generated expressions became broader in 0.6.4, so more of them now overlap
@@ -330,9 +332,55 @@ says once what the captured values mean.
   0.6.4**: the nested group is named rather than dropped in silence. Its meaning
   is local to whoever wrote it, so guessing would be worse than saying so.
 - **D11** `N?: 1 (4)1984: ...` — unexplained markers, warned by design.
-- **D10** the long `ONE` run-on — the detector's complexity guard declines it and
-  the parser drops the day from each bracketed date. Both documented, both
-  intended.
+- **D10** the long `ONE` run-on — the detector's complexity guard declines it,
+  which is intended and stands. The parser also dropped the day from each
+  bracketed date, which was **not** intended and is **fixed in 0.8.0**: days go
+  to 863 `$k`. That was the corpus's last silent loss, and it was fourteen
+  dates from one record. See "Day-level chronology" below.
+
+### Day-level chronology — **ADDED in 0.8.0**
+
+`_bracket_chron_unit()` matched the month word at the head of a bracketed date
+and returned it, so `[Jan 28-Dec 29]` became `01`–`12` and the two days went
+nowhere. Its docstring said "trailing day dropped" and nothing on screen did.
+On the `ONE` run-on that is fourteen dates from one record — the corpus's last
+silent loss, and the reason the headline column stood at 1 rather than 0 for
+four versions.
+
+MARC 21 863 numbers its chronology levels: `$i` first, `$j` second, `$k` third.
+A serial captioned `(year)(month)(day)` puts the day in `$k`, so there was a
+right answer available all along, and `EnumChron.day` already existed as a
+field nothing populated. 0.8.0 populates and writes it:
+
+```
+1983: 5 (7-30 [Jan 28-Dec 29])
+  853 31 $8 1 $a v. $b no. $i (year) $j (month) $k (day)
+  863 40 $8 1.1 $a 5 $b 7-30 $i 1983 $j 01-12 $k 28-29
+```
+
+Four things this had to get right, none of them about the day itself:
+
+- **`[Jan 5-Jan 26]` is one month and two days.** The block grammar dropped the
+  end boundary whenever the months matched, which would have thrown away the
+  second day. It now keeps the end when *either* level differs.
+- **The one-sided rule applies unchanged.** A day only one end gives is dropped
+  and named, exactly as a month is, and for the same reason: a lone `$k 18`
+  pairs positionally with `$i` and `$j`, claiming the run ends on the 18th as
+  well as beginning on it. This closes the other half of D4, which recorded
+  `Apr 18, 1996` to the month and named the day — the day is kept now when both
+  ends give one, and named when only one does. The rule the cataloguer set for
+  chronology in 0.6.2 needed no amendment to cover a third level, which is a
+  fair sign it was the right rule.
+- **`(day)` is not an enumeration caption.** `caption_slot()` tests for "year",
+  then "season"/"month"/"chron", then falls through to "this is an enumeration
+  caption". "(day)" is short and wordlike, so without an explicit test an
+  existing 853's `$k` came back as a *numbering* level. Caught by writing the
+  test, not by reading the code.
+- **A convention need not have a day.** The house convention reproduces local
+  records with no precedent for a day subfield, so it has none. Inventing a
+  code would be worse than saying the day cannot be placed, so the 863 leaves
+  it out, the 853 declares no caption it will not fill, and the record says
+  which day was lost and where MARC would put it.
 
 ## Pattern detector
 
@@ -822,13 +870,13 @@ everything correctly" is not.
 
 - **D7** — genuinely captionless statements. Expected to keep failing; the
   Workbench's confirm step is the mechanism that could convert them.
-- **D10, D11** — by design, and documented as such.
+- **D11** — by design, and documented as such.
+- ~~**D10**~~ Half fixed in 0.8.0. The detector's complexity guard still
+  declines the run-on, which is intended; the silent day loss inside it is
+  gone.
 - ~~**D14**~~ Resolved in 0.7.4 — and it was a bug after all, just not the one
   logged: a record claiming implausible enumeration depth is now flagged rather
   than passing as ordinary. See D14's section.
-- The run-on in `block-grammar` still drops its day-level dates, which is the
-  single remaining silent loss and is `_bracket_chron_unit`'s documented
-  behaviour. D4's fix could be extended to it.
 
 The bounded-error work cuts across all of these and is worth doing alongside
 rather than after: every fix on this list was easier to trust because the report

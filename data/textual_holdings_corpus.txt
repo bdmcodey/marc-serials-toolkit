@@ -191,7 +191,7 @@ v. 20 no. 1 Suppl. (1999)                                           # fail:D3
 1979: 1 (6-8 [Sep-Dec])
 N1984: (2 (1))M1985: 2 (2 [summer])                                 # warn:D9
 2018: ([Sum])
-1983: 5 (7-30 [Jan 28-Dec 29])1984: 6 (1-4 [Jan 5-Jan 26], 6 [Feb 9], 11-12 [Mar 15-Mar 22], 14 [Apr 5], 18-19 [May 3-May 10], 24-25 [Jun 14-Jun 21]{lcub}called "Alternate Voice" for one issue only{rcub}, 27-28 [Jul 5-Jul 12])  # known:D10
+1983: 5 (7-30 [Jan 28-Dec 29])1984: 6 (1-4 [Jan 5-Jan 26], 6 [Feb 9], 11-12 [Mar 15-Mar 22], 14 [Apr 5], 18-19 [May 3-May 10], 24-25 [Jun 14-Jun 21]{lcub}called "Alternate Voice" for one issue only{rcub}, 27-28 [Jul 5-Jul 12])  # warn:D10
 N?: 1 (4)1984: 2 (1)M1985: 2 (2 [summer])                            # known:D11
 
 [section: workbench-review]
