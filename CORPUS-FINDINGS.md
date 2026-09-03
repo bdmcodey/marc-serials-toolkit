@@ -803,8 +803,12 @@ The first two are done; the rest are Workbench UI and are not started.
   now an ordered list of any depth: `caption_slot()` answers only "enumeration,
   year or month", the subfield comes from position, and the caption is whatever
   word the statement used. See D6.
-- **Skip a pattern or a record.** A button that removes a pattern or a record
-  from conversion entirely, leaving it untouched.
+- ~~**Skip a pattern or a record.**~~ Done in 0.7.2. A skipped pattern still
+  has to *match* — that is what stops its statements falling through to the
+  standard parser and being converted anyway — and skipping deliberately does
+  not require the values to be decided first, since not knowing what a shape
+  means is a good reason to leave it alone. A skipped record is not touched at
+  all, including by "clear existing 853/863".
 - ~~**Split on top-level commas, semicolons or slashes should default to
   OFF.**~~ Done in 0.6.4.
 - ~~**The pattern library needs to collapse.**~~ Done in 0.7.1. Two folds, not

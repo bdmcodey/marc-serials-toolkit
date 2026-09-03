@@ -657,3 +657,91 @@ def test_a_value_deliberately_left_out_does_not_force_review():
 
     result = parse_with("Series 1, v. 6 no. 1 (Summer/Fall 1992)", roles=roles)
     assert result.needs_review is False
+
+
+# ---------------------------------------------------------------------------
+# Skipping: recognised, and deliberately left alone
+# ---------------------------------------------------------------------------
+
+def skippable(statement: str, skip: bool = True):
+    """A confirmed pattern for `statement`, marked skip or not."""
+    group = detect_one(statement)
+    pattern, errors = plib.validate_pattern({
+        "id": "sk", "label": "skippable", "regex": group.regex,
+        "roles": [r.to_dict() for r in infer_roles(group.named_groups)],
+        "skip": skip,
+    })
+    assert not errors, errors
+    return pattern
+
+
+def test_a_skipped_pattern_writes_nothing():
+    result, source = apply_patterns("v.2(1991)-v.4(1993)",
+                                    [skippable("v.1(1990)-v.5(1994)")])
+    assert source == "skipped"
+    assert result.ranges == []
+    assert any("skipped" in w for w in result.warnings)
+
+
+def test_a_skipped_pattern_still_has_to_match_or_it_does_nothing():
+    """Skipping one shape must not quietly set aside every other shape."""
+    _, source = apply_patterns("1993: (1 [Feb])",
+                               [skippable("v.1(1990)-v.5(1994)")])
+    assert source == "parser"
+
+
+def test_skipping_beats_the_parser_fallback():
+    """
+    The rule the whole feature rests on. A skipped pattern has to *claim* the
+    statement, not merely decline it: a pattern that declined would leave the
+    statement unmatched, the standard parser would read it, and it would be
+    converted anyway -- the opposite of what skipping asks for.
+    """
+    _, source = apply_patterns("v.2(1991)-v.4(1993)",
+                               [skippable("v.1(1990)-v.5(1994)")], fallback=True)
+    assert source == "skipped"
+
+
+def test_a_skipped_pattern_does_not_claim_a_statement_it_only_begins():
+    """
+    All or nothing, the same rule confirmed patterns follow. Setting aside
+    "v.N(YYYY)-v.M(YYYY)" must not also set aside a longer statement that
+    merely opens with that shape, because the rest of it would go unread.
+    """
+    _, source = apply_patterns("v.1(1990)-v.3(1992), v.5:no.2(1994)-v.6:no.4(1995)",
+                               [skippable("v.1(1990)-v.3(1992)")])
+    assert source == "parser"
+
+
+def test_the_same_pattern_converts_once_the_skip_comes_off():
+    pattern = skippable("v.1(1990)-v.5(1994)", skip=False)
+    result, source = apply_patterns("v.2(1991)-v.4(1993)", [pattern])
+    assert source == pattern.id
+    assert result.ranges[0].start.value_at(0) == "2"
+
+
+def test_a_shape_can_be_skipped_before_anyone_knows_what_it_means():
+    """
+    "I cannot tell what this is" is one of the better reasons to leave a shape
+    alone, so skipping must not require the decisions first. The same pattern
+    is refused without the skip, because then it would have to convert.
+    """
+    group = detect_one("?: 16")
+    roles = [r.to_dict() for r in infer_roles(group.named_groups)]
+
+    skipped, errors = plib.validate_pattern({
+        "label": "bare number", "regex": group.regex, "roles": roles, "skip": True})
+    assert not errors and skipped.skip is True
+
+    active, errors = plib.validate_pattern({
+        "label": "bare number", "regex": group.regex, "roles": roles})
+    assert active is None
+    assert any("no level decided" in e for e in errors)
+
+
+def test_a_skip_survives_export_and_import():
+    """It is a judgement about the collection, not a setting for this visit."""
+    patterns = [skippable("v.1(1990)-v.5(1994)")]
+    restored, errors = plib.from_export(plib.to_export(patterns))
+    assert not errors
+    assert restored[0].skip is True

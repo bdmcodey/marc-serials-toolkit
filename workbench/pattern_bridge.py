@@ -461,6 +461,11 @@ PARSER_SOURCE = "parser"
 # No pattern matched and the parser was switched off: nothing was written.
 UNMATCHED_SOURCE = "unmatched"
 
+# A pattern matched, and the cataloguer has told it not to convert. Different
+# from UNMATCHED in the one way that matters to them: this statement was
+# recognised and deliberately left alone, rather than falling through unread.
+SKIPPED_SOURCE = "skipped"
+
 
 def apply_patterns(text: str, patterns: Sequence,
                    fallback: bool = True) -> tuple[ParseResult, str]:
@@ -477,12 +482,29 @@ def apply_patterns(text: str, patterns: Sequence,
     behaviour.  Without it nothing is written and the 866 is left exactly as it
     was -- for a cataloguer who wants only what their own confirmed patterns
     produce, and nothing decided on their behalf.
+
+    A pattern marked `skip` claims the statements it describes and converts
+    none of them.  Claiming matters: without it the statement would fall
+    through to the standard parser and be converted anyway, which is the
+    opposite of what skipping asks for.  It claims only a statement it matches
+    *whole*, so marking one shape to be left alone cannot quietly capture a
+    longer statement it merely begins.
     """
     for pattern in patterns:
         try:
             compiled = pattern.compiled()
         except re.error:
             continue                      # validated on entry; never fatal here
+        if getattr(pattern, "skip", False):
+            claimed = build_parse_result(text, compiled, pattern.roles,
+                                         pattern.split, fallback=False)
+            if claimed is not None:
+                return _untouched(
+                    text,
+                    f"'{pattern.label}' is set to be skipped, so this statement "
+                    "was left exactly as it is."
+                ), SKIPPED_SOURCE
+            continue
         result = build_parse_result(text, compiled, pattern.roles,
                                     pattern.split, fallback)
         if result is not None:
@@ -491,10 +513,16 @@ def apply_patterns(text: str, patterns: Sequence,
     if fallback:
         return parse_866(text), PARSER_SOURCE
 
-    untouched = ParseResult(raw=text)
-    untouched.success = False
-    untouched.warnings.append(
+    return _untouched(
+        text,
         "No confirmed pattern matched this statement, and the standard parser "
         "was not applied. It has been left as it is."
-    )
-    return untouched, UNMATCHED_SOURCE
+    ), UNMATCHED_SOURCE
+
+
+def _untouched(text: str, why: str) -> ParseResult:
+    """A result that writes nothing, carrying the reason on the record."""
+    result = ParseResult(raw=text)
+    result.success = False
+    result.warnings.append(why)
+    return result

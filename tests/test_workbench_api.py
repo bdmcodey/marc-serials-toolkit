@@ -536,6 +536,56 @@ def test_a_settings_shape_the_server_cannot_use_is_reported(workbench_client,
     assert any("$a-$m" in r for r in body["rejections"])
 
 
+def test_a_skipped_record_comes_out_exactly_as_it_went_in(workbench_client,
+                                                          example_marc_bytes):
+    """
+    Skipping is stronger than every other switch on the screen: no conversion,
+    no 866 removed, and existing 853/863 left alone even with "clear existing"
+    set. If any of that leaked, the record a cataloguer set aside for hand
+    work would come back altered.
+    """
+    upload_marc(workbench_client, example_marc_bytes)
+    body = workbench_client.post("/api/batch-convert", json={
+        **SETTINGS, "clear_existing_853_863": True, "skip_records": [0],
+    }).get_json()
+
+    assert body["skipped_records"] == 1
+    first = next(s for s in body["summary"] if s["index"] == 0)
+    assert first["skipped"] is True
+    assert first["converted_fields"] == 0
+
+    from pymarc import MARCReader
+
+    converted = workbench_client.get("/api/download-converted")
+    record = list(MARCReader(converted.data))[0]
+    original = list(MARCReader(example_marc_bytes))[0]
+    assert record.as_marc() == original.as_marc()
+
+
+def test_a_skipped_record_previews_as_nothing(workbench_client, example_marc_bytes):
+    """A preview showing fields the record will never get is a false promise."""
+    upload_marc(workbench_client, example_marc_bytes)
+    body = workbench_client.post("/api/preview-records", json={
+        **SETTINGS, "offset": 0, "limit": 10, "skip_records": [0],
+    }).get_json()
+
+    first = next(r for r in body["records"] if r["index"] == 0)
+    assert first["skipped"] is True
+    assert first["previews"] == []
+    assert first["converted"] == 0
+
+
+def test_records_not_skipped_are_untouched_by_the_skip(workbench_client,
+                                                       example_marc_bytes):
+    upload_marc(workbench_client, example_marc_bytes)
+    body = workbench_client.post("/api/batch-convert", json={
+        **SETTINGS, "skip_records": [0],
+    }).get_json()
+    assert body["skipped_records"] == 1
+    assert any(not s.get("skipped") and s["converted_fields"]
+               for s in body["summary"]), body["summary"]
+
+
 def test_batch_conversion_reports_what_read_what(workbench_client, example_marc_bytes):
     upload_marc(workbench_client, example_marc_bytes)
     confirm(workbench_client, group_for(workbench_client, "v.6(1995)-"))
