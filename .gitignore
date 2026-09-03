@@ -33,6 +33,11 @@ patterns/*.json
 # deploy/README.md is the version that ships.
 DEPLOY-STEPS-RECOVERED.md
 
+# Scratch handoff notes, written to orient a new chat and thrown away once
+# they have. The durable record is CORPUS-FINDINGS.md, the tagged corpus and
+# the test suite, all of which are maintained rather than snapshotted.
+HANDOFF.md
+
 # OS / editor
 .DS_Store
 Thumbs.db

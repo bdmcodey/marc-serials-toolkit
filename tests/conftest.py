@@ -235,8 +235,9 @@ def messy_marc_bytes() -> bytes:
 # ---------------------------------------------------------------------------
 # The private corpus
 #
-# The historical verification numbers in HANDOFF.md were measured against two
-# files on a USC SMB share that are not, and must not be, in the repository.
+# The historical verification numbers in test_calibration.py were measured
+# against two files on a USC SMB share that are not, and must not be, in the
+# repository.
 # They are reached through an environment variable naming the mounted
 # directory, so the suite is fully green on a clean clone and *additionally*
 # pins exact counts on a machine where the share is mounted:

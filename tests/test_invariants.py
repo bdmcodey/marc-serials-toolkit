@@ -1,12 +1,12 @@
 """
 Structural properties that must hold for any input, on any corpus.
 
-These are the portable half of the verification table in HANDOFF.md. The exact
-counts recorded there describe two specific private files and live in
-test_calibration.py; the properties here describe the tool itself and are
-checked against every corpus this machine can reach. On a clean clone that is
-the two committed synthetic files; with MARC_TEST_DATA_DIR pointing at the
-mounted share it is those plus the real ones, with no change to the tests.
+These are the portable half of the verification. The exact counts describe two
+specific private files and live in test_calibration.py; the properties here
+describe the tool itself and are checked against every corpus this machine can
+reach. On a clean clone that is the two committed synthetic files; with
+MARC_TEST_DATA_DIR pointing at the mounted share it is those plus the real
+ones, with no change to the tests.
 
 Each test takes `any_corpus` and is therefore run once per corpus.
 """
