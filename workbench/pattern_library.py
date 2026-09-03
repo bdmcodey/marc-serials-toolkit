@@ -53,6 +53,10 @@ class ConfirmedPattern:
     split: bool = True          # must match the detection run it came from
     priority: int = 0           # higher is tried first; cluster size by default
     notes: str = ""
+    # Recognise these statements and convert none of them: the cataloguer will
+    # handle this shape by hand. A judgement about their collection, so it is
+    # stored with the pattern and survives an export.
+    skip: bool = False
     _compiled: Optional["re.Pattern"] = field(default=None, repr=False, compare=False)
 
     def compiled(self) -> "re.Pattern":
@@ -70,6 +74,7 @@ class ConfirmedPattern:
             "split":    self.split,
             "priority": self.priority,
             "notes":    self.notes,
+            "skip":     self.skip,
         }
 
 
@@ -114,6 +119,13 @@ def validate_pattern(data: Any) -> tuple[Optional[ConfirmedPattern], list[str]]:
     if not isinstance(raw_roles, list):
         return None, [f"'{label}': no roles given for the captured values."]
 
+    # A skipped pattern converts nothing, so the rules about every value having
+    # a meaning do not apply to it. That is not a loophole: "I cannot tell what
+    # this shape means" is one of the better reasons to leave it alone, and
+    # requiring the decisions first would make skipping useless exactly where
+    # it is wanted. Un-skipping puts the pattern back through these checks.
+    skip = bool(data.get("skip"))
+
     roles: list[GroupRole] = []
     known = set(names)
     seen_groups: set[str] = set()
@@ -149,10 +161,14 @@ def validate_pattern(data: Any) -> tuple[Optional[ConfirmedPattern], list[str]]:
             )
             continue
         if role.kind == KIND_UNRESOLVED:
-            errors.append(
-                f"'{label}': '{role.group}' has no level decided. Every "
-                "captured value needs one, or 'Not encoded'."
-            )
+            if not skip:
+                errors.append(
+                    f"'{label}': '{role.group}' has no level decided. Every "
+                    "captured value needs one, or 'Not encoded'."
+                )
+                continue
+            seen_groups.add(role.group)
+            roles.append(role)
             continue
         if role.kind not in VALID_KINDS:
             errors.append(
@@ -179,13 +195,13 @@ def validate_pattern(data: Any) -> tuple[Optional[ConfirmedPattern], list[str]]:
         roles.append(role)
 
     missing = [n for n in names if n not in decided]
-    if missing:
+    if missing and not skip:
         errors.append(
             f"'{label}': no role decided for {', '.join(missing)}. Every captured "
             "value needs a level, or 'Not encoded'."
         )
 
-    if not claimed:
+    if not claimed and not skip:
         errors.append(
             f"'{label}': every captured value is set to 'Not encoded', so the "
             "pattern would produce no holdings."
@@ -208,6 +224,7 @@ def validate_pattern(data: Any) -> tuple[Optional[ConfirmedPattern], list[str]]:
         split=bool(data.get("split", True)),
         priority=priority,
         notes=str(data.get("notes") or "").strip(),
+        skip=skip,
     ), []
 
 

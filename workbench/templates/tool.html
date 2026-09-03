@@ -128,6 +128,10 @@
     .rec-caret { flex: none; color: var(--text-muted); }
     .rec-detail { padding: var(--sp-3); border-top: 2px solid var(--border-soft); }
     .rec-row.reviewed { border-left: 6px solid var(--ok); }
+    /* Set aside, not finished: dimmed rather than ticked, so a skipped record
+       never reads as one that has been dealt with. */
+    .rec-row.skipped { border-left: 6px solid var(--text-muted); opacity: 0.72; }
+    .rec-row.skipped .rec-title { text-decoration: line-through; }
     .rec-row[hidden] { display: none; }
     .rec-sep {
       width: 2px; height: 1.1em; flex: none;
@@ -319,6 +323,8 @@
       overflow: hidden;
     }
     .pattern-card.confirmed { border-color: var(--ok); }
+    .pattern-card.skipped { border-color: var(--text-muted); border-style: dashed; }
+    .pill.skipped-pill { border-color: var(--text-muted); color: var(--text-muted); }
     .pattern-card.too-complex { border-style: dashed; }
     .pc-head {
       display: flex; align-items: center; flex-wrap: wrap;
@@ -679,6 +685,7 @@ v.6(1995)-"></textarea>
           <button type="button" class="chip" data-filter="pattern">Read by a pattern</button>
           <button type="button" class="chip" data-filter="parser">Read by the parser</button>
           <button type="button" class="chip" data-filter="unreviewed">Not yet reviewed</button>
+          <button type="button" class="chip" data-filter="skipped">Skipped</button>
         </div>
         <div class="review-meta">
           <span id="review-count" class="small dim"></span>
@@ -812,6 +819,7 @@ let reviewed       = new Set();
 // amounts of detail are NOT one publication. A judgement about the serial, so
 // it is theirs, and it is per record.
 let keepSeparate   = new Set();
+let skipRecords    = new Set();   // records to leave exactly as they are
 let reviewFilter   = 'all';
 let reviewOffset   = 0;
 const REVIEW_PAGE  = 50;
@@ -923,6 +931,7 @@ function conventionPayload() {
     chronology: document.getElementById('batch-chronology').value,
     parser_fallback: document.getElementById('opt-parser-fallback').checked,
     keep_separate: [...keepSeparate],
+    skip_records: [...skipRecords],
     frequency: document.getElementById('batch-freq').value,
     numbering_continuity: document.getElementById('batch-continuity').value,
   };
@@ -1029,6 +1038,8 @@ async function uploadMarcFile(file) {
     renderRecordList(data.records);
     recordPreviews.clear();
     reviewed.clear();
+    keepSeparate.clear();
+    skipRecords.clear();
     reviewOffset = 0;
     loadReviewPage();
     dropZone.innerHTML = '<span class="icon">📁</span>Drop a MARC file here, or click to browse';
@@ -1059,6 +1070,10 @@ function renderRecordList(records) {
         <input type="checkbox" class="rec-keep-separate" data-index="${i}" />
         <span title="Give each pattern its own 853, even where one records less detail than another">
           Keep patterns separate</span>
+        <span class="rec-sep"></span>
+        <input type="checkbox" class="rec-skip" data-index="${i}" />
+        <span title="Leave this record exactly as it is: nothing converted, no 866 removed, existing 853/863 untouched">
+          Skip</span>
       </label>
     </div>`).join('');
 
@@ -1067,6 +1082,19 @@ function renderRecordList(records) {
       const idx = Number(e.target.dataset.index);
       e.target.checked ? keepSeparate.add(idx) : keepSeparate.delete(idx);
       // The record's whole conversion changes, so re-preview it.
+      recordPreviews.delete(idx);
+      await loadReviewPage();
+      const row = document.querySelector(`.rec-row[data-index="${idx}"]`);
+      if (row && !row.querySelector('.rec-detail').hidden) await renderRecordDetail(idx);
+    }));
+
+  box.querySelectorAll('.rec-skip').forEach(el =>
+    el.addEventListener('change', async e => {
+      const idx = Number(e.target.dataset.index);
+      e.target.checked ? skipRecords.add(idx) : skipRecords.delete(idx);
+      document.querySelector(`.rec-row[data-index="${idx}"]`)
+              .classList.toggle('skipped', e.target.checked);
+      // What the record would produce has changed to "nothing", or back.
       recordPreviews.delete(idx);
       await loadReviewPage();
       const row = document.querySelector(`.rec-row[data-index="${idx}"]`);
@@ -1112,6 +1140,10 @@ function paintRecordStatus() {
     const entry = recordPreviews.get(Number(row.dataset.index));
     const slot = row.querySelector('.rec-status');
     if (!entry) { slot.innerHTML = ''; return; }
+    if (entry.skipped) {
+      slot.innerHTML = '<span class="pill skipped-pill">skipped</span>';
+      return;
+    }
     if (!entry.has_866) {
       slot.innerHTML = '<span class="pill">no 866</span>';
       return;
@@ -1127,9 +1159,11 @@ function recordMatchesFilter(entry, index) {
   if (!entry) return true;
   switch (reviewFilter) {
     case 'held':       return entry.held > 0;
-    case 'pattern':    return entry.sources.some(sc => sc !== 'parser' && sc !== 'unmatched');
+    case 'pattern':    return entry.sources.some(
+                        sc => sc !== 'parser' && sc !== 'unmatched' && sc !== 'skipped');
     case 'parser':     return entry.sources.includes('parser');
     case 'unreviewed': return !reviewed.has(index);
+    case 'skipped':    return skipRecords.has(index);
     default:           return true;
   }
 }
@@ -1144,8 +1178,10 @@ function applyReviewFilter() {
   });
   const total = document.querySelectorAll('.rec-row').length;
   const done = [...reviewed].filter(i => i < allRecords.length).length;
+  const set_aside = [...skipRecords].filter(i => i < allRecords.length).length;
   document.getElementById('review-count').textContent =
-    `${shown} of ${total} shown · ${done} of ${allRecords.length} reviewed`;
+    `${shown} of ${total} shown · ${done} of ${allRecords.length} reviewed`
+    + (set_aside ? ` · ${set_aside} skipped` : '');
 }
 
 function renderPager(data) {
@@ -1307,11 +1343,13 @@ async function autoConfirm(groups) {
  * the detection run, not its position on screen.
  */
 function partitionGroups(groups) {
-  const parts = { open: [], confirmed: [], complex: [] };
+  const parts = { open: [], confirmed: [], skipped: [], complex: [] };
   groups.forEach((group, idx) => {
     const entry = { group, idx };
-    if (group.too_complex) parts.complex.push(entry);
-    else if (library.some(p => p.id === patternIdFor(group))) parts.confirmed.push(entry);
+    const stored = library.find(p => p.id === patternIdFor(group));
+    if (stored && stored.skip) parts.skipped.push(entry);
+    else if (group.too_complex) parts.complex.push(entry);
+    else if (stored) parts.confirmed.push(entry);
     else parts.open.push(entry);
   });
   return parts;
@@ -1368,6 +1406,12 @@ function renderPatterns(data) {
       `${n} confirmed pattern${n !== 1 ? 's' : ''} — nothing to decide`,
       parts.confirmed));
   }
+  if (parts.skipped.length) {
+    const n = parts.skipped.length;
+    area.appendChild(buildPatternFold('skipped',
+      `${n} skipped — recognised, and left exactly as ${n !== 1 ? 'they are' : 'it is'}`,
+      parts.skipped));
+  }
   if (parts.complex.length) {
     const n = parts.complex.length;
     area.appendChild(buildPatternFold('complex',
@@ -1391,6 +1435,7 @@ function patternsSummaryLine() {
   const parts = partitionGroups(detected);
   const bits = [`${detected.length} pattern${detected.length !== 1 ? 's' : ''}`];
   if (parts.confirmed.length) bits.push(`${parts.confirmed.length} confirmed`);
+  if (parts.skipped.length) bits.push(`${parts.skipped.length} skipped`);
   if (parts.complex.length) bits.push(`${parts.complex.length} too complex`);
   if (parts.open.length) {
     bits.push(`<span class="count-warn">${parts.open.length} need${
@@ -1441,7 +1486,9 @@ function buildPatternCard(group, idx) {
 
   const id = patternIdFor(group);
   const confirmed = library.find(p => p.id === id);
-  if (confirmed) card.classList.add('confirmed');
+  const skipped = !!(confirmed && confirmed.skip);
+  if (confirmed && !skipped) card.classList.add('confirmed');
+  if (skipped) card.classList.add('skipped');
 
   const rate = Math.round((group.match_rate || 0) * 100);
 
@@ -1471,9 +1518,10 @@ function buildPatternCard(group, idx) {
       <span class="pc-label">${escHtml(group.human_label)}</span>
       <span class="pill">${group.count} statement${group.count !== 1 ? 's' : ''}</span>
       <span class="pill ${rate === 100 ? 'has-866' : 'decide'}">${rate}% matched</span>
-      <span class="pill confirmed-pill" ${confirmed ? '' : 'hidden'}>Confirmed</span>
+      <span class="pill confirmed-pill" ${confirmed && !skipped ? '' : 'hidden'}>Confirmed</span>
+      <span class="pill skipped-pill" ${skipped ? '' : 'hidden'}>Skipped</span>
       <span class="pill decide role-warning" ${
-        roles.some(r => r.kind === UNRESOLVED_KIND || r.suggested) ? '' : 'hidden'}>
+        !skipped && roles.some(r => r.kind === UNRESOLVED_KIND || r.suggested) ? '' : 'hidden'}>
         needs a decision</span>
       <button type="button" class="btn btn-secondary btn-sm pc-toggle">Review</button>
     </div>
@@ -1497,7 +1545,15 @@ function buildPatternCard(group, idx) {
         </table>
       </div>
 
-      <div>
+      <div class="skip-note" ${skipped ? '' : 'hidden'}>
+        <div class="alert alert-info">
+          These statements are recognised and left exactly as they are — no 853,
+          no 863, and the 866 stays on the record. Nothing else will pick them
+          up, including the standard parser.
+        </div>
+      </div>
+
+      <div class="preview-block" ${skipped ? 'hidden' : ''}>
         <div class="section-label">What it would produce</div>
         <div class="pattern-preview"><span class="dim small">Checking…</span></div>
       </div>
@@ -1516,11 +1572,15 @@ function buildPatternCard(group, idx) {
       </details>
 
       <div class="btn-row">
-        <button type="button" class="btn btn-primary pc-confirm">
+        <button type="button" class="btn btn-primary pc-confirm" ${skipped ? 'hidden' : ''}>
           ${confirmed ? 'Update confirmation' : 'Confirm pattern'}</button>
-        <button type="button" class="btn btn-danger btn-sm pc-remove" ${confirmed ? '' : 'hidden'}>
+        <button type="button" class="btn btn-danger btn-sm pc-remove" ${confirmed && !skipped ? '' : 'hidden'}>
           Remove from library</button>
-        <button type="button" class="btn btn-ghost btn-sm pc-reset">Reset to suggested</button>
+        <button type="button" class="btn btn-secondary btn-sm pc-skip"
+                title="Recognise these statements and convert none of them, leaving every 866 as it is">
+          ${skipped ? 'Convert these after all' : 'Skip these'}</button>
+        <button type="button" class="btn btn-ghost btn-sm pc-reset" ${skipped ? 'hidden' : ''}>
+          Reset to suggested</button>
       </div>
       <div class="pc-status"></div>
     </div>`;
@@ -1714,6 +1774,7 @@ function wireCard(card) {
   card.querySelector('.pc-test').addEventListener('click', () => testPattern(card));
   card.querySelector('.pc-confirm').addEventListener('click', () => confirmPattern(card));
   card.querySelector('.pc-remove').addEventListener('click', () => removePattern(card));
+  card.querySelector('.pc-skip').addEventListener('click', () => toggleSkip(card));
   card.querySelector('.pc-reset').addEventListener('click', () => {
     card._roles = card._group.suggested_roles;
     showExample(card);
@@ -1753,6 +1814,10 @@ function refreshPreview(card) {
 }
 
 async function runPreview(card) {
+  // A skipped pattern produces nothing, and showing the fields it *would*
+  // produce next to a note saying it will not would read as a promise.
+  if (card.classList.contains('skipped')) return;
+
   const target = card.querySelector('.pattern-preview');
   const roles  = collectRoles(card);
   const undecided = roles.filter(r => r.kind === UNRESOLVED_KIND);
@@ -1890,6 +1955,54 @@ async function testPattern(card) {
 // The pattern library
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * Set this shape aside, or take it back.
+ *
+ * A skipped pattern still has to be stored and still has to match: matching is
+ * what stops these statements falling through to the standard parser and being
+ * converted anyway, which is the opposite of what was asked for.
+ *
+ * Skipping deliberately does not require every value to have a meaning first.
+ * "I cannot tell what this is" is one of the better reasons to leave a shape
+ * alone, and demanding the decisions first would make the button useless
+ * exactly where it is wanted. Taking the skip off puts the pattern back through
+ * those checks, and says so if it cannot pass them.
+ */
+async function toggleSkip(card) {
+  const status  = card.querySelector('.pc-status');
+  const current = library.find(p => p.id === card._id);
+  const skipping = !(current && current.skip);
+
+  const entry = {
+    ...(current || {}),
+    id:       card._id,
+    label:    card._group.human_label,
+    regex:    card.querySelector('.regex-box').value,
+    roles:    collectRoles(card),
+    split:    lastSplit,
+    priority: card._group.count,
+    notes:    (card._group.examples || [])[0] || '',
+    skip:     skipping,
+  };
+
+  dismissed.delete(entry.id);
+  const others = library.filter(p => p.id !== entry.id);
+  const data = await saveLibrary(others.concat([entry]));
+
+  if (data.rejected && data.rejected.length) {
+    // Taking the skip off means the pattern has to stand on its own, and this
+    // one cannot yet. The rejection must not cost the skip: a pattern dropped
+    // from the library stops matching, and these statements would then be
+    // converted by the standard parser -- the opposite of what was asked for.
+    // So put it back as it was, and say what is missing.
+    if (!skipping && current) await saveLibrary(others.concat([current]));
+    showAlert(status, (skipping ? '' : 'Still skipped. ') + data.rejected.join(' '), 'err');
+    redrawPatterns();
+    return;
+  }
+  redrawPatterns();
+}
+
 async function confirmPattern(card) {
   const status = card.querySelector('.pc-status');
   if (undecidedCount(card)) {
@@ -1980,14 +2093,17 @@ function renderLibrary() {
   }
 
   const n = library.length;
+  const set_aside = library.filter(p => p.skip).length;
   summary.textContent =
-    `Pattern library — ${n} confirmed pattern${n !== 1 ? 's' : ''} in use`;
+    `Pattern library — ${n - set_aside} confirmed pattern${n - set_aside !== 1 ? 's' : ''} in use`
+    + (set_aside ? `, ${set_aside} skipped` : '');
   // Only the visibility is touched, never `open`: a cataloguer who opened it to
   // remove something should not have it fold up under them on the next render.
   document.getElementById('library-bar').hidden = false;
   list.innerHTML = library.map(p => `
-    <div class="lib-item">
+    <div class="lib-item${p.skip ? ' skipped' : ''}">
       <span class="lib-label">${escHtml(p.label)}
+        ${p.skip ? '<span class="pill skipped-pill">skipped</span>' : ''}
         ${p.notes ? `<span class="lib-example">${escHtml(p.notes)}</span>` : ''}</span>
       <button type="button" class="btn btn-ghost btn-sm" onclick="dropPattern('${escHtml(p.id)}')"
               title="Remove this pattern" aria-label="Remove ${escHtml(p.label)}">✕</button>

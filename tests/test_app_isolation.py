@@ -113,13 +113,15 @@ def test_all_apps_report_the_same_version(converter_app, detector_app, workbench
 
 def test_the_workbench_page_carries_its_fold_controls(workbench_client):
     """
-    The step-2 fold is client-side, so nothing else in this suite would notice
-    it going missing -- and a template that renders without it renders fine,
-    just unusable on a large file. Pin the handful of ids the script drives.
+    The step-2 fold and the skip controls are client-side, so nothing else in
+    this suite would notice them going missing -- and a template that renders
+    without them renders fine, just missing the controls. Pin the handful of
+    hooks the script drives.
     """
     page = workbench_client.get("/").get_data(as_text=True)
     for anchor in ('id="btn-toggle-patterns"', 'id="patterns-body"',
-                   'id="patterns-summary"', 'aria-controls="patterns-body"'):
+                   'id="patterns-summary"', 'aria-controls="patterns-body"',
+                   'class="rec-skip"', 'pc-skip', 'data-filter="skipped"'):
         assert anchor in page, anchor
 
 

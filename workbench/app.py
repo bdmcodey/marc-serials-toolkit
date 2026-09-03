@@ -59,7 +59,7 @@ from pattern_detector import detect_patterns, split_multi_range
 import pattern_library as plib
 from pattern_bridge import (CAPTION_CHOICES, ENCODABLE_KINDS, KIND_IGNORE,
                             KIND_LABELS, KIND_UNRESOLVED,
-                            PARSER_SOURCE, UNMATCHED_SOURCE,
+                            PARSER_SOURCE, SKIPPED_SOURCE, UNMATCHED_SOURCE,
                             apply_patterns, build_parse_result, infer_roles)
 
 # ---------------------------------------------------------------------------
@@ -263,6 +263,28 @@ def _keep_separate(data: dict) -> set:
     return out
 
 
+def _skipped_records(data: dict) -> set:
+    """
+    Records the cataloguer has told the tool not to touch.
+
+    Skipping is stronger than every other switch on the screen: the record is
+    not converted, its 866s are not removed, and its existing 853/863 are left
+    alone even when "clear existing" is set. It comes out of a run byte for
+    byte as it went in, which is the whole point -- these are the ones going to
+    be catalogued by hand.
+    """
+    raw = data.get("skip_records")
+    if not isinstance(raw, (list, tuple)):
+        return set()
+    out = set()
+    for value in raw:
+        try:
+            out.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def _convention_opts(data: dict) -> tuple:
     """Build a caption-convention spec from a request body."""
     conv = (data.get("convention") or CONVENTION_STANDARD).strip().lower()
@@ -378,6 +400,7 @@ def _source_labels(patterns) -> dict:
     labels = {p.id: p.label for p in patterns}
     labels[PARSER_SOURCE] = "Standard parser"
     labels[UNMATCHED_SOURCE] = "No pattern matched — left as it is"
+    labels[SKIPPED_SOURCE] = "Skipped — left as it is"
     return labels
 
 
@@ -1024,6 +1047,7 @@ def api_preview_records():
     patterns = _load_library()
     fallback = _parser_fallback(data)
     keep_separate = _keep_separate(data)
+    skip_records = _skipped_records(data)
 
     try:
         out = []
@@ -1033,11 +1057,23 @@ def api_preview_records():
             statements = [t for t in ((f["a"] or "")
                                       for f in record.get_fields("866")) if t]
 
+            # A preview that showed fields a skipped record will never get
+            # would be showing something that is not going to happen.
+            if index in skip_records:
+                out.append({
+                    "index": index,
+                    "title": _record_title(record) or f"Record {index + 1}",
+                    "previews": [], "converted": 0, "held": 0,
+                    "sources": [], "has_866": bool(statements),
+                    "skipped": True,
+                })
+                continue
+
             if not statements:
                 out.append({
                     "index": index, "title": _record_title(record) or f"Record {index + 1}",
                     "previews": [], "converted": 0, "held": 0,
-                    "sources": [], "has_866": False,
+                    "sources": [], "has_866": False, "skipped": False,
                 })
                 continue
 
@@ -1059,6 +1095,7 @@ def api_preview_records():
                 "held": sum(1 for p in previews if not p["fields_863"]),
                 "sources": sorted({p["source"] for p in previews}),
                 "has_866": True,
+                "skipped": False,
             })
 
         return jsonify({
@@ -1157,13 +1194,29 @@ def api_batch_convert():
     patterns = _load_library()
     fallback = _parser_fallback(data)
     keep_separate = _keep_separate(data)
+    skip_records = _skipped_records(data)
 
     try:
         summary = []
         review_total = 0
+        skipped_total = 0
         by_source: dict = {}
 
         for rec_idx, record in enumerate(all_records):
+            # Before anything else, including clearing existing fields: a
+            # skipped record is one the run does not touch at all.
+            if rec_idx in skip_records:
+                skipped_total += 1
+                summary.append({
+                    "index": rec_idx,
+                    "converted_fields": 0,
+                    "conformed_fields": 0,
+                    "needs_review": 0,
+                    "skipped": True,
+                    "warnings": ["Skipped: this record was left exactly as it was."],
+                })
+                continue
+
             existing_853s = list(record.get_fields("853"))
             if clear_existing:
                 record.remove_fields("853", "863")
@@ -1211,6 +1264,7 @@ def api_batch_convert():
             "success": True,
             "records_processed": len(summary),
             "needs_review": review_total,
+            "skipped_records": skipped_total,
             "rejections": rejections,
             "by_source": [
                 {"source": src, "label": labels.get(src, src), "count": n}
