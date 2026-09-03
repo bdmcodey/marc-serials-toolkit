@@ -75,13 +75,18 @@
     .step-body { padding: var(--sp-4); }
     .step-body > .btn-row:first-child { margin-top: 0; }
 
-    /* Step 1 collapses to a line once it has done its job. */
-    .source-summary {
+    /* A step folds to a line once it has done its job -- step 1 when it has a
+       file, step 2 when its patterns are settled. */
+    .step-summary {
       display: flex; align-items: center; gap: var(--sp-2);
       padding: var(--sp-3) var(--sp-4);
       font-size: var(--fs-sm); color: var(--text);
     }
-    .source-summary .icon { color: var(--ok); font-weight: 700; }
+    .step-summary .icon { color: var(--ok); font-weight: 700; }
+    /* Folded is not the same as finished. A step still asking something says
+       so on its one visible line, in the colour that means "look at me". */
+    .step-summary .icon.pending { color: var(--warn); }
+    .step-summary .count-warn { color: var(--warn); font-weight: 700; }
 
     /* Folded away by default: it is a record of work already done, and open it
        pushed the pattern cards -- the thing actually being worked on -- down
@@ -279,6 +284,33 @@
     .pair-row .field-display + .field-display { margin-top: var(--sp-2); }
 
     /* ── Pattern cards ───────────────────────────────────────────────────── */
+
+    /* Cards are a stack, not a table: each one is a separate decision and
+       reads better with air between them. */
+    #patterns-area, .pattern-group-body {
+      display: flex; flex-direction: column; gap: var(--sp-3);
+    }
+    /* Patterns needing nothing from the cataloguer still have to be reachable
+       -- to re-read one, or to take it back out -- so they fold rather than
+       disappear. Same control as the confirmed-pattern library below them. */
+    .pattern-group {
+      border: 2px dashed var(--border-soft);
+      border-radius: var(--radius);
+      padding: 0 var(--sp-3) 0;
+    }
+    .pattern-group > summary {
+      cursor: pointer;
+      padding: var(--sp-3) 0;
+      color: var(--text);
+      min-height: var(--control-min);
+      display: flex; align-items: center;
+    }
+    .pattern-group > summary:hover { color: var(--accent); }
+    .pattern-group[open] > summary {
+      border-bottom: 2px solid var(--border-soft);
+      margin-bottom: var(--sp-3);
+    }
+    .pattern-group-body { padding-bottom: var(--sp-3); }
 
     .pattern-card {
       border: 2px solid var(--border-soft);
@@ -482,7 +514,7 @@ v.6(1995)-"></textarea>
       </div>
     </div>
 
-    <div id="source-summary" class="source-summary" hidden></div>
+    <div id="source-summary" class="step-summary" hidden></div>
   </section>
 
   <!-- ── 2 · Patterns ──────────────────────────────────────────────────── -->
@@ -490,9 +522,11 @@ v.6(1995)-"></textarea>
     <div class="step-head">
       <span class="step-number">2</span>
       <h2>Patterns</h2>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-toggle-patterns"
+              aria-controls="patterns-body" aria-expanded="true" hidden>Hide</button>
     </div>
 
-    <div class="step-body">
+    <div class="step-body" id="patterns-body">
       <p class="small dim">
         Every group of holdings that shares a structure gets one expression.
         Patterns whose captured values could all be read are confirmed for you;
@@ -539,6 +573,8 @@ v.6(1995)-"></textarea>
 
       <div id="patterns-area"></div>
     </div>
+
+    <div id="patterns-summary" class="step-summary" hidden></div>
   </section>
 
   <!-- ── 3 · Convert ───────────────────────────────────────────────────── -->
@@ -1210,6 +1246,9 @@ async function runDetect() {
     detected = data.groups;
     await autoConfirm(data.groups);
     renderPatterns(data);
+    // Nothing here asks anything, so fold it and put Convert in view. If
+    // something does need deciding, that is the work -- stay open on it.
+    setPatternsCollapsed(!partitionGroups(data.groups).open.length);
   } catch (err) {
     showAlert(errBox, err.message, 'err');
   } finally {
@@ -1256,11 +1295,57 @@ async function autoConfirm(groups) {
   }
 }
 
+/**
+ * Sort the detected groups by what they still want from the cataloguer.
+ *
+ * `open` is the work: patterns that ask what a value means, and patterns taken
+ * out of the library that could go back in. `confirmed` and `complex` are
+ * finished business -- reachable, but not worth the vertical space, which on a
+ * large file is measured in thousands of pixels.
+ *
+ * The index is carried along because a card is built against its position in
+ * the detection run, not its position on screen.
+ */
+function partitionGroups(groups) {
+  const parts = { open: [], confirmed: [], complex: [] };
+  groups.forEach((group, idx) => {
+    const entry = { group, idx };
+    if (group.too_complex) parts.complex.push(entry);
+    else if (library.some(p => p.id === patternIdFor(group))) parts.confirmed.push(entry);
+    else parts.open.push(entry);
+  });
+  return parts;
+}
+
+// Which folds the cataloguer has opened. Kept outside the render so opening one
+// to look at a pattern, then removing another, does not fold it back up.
+const patternFolds = {};
+
+function buildPatternFold(key, label, entries) {
+  const details = document.createElement('details');
+  details.className = 'pattern-group';
+  details.open = !!patternFolds[key];
+  details.addEventListener('toggle', () => { patternFolds[key] = details.open; });
+
+  const summary = document.createElement('summary');
+  summary.className = 'small';
+  summary.textContent = label;
+  details.appendChild(summary);
+
+  const body = document.createElement('div');
+  body.className = 'pattern-group-body';
+  entries.forEach(({ group, idx }) => body.appendChild(buildPatternCard(group, idx)));
+  details.appendChild(body);
+  return details;
+}
+
 function renderPatterns(data) {
   const area = document.getElementById('patterns-area');
   area.innerHTML = '';
 
-  const undecided = data.groups.filter(g => g.needs_decision && !g.too_complex).length;
+  const parts = partitionGroups(data.groups);
+  const undecided = parts.open.length;
+
   const summary = document.createElement('div');
   summary.className = 'card';
   summary.innerHTML = `
@@ -1275,8 +1360,68 @@ function renderPatterns(data) {
     }</p>`;
   area.appendChild(summary);
 
-  data.groups.forEach((group, idx) => area.appendChild(buildPatternCard(group, idx)));
+  parts.open.forEach(({ group, idx }) => area.appendChild(buildPatternCard(group, idx)));
+
+  if (parts.confirmed.length) {
+    const n = parts.confirmed.length;
+    area.appendChild(buildPatternFold('confirmed',
+      `${n} confirmed pattern${n !== 1 ? 's' : ''} — nothing to decide`,
+      parts.confirmed));
+  }
+  if (parts.complex.length) {
+    const n = parts.complex.length;
+    area.appendChild(buildPatternFold('complex',
+      `${n} too idiosyncratic to express as a pattern — the standard parser reads ${n !== 1 ? 'them' : 'it'}`,
+      parts.complex));
+  }
+
+  document.getElementById('btn-toggle-patterns').hidden = false;
+  refreshPatternsSummary();
 }
+
+/**
+ * What the folded step 2 says about itself.
+ *
+ * Folding must not hide work still to do, so patterns still asking something
+ * are named on the one line that remains, in the colour that means "look".
+ */
+function patternsSummaryLine() {
+  if (!detected.length) return '<span class="icon">✓</span> No patterns found yet';
+
+  const parts = partitionGroups(detected);
+  const bits = [`${detected.length} pattern${detected.length !== 1 ? 's' : ''}`];
+  if (parts.confirmed.length) bits.push(`${parts.confirmed.length} confirmed`);
+  if (parts.complex.length) bits.push(`${parts.complex.length} too complex`);
+  if (parts.open.length) {
+    bits.push(`<span class="count-warn">${parts.open.length} need${
+      parts.open.length === 1 ? 's' : ''} a decision</span>`);
+  }
+  const done = !parts.open.length;
+  return `<span class="icon${done ? '' : ' pending'}">${done ? '✓' : '●'}</span> `
+       + bits.join(' · ');
+}
+
+/** Fold step 2 to a line, the way step 1 folds once it has a file. */
+function setPatternsCollapsed(collapsed) {
+  const body    = document.getElementById('patterns-body');
+  const summary = document.getElementById('patterns-summary');
+  const toggle  = document.getElementById('btn-toggle-patterns');
+  body.hidden = collapsed;
+  summary.hidden = !collapsed;
+  toggle.textContent = collapsed ? 'Show patterns' : 'Hide';
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+  if (collapsed) summary.innerHTML = patternsSummaryLine();
+}
+
+/** Keep the folded line honest as patterns are confirmed or removed. */
+function refreshPatternsSummary() {
+  const summary = document.getElementById('patterns-summary');
+  if (summary && !summary.hidden) summary.innerHTML = patternsSummaryLine();
+}
+
+document.getElementById('btn-toggle-patterns').addEventListener('click', () => {
+  setPatternsCollapsed(!document.getElementById('patterns-body').hidden);
+});
 
 /** The id a confirmed pattern gets: stable for a group across re-detections. */
 function patternIdFor(group) {
@@ -1830,6 +1975,7 @@ function renderLibrary() {
     document.getElementById('library-bar').hidden = true;
     summary.textContent = '';
     list.innerHTML = '';
+    refreshPatternsSummary();
     return;
   }
 
@@ -1846,6 +1992,7 @@ function renderLibrary() {
       <button type="button" class="btn btn-ghost btn-sm" onclick="dropPattern('${escHtml(p.id)}')"
               title="Remove this pattern" aria-label="Remove ${escHtml(p.label)}">✕</button>
     </div>`).join('');
+  refreshPatternsSummary();
 }
 
 async function dropPattern(id) {

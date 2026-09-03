@@ -111,6 +111,18 @@ def test_all_apps_report_the_same_version(converter_app, detector_app, workbench
     assert len(versions) == 1
 
 
+def test_the_workbench_page_carries_its_fold_controls(workbench_client):
+    """
+    The step-2 fold is client-side, so nothing else in this suite would notice
+    it going missing -- and a template that renders without it renders fine,
+    just unusable on a large file. Pin the handful of ids the script drives.
+    """
+    page = workbench_client.get("/").get_data(as_text=True)
+    for anchor in ('id="btn-toggle-patterns"', 'id="patterns-body"',
+                   'id="patterns-summary"', 'aria-controls="patterns-body"'):
+        assert anchor in page, anchor
+
+
 def test_index_pages_render(converter_client, detector_client, workbench_client):
     assert converter_client.get("/").status_code == 200
     assert detector_client.get("/").status_code == 200
