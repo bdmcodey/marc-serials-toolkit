@@ -324,6 +324,9 @@
     }
     .pattern-card.confirmed { border-color: var(--ok); }
     .pattern-card.skipped { border-color: var(--text-muted); border-style: dashed; }
+    /* Arriving from a record: say which card the link landed on, or the jump
+       looks like nothing happened. */
+    .pattern-card.jumped-to { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
     .pill.skipped-pill { border-color: var(--text-muted); color: var(--text-muted); }
     .pattern-card.too-complex { border-style: dashed; }
     .pc-head {
@@ -692,6 +695,9 @@ v.6(1995)-"></textarea>
           <button type="button" class="btn btn-ghost btn-sm" id="btn-expand-all">Open all</button>
           <button type="button" class="btn btn-ghost btn-sm" id="btn-collapse-all">Close all</button>
         </div>
+        <!-- Beside the review count, because that is the number it explains.
+             Below the record list it would be past 120 rows of scrolling. -->
+        <div id="review-notice" class="mt-2" hidden></div>
       </div>
 
       <div class="check-row mt-2">
@@ -820,6 +826,10 @@ let reviewed       = new Set();
 // it is theirs, and it is per record.
 let keepSeparate   = new Set();
 let skipRecords    = new Set();   // records to leave exactly as they are
+// What every record in the file would produce, in counts rather than fields.
+// The filters and the row status run on this, so they answer for the whole
+// file rather than for whichever page happens to be loaded.
+let recordIndex    = new Map();
 let reviewFilter   = 'all';
 let reviewOffset   = 0;
 const REVIEW_PAGE  = 50;
@@ -1041,7 +1051,8 @@ async function uploadMarcFile(file) {
     keepSeparate.clear();
     skipRecords.clear();
     reviewOffset = 0;
-    loadReviewPage();
+    recordIndex.clear();
+    reloadReview();
     dropZone.innerHTML = '<span class="icon">📁</span>Drop a MARC file here, or click to browse';
     showSourceSummary(
       `${file.name} — ${data.total} records, ${data.count} holdings statements`);
@@ -1083,7 +1094,7 @@ function renderRecordList(records) {
       e.target.checked ? keepSeparate.add(idx) : keepSeparate.delete(idx);
       // The record's whole conversion changes, so re-preview it.
       recordPreviews.delete(idx);
-      await loadReviewPage();
+      await reloadReview();
       const row = document.querySelector(`.rec-row[data-index="${idx}"]`);
       if (row && !row.querySelector('.rec-detail').hidden) await renderRecordDetail(idx);
     }));
@@ -1096,7 +1107,7 @@ function renderRecordList(records) {
               .classList.toggle('skipped', e.target.checked);
       // What the record would produce has changed to "nothing", or back.
       recordPreviews.delete(idx);
-      await loadReviewPage();
+      await reloadReview();
       const row = document.querySelector(`.rec-row[data-index="${idx}"]`);
       if (row && !row.querySelector('.rec-detail').hidden) await renderRecordDetail(idx);
     }));
@@ -1107,37 +1118,73 @@ function renderRecordList(records) {
       e.target.checked ? reviewed.add(idx) : reviewed.delete(idx);
       document.querySelector(`.rec-row[data-index="${idx}"]`)
               .classList.toggle('reviewed', e.target.checked);
-      applyReviewFilter();
+      if (reviewFilter === 'unreviewed') loadReviewPage();
+      else applyReviewFilter();
     }));
 }
 
 /**
- * Preview a page of records in one request, so the whole file can be reviewed.
+ * What every record in the file would produce, in counts rather than fields.
  *
- * The page carries the previews themselves, not just counts, so opening a
- * record costs nothing further -- and the counts are what the filters run on.
+ * The filters and the row status run on this, so they answer for the whole
+ * file. Previews are still fetched a page at a time, because the fields are
+ * the bulky part and only the rows on screen need them.
+ */
+async function loadReviewIndex() {
+  try {
+    const data = await postJson('api/review-index', conventionPayload());
+    recordIndex = new Map(data.records.map(row => [row.index, row]));
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+/** The records the current filter shows, in file order. */
+function filteredIndices() {
+  return allRecords
+    .map((_, i) => i)
+    .filter(i => recordMatchesFilter(recordIndex.get(i), i));
+}
+
+/**
+ * Fetch previews for the page of records currently on screen.
+ *
+ * The page is a slice of what the *filter* shows, not of the file: with a
+ * filter on, records 1-50 of the file are not the first fifty a cataloguer is
+ * looking at, and paging through them would mostly turn up hidden rows.
  */
 async function loadReviewPage() {
   const bar = document.getElementById('review-bar');
   try {
-    const data = await postJson('api/preview-records', {
-      offset: reviewOffset, limit: REVIEW_PAGE, ...conventionPayload(),
-    });
-    data.records.forEach(entry => recordPreviews.set(entry.index, entry));
+    const matching = filteredIndices();
+    if (reviewOffset >= matching.length) reviewOffset = 0;
+    const page = matching.slice(reviewOffset, reviewOffset + REVIEW_PAGE);
+
+    if (page.length) {
+      const data = await postJson('api/preview-records',
+                                  { indices: page, ...conventionPayload() });
+      data.records.forEach(entry => recordPreviews.set(entry.index, entry));
+    }
     bar.hidden = false;
     paintRecordStatus();
     applyReviewFilter();
-    renderPager(data);
+    renderPager({ total: matching.length, offset: reviewOffset, limit: REVIEW_PAGE });
   } catch (err) {
     bar.hidden = true;
     console.error(err);
   }
 }
 
+/** Re-read the index, then the page that sits on top of it. */
+async function reloadReview() {
+  await loadReviewIndex();
+  await loadReviewPage();
+}
+
 /** What each row says about itself before it is opened. */
 function paintRecordStatus() {
   document.querySelectorAll('.rec-row').forEach(row => {
-    const entry = recordPreviews.get(Number(row.dataset.index));
+    const entry = recordIndex.get(Number(row.dataset.index));
     const slot = row.querySelector('.rec-status');
     if (!entry) { slot.innerHTML = ''; return; }
     if (entry.skipped) {
@@ -1156,7 +1203,11 @@ function paintRecordStatus() {
 }
 
 function recordMatchesFilter(entry, index) {
-  if (!entry) return true;
+  // Nothing known about this record yet. It cannot be said to match, and
+  // saying it does is the bug this replaced: previews were loaded a page at a
+  // time, every record past the first page had no entry, and so every filter
+  // showed the rest of the file alongside its actual matches.
+  if (!entry) return reviewFilter === 'all';
   switch (reviewFilter) {
     case 'held':       return entry.held > 0;
     case 'pattern':    return entry.sources.some(
@@ -1172,7 +1223,7 @@ function applyReviewFilter() {
   let shown = 0;
   document.querySelectorAll('.rec-row').forEach(row => {
     const index = Number(row.dataset.index);
-    const keep = recordMatchesFilter(recordPreviews.get(index), index);
+    const keep = recordMatchesFilter(recordIndex.get(index), index);
     row.hidden = !keep;
     if (keep) shown++;
   });
@@ -1191,7 +1242,8 @@ function renderPager(data) {
   if (!more) return;
   const last = Math.min(data.offset + data.limit, data.total);
   document.getElementById('page-label').textContent =
-    `records ${data.offset + 1}–${last} of ${data.total}`;
+    (reviewFilter === 'all' ? `records ${data.offset + 1}–${last} of ${data.total}`
+                            : `showing ${data.offset + 1}–${last} of ${data.total} matching`);
   document.getElementById('btn-page-prev').disabled = data.offset === 0;
   document.getElementById('btn-page-next').disabled = last >= data.total;
 }
@@ -1201,8 +1253,104 @@ document.querySelectorAll('.filter-row .chip').forEach(chip =>
     document.querySelectorAll('.filter-row .chip').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
     reviewFilter = chip.dataset.filter;
-    applyReviewFilter();
+    // The pages are slices of what the filter shows, so a new filter means new
+    // pages -- and the first of them, not wherever the last filter had got to.
+    reviewOffset = 0;
+    recordIndex.clear();
+    reloadReview();
   }));
+
+/**
+ * Open the pattern that read this statement, wherever it is on the screen.
+ *
+ * A mistake is nearly always spotted while reviewing records, and the place to
+ * fix it is the pattern -- which by then may be folded inside step 2, inside a
+ * group, with its own body closed. All three have to give way, or the link
+ * lands the cataloguer on a screen with nothing visibly different about it.
+ */
+function jumpToPattern(patternId) {
+  const card = [...document.querySelectorAll('.pattern-card')]
+    .find(c => c._id === patternId);
+
+  if (!card) {
+    // In the library but not on screen: the library outlives a detection run,
+    // and can be imported without one. Say so rather than doing nothing.
+    const known = library.find(p => p.id === patternId);
+    alert(known
+      ? `"${known.label}" is in your library but not in the patterns on screen. `
+        + 'Run "Find patterns" again to work on it.'
+      : 'That pattern is no longer in your library.');
+    return;
+  }
+
+  setPatternsCollapsed(false);
+  const fold = card.closest('.pattern-group');
+  if (fold) fold.open = true;               // the toggle handler records this
+  if (card.querySelector('.pc-body').hidden) card.querySelector('.pc-toggle').click();
+
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  card.classList.add('jumped-to');
+  setTimeout(() => card.classList.remove('jumped-to'), 2500);
+}
+
+document.addEventListener('click', e => {
+  const link = e.target.closest('.jump-to-pattern');
+  if (link) jumpToPattern(link.dataset.pattern);
+});
+
+/** Every record the whole-file index says this pattern read. */
+function recordsUsing(patternId) {
+  const out = [];
+  recordIndex.forEach((row, index) => {
+    if ((row.sources || []).includes(patternId)) out.push(index);
+  });
+  return out;
+}
+
+/**
+ * Make a change to one pattern, and un-review the records it touched.
+ *
+ * This is the half of "jump back to the pattern" that matters. Editing a
+ * pattern rewrites the MARC for every record it reads, including ones a
+ * cataloguer has already ticked off -- and a tick that no longer describes
+ * anything anybody looked at is worse than no tick at all, because it is
+ * indistinguishable from one that does.
+ *
+ * Both sides of the change count: records the pattern read before it (whose
+ * conversion has now changed or gone) and records it reads after it (which it
+ * may not have matched before).
+ */
+async function withPatternChange(patternId, change) {
+  const before = recordsUsing(patternId);
+  const result = await change();
+  const after = recordsUsing(patternId);
+
+  const touched = [...new Set([...before, ...after])].filter(i => reviewed.has(i));
+  if (touched.length) {
+    touched.forEach(i => {
+      reviewed.delete(i);
+      const row = document.querySelector(`.rec-row[data-index="${i}"]`);
+      if (row) {
+        row.classList.remove('reviewed');
+        const box = row.querySelector('.rec-reviewed');
+        if (box) box.checked = false;
+      }
+    });
+    announceUnreviewed(touched.length);
+    applyReviewFilter();
+  }
+  return result;
+}
+
+function announceUnreviewed(n) {
+  const notice = document.getElementById('review-notice');
+  if (!notice) return;
+  notice.innerHTML = `<div class="alert alert-info">Editing that pattern changed
+    what ${n} record${n !== 1 ? 's' : ''} you had already reviewed would produce,
+    so ${n !== 1 ? 'they have' : 'it has'} gone back to
+    "${n !== 1 ? 'not yet reviewed' : 'not yet reviewed'}".</div>`;
+  notice.hidden = false;
+}
 
 document.getElementById('btn-page-prev').addEventListener('click', () => {
   reviewOffset = Math.max(0, reviewOffset - REVIEW_PAGE);
@@ -1987,7 +2135,8 @@ async function toggleSkip(card) {
 
   dismissed.delete(entry.id);
   const others = library.filter(p => p.id !== entry.id);
-  const data = await saveLibrary(others.concat([entry]));
+  const data = await withPatternChange(entry.id,
+    () => saveLibrary(others.concat([entry])));
 
   if (data.rejected && data.rejected.length) {
     // Taking the skip off means the pattern has to stand on its own, and this
@@ -2024,7 +2173,7 @@ async function confirmPattern(card) {
 
   dismissed.delete(entry.id);
   const next = library.filter(p => p.id !== entry.id).concat([entry]);
-  const data = await saveLibrary(next);
+  const data = await withPatternChange(entry.id, () => saveLibrary(next));
   if (data.rejected && data.rejected.length) {
     showAlert(status, data.rejected.join(' '), 'err');
     return;
@@ -2057,8 +2206,9 @@ async function saveLibrary(patterns) {
   library = data.patterns || [];
   renderLibrary();
   // Every record's conversion depends on the library, so the review page and
-  // any open row are now out of date.
-  if (allRecords.length) refreshReview();
+  // any open row are now out of date. Awaited, because a caller comparing what
+  // a pattern read before and after the change reads the refreshed index.
+  if (allRecords.length) await refreshReview();
   return data;
 }
 
@@ -2066,7 +2216,7 @@ async function saveLibrary(patterns) {
 async function refreshReview() {
   const open = [...document.querySelectorAll('.rec-row.open')].map(r => Number(r.dataset.index));
   recordPreviews.clear();
-  await loadReviewPage();
+  await reloadReview();
   for (const idx of open) await renderRecordDetail(idx);
 }
 
@@ -2113,7 +2263,8 @@ function renderLibrary() {
 
 async function dropPattern(id) {
   if (id) dismissed.add(id);
-  await saveLibrary(library.filter(p => p.id !== id));
+  await withPatternChange(id,
+    () => saveLibrary(library.filter(p => p.id !== id)));
   redrawPatterns();      // so a removed pattern stops showing as confirmed
 }
 
@@ -2248,6 +2399,9 @@ async function renderRecordDetail(idx) {
             <div class="field-display f866">${escHtml(pv.source_866)}</div>
             <div class="small dim mt-1">
               read by <span class="pill ${pv.from_pattern ? 'from-pattern' : ''}">${escHtml(pv.source_label)}</span>
+              ${pv.from_pattern ? `<button type="button" class="btn btn-ghost btn-sm jump-to-pattern"
+                data-pattern="${escHtml(pv.source)}"
+                title="Open this pattern in step 2">Edit this pattern ↑</button>` : ''}
             </div>
           </div>
           <div>

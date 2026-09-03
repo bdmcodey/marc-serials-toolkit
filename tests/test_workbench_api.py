@@ -536,6 +536,87 @@ def test_a_settings_shape_the_server_cannot_use_is_reported(workbench_client,
     assert any("$a-$m" in r for r in body["rejections"])
 
 
+# ---------------------------------------------------------------------------
+# The review index: an answer for every record, not just the loaded page
+# ---------------------------------------------------------------------------
+
+def test_the_review_index_covers_every_record(workbench_client, example_marc_bytes):
+    """
+    The filters run on this, so it has to answer for the whole file. Paging it
+    is what broke them: a record with no entry passed every test, so filtering
+    showed the rest of the file alongside the actual matches.
+    """
+    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    body = workbench_client.post("/api/review-index", json=SETTINGS).get_json()
+
+    assert body["total"] == len(records)
+    assert [r["index"] for r in body["records"]] == list(range(len(records)))
+    for row in body["records"]:
+        assert {"converted", "held", "sources", "has_866", "skipped"} <= set(row)
+
+
+def test_the_review_index_carries_no_field_data(workbench_client, example_marc_bytes):
+    """
+    Counts, not fields. Carrying previews for every record in a 400-record file
+    would be most of a megabyte spent on rows nobody has opened.
+    """
+    upload_marc(workbench_client, example_marc_bytes)
+    body = workbench_client.post("/api/review-index", json=SETTINGS).get_json()
+    assert all("previews" not in row for row in body["records"])
+
+
+def test_the_index_and_the_previews_agree(workbench_client, messy_marc_bytes):
+    """
+    A filter that ran on different numbers than the preview it filtered on
+    would be its own bug, so both come from one function.
+    """
+    upload_marc(workbench_client, messy_marc_bytes)
+    index = {r["index"]: r for r in
+             workbench_client.post("/api/review-index", json=SETTINGS).get_json()["records"]}
+    paged = workbench_client.post("/api/preview-records", json={
+        **SETTINGS, "offset": 0, "limit": 50}).get_json()["records"]
+
+    for row in paged:
+        same = index[row["index"]]
+        assert (same["converted"], same["held"], same["sources"], same["has_866"]) == \
+               (row["converted"], row["held"], row["sources"], row["has_866"])
+
+
+def test_previews_can_be_asked_for_by_index(workbench_client, messy_marc_bytes):
+    """
+    The screen pages through what the *filter* shows, which is not a slice of
+    the file in order -- so it asks for the records it wants by name.
+    """
+    upload_marc(workbench_client, messy_marc_bytes)
+    body = workbench_client.post("/api/preview-records", json={
+        **SETTINGS, "indices": [3, 1]}).get_json()
+
+    assert [r["index"] for r in body["records"]] == [3, 1]   # order kept
+    assert all("previews" in r for r in body["records"])
+
+
+def test_an_impossible_index_is_ignored_rather_than_fatal(workbench_client,
+                                                          messy_marc_bytes):
+    upload_marc(workbench_client, messy_marc_bytes)
+    body = workbench_client.post("/api/preview-records", json={
+        **SETTINGS, "indices": [0, 9999, -1, "x", 0]}).get_json()
+    assert [r["index"] for r in body["records"]] == [0]
+
+
+def test_the_index_knows_which_records_a_pattern_read(workbench_client,
+                                                      example_marc_bytes):
+    """
+    This is what lets editing a pattern put the records it touched back into
+    the review queue instead of leaving a stale tick beside them.
+    """
+    upload_marc(workbench_client, example_marc_bytes)
+    confirm(workbench_client, group_for(workbench_client, "v.6(1995)-"))
+
+    rows = workbench_client.post("/api/review-index", json=SETTINGS).get_json()["records"]
+    used_by_pattern = [r["index"] for r in rows if "confirmed-1" in r["sources"]]
+    assert used_by_pattern, rows
+
+
 def test_a_skipped_record_comes_out_exactly_as_it_went_in(workbench_client,
                                                           example_marc_bytes):
     """

@@ -404,6 +404,81 @@ def _source_labels(patterns) -> dict:
     return labels
 
 
+def _requested_indices(data: dict, total: int, offset: int, limit: int) -> list:
+    """
+    Which records a review request wants: an explicit list, or a page.
+
+    An explicit list exists because the review screen pages through whatever
+    the *filter* is showing, not through the file in order -- with a filter on,
+    records 1-50 of the file are not the first fifty a cataloguer is looking at.
+    """
+    raw = data.get("indices")
+    if isinstance(raw, (list, tuple)):
+        wanted = []
+        for value in raw[:PREVIEW_PAGE_MAX]:
+            try:
+                index = int(value)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= index < total and index not in wanted:
+                wanted.append(index)
+        return wanted
+    return list(range(offset, min(offset + limit, total)))
+
+
+def _review_row(record, index, *, patterns, fallback, conv_opts, captions,
+                frequency, continuity, rejections, merge_patterns,
+                skipped: bool, with_previews: bool) -> dict:
+    """
+    One record as the review screen sees it: what it would produce, and what
+    read it.
+
+    `with_previews` is the difference between the two callers.  The filters and
+    the row status need only the counts, for every record in the file; the
+    fields themselves are wanted only for the handful on screen, and carrying
+    them for a 400-record file would be most of a megabyte spent on rows nobody
+    has opened.  Both come from here, so a filter can never disagree with the
+    preview it filtered on.
+    """
+    row = {
+        "index": index,
+        "title": _record_title(record) or f"Record {index + 1}",
+        "converted": 0,
+        "held": 0,
+        "sources": [],
+        "has_866": False,
+        "skipped": skipped,
+    }
+    if with_previews:
+        row["previews"] = []
+
+    statements = [t for t in ((f["a"] or "") for f in record.get_fields("866")) if t]
+    row["has_866"] = bool(statements)
+
+    # A preview that showed fields a skipped record will never get would be
+    # showing something that is not going to happen.
+    if skipped or not statements:
+        return row
+
+    parsed, sources = _parse_all(statements, patterns, fallback)
+    rc = convert_record(
+        parsed, existing_853s=list(record.get_fields("853")), captions=captions,
+        frequency=frequency, numbering_continuity=continuity,
+        merge_patterns=merge_patterns, **conv_opts,
+    )
+    previews = _previews_from(rc, rejections, list(record.get_fields("853")),
+                              sources, patterns)
+    for preview, text in zip(previews, statements):
+        preview["source_866"] = text
+
+    row["converted"] = sum(1 for p in previews if p["fields_863"])
+    row["held"] = sum(1 for p in previews if not p["fields_863"])
+    row["sources"] = sorted({p["source"] for p in previews})
+    if with_previews:
+        row["previews"] = previews
+    return row
+
+
 def _previews_from(rc, rejections=(), existing_853s=(), sources=(),
                    patterns=()) -> list:
     """
@@ -1050,53 +1125,18 @@ def api_preview_records():
     skip_records = _skipped_records(data)
 
     try:
-        out = []
-        for index in range(offset, min(offset + limit, len(all_records))):
-            record = all_records[index]
-            existing_853s = list(record.get_fields("853"))
-            statements = [t for t in ((f["a"] or "")
-                                      for f in record.get_fields("866")) if t]
-
-            # A preview that showed fields a skipped record will never get
-            # would be showing something that is not going to happen.
-            if index in skip_records:
-                out.append({
-                    "index": index,
-                    "title": _record_title(record) or f"Record {index + 1}",
-                    "previews": [], "converted": 0, "held": 0,
-                    "sources": [], "has_866": bool(statements),
-                    "skipped": True,
-                })
-                continue
-
-            if not statements:
-                out.append({
-                    "index": index, "title": _record_title(record) or f"Record {index + 1}",
-                    "previews": [], "converted": 0, "held": 0,
-                    "sources": [], "has_866": False, "skipped": False,
-                })
-                continue
-
-            parsed, sources = _parse_all(statements, patterns, fallback)
-            rc = convert_record(
-                parsed, existing_853s=existing_853s, captions=captions,
-                frequency=frequency, numbering_continuity=continuity,
-                merge_patterns=index not in keep_separate, **conv_opts,
-            )
-            previews = _previews_from(rc, rejections, existing_853s, sources, patterns)
-            for preview, text in zip(previews, statements):
-                preview["source_866"] = text
-
-            out.append({
-                "index": index,
-                "title": _record_title(record) or f"Record {index + 1}",
-                "previews": previews,
-                "converted": sum(1 for p in previews if p["fields_863"]),
-                "held": sum(1 for p in previews if not p["fields_863"]),
-                "sources": sorted({p["source"] for p in previews}),
-                "has_866": True,
-                "skipped": False,
-            })
+        wanted = _requested_indices(data, len(all_records), offset, limit)
+        out = [
+            _review_row(all_records[index], index,
+                        patterns=patterns, fallback=fallback,
+                        conv_opts=conv_opts, captions=captions,
+                        frequency=frequency, continuity=continuity,
+                        rejections=rejections,
+                        merge_patterns=index not in keep_separate,
+                        skipped=index in skip_records,
+                        with_previews=True)
+            for index in wanted
+        ]
 
         return jsonify({
             "records": out,
@@ -1105,6 +1145,60 @@ def api_preview_records():
             "limit": limit,
             "rejections": rejections,
         })
+    except Exception as exc:
+        app.logger.exception("Request failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/review-index", methods=["POST"])
+def api_review_index():
+    """
+    What every record in the file would produce, in counts rather than fields.
+
+    The review screen filters and pages over the whole file, so it needs an
+    answer for every record -- not just the page whose previews are loaded.
+    Without this the filters silently lied: a record with no preview data
+    passed every test, so "needs attention" showed the whole file from the
+    second page on.
+
+    It also answers "which records did this pattern read", which is what makes
+    editing a pattern able to put the records it touched back into the review
+    queue instead of leaving a stale tick beside them.
+
+    Deliberately no field data: see _review_row.
+
+    POST JSON: {...conversion settings}
+    """
+    if not HAS_PYMARC:
+        return jsonify({"error": "pymarc is not installed on the server."}), 500
+
+    data = request.get_json(force=True) or {}
+    all_records = _load_all_records()
+    if all_records is None:
+        return jsonify({"error": "No MARC file found. Please upload a file first."}), 400
+
+    conv_opts, rejections = _convention_opts(data)
+    captions = data.get("captions") or None
+    frequency = data.get("frequency", "")
+    continuity = data.get("numbering_continuity", "r")
+    patterns = _load_library()
+    fallback = _parser_fallback(data)
+    keep_separate = _keep_separate(data)
+    skip_records = _skipped_records(data)
+
+    try:
+        rows = [
+            _review_row(record, index,
+                        patterns=patterns, fallback=fallback,
+                        conv_opts=conv_opts, captions=captions,
+                        frequency=frequency, continuity=continuity,
+                        rejections=rejections,
+                        merge_patterns=index not in keep_separate,
+                        skipped=index in skip_records,
+                        with_previews=False)
+            for index, record in enumerate(all_records)
+        ]
+        return jsonify({"records": rows, "total": len(all_records)})
     except Exception as exc:
         app.logger.exception("Request failed")
         return jsonify({"error": str(exc)}), 500
