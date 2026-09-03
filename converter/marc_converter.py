@@ -509,6 +509,11 @@ class ConversionResult:
     warnings: List[str] = field(default_factory=list)
     conformed: bool = False               # reused the record's existing 853
     needs_review: bool = False            # values found but deliberately not converted
+    # Fields were produced, and something about them should be looked at before
+    # they are loaded.  Distinct from needs_review, which writes nothing at all:
+    # here the record exists and may well be right, but the tool cannot vouch
+    # for it, and silence would be read as vouching.
+    flagged: bool = False
 
     def all_fields(self) -> List[FieldData]:
         return ([self.field_853] if self.field_853 else []) + self.fields_863
@@ -521,6 +526,7 @@ class ConversionResult:
             "warnings": self.warnings,
             "conformed": self.conformed,
             "needs_review": self.needs_review,
+            "flagged": self.flagged,
         }
 
 
@@ -690,6 +696,47 @@ def _note_unplaceable(warnings: Optional[List[str]], which: str,
     )
     if note not in warnings:
         warnings.append(note)
+
+
+# How deep a serial is plausibly numbered.  MARC 21 gives enumeration $a-$f, so
+# six levels are *allowed*; two or three are what serials actually use --
+# volume, issue, and occasionally part.  The 112-statement corpus reaches three
+# exactly once and never four.
+PLAUSIBLE_ENUM_DEPTH = 3
+
+
+def _check_enumeration_depth(levels: Dict[str, Any],
+                             warnings: Optional[List[str]] = None) -> bool:
+    """
+    Flag a record claiming more enumeration levels than a serial plausibly has.
+
+    The realistic way to reach four or more is a discontinuous list read as a
+    hierarchy: "8,13,15,17,19,20-(1982-1994)" is six separate holdings, and
+    filing them as $a 8 $b 13 $c 15 ... states that the library holds one
+    issue, numbered six levels deep, which is not a loss but an invention.
+
+    Nothing here can tell the two readings apart -- a genuinely deep serial and
+    a list look identical once the values are in hand -- so this does not
+    refuse, and does not drop anything. It says what was assumed, which is the
+    difference between an error a cataloguer can catch and one they cannot.
+
+    Returns True when the record was flagged.
+    """
+    captions = levels.get("enum_captions", [])
+    if len(captions) <= PLAUSIBLE_ENUM_DEPTH:
+        return False
+    if warnings is not None:
+        named = ", ".join(
+            f"{cap or default_enum_caption(i)}" for i, cap in enumerate(captions))
+        note = (
+            f"{len(captions)} enumeration levels are claimed here ({named}). "
+            f"Serials are numbered two or three levels deep; more than that "
+            f"usually means a list of separate holdings, and separate holdings "
+            f"cannot share one 863. Check this record before loading it."
+        )
+        if note not in warnings:
+            warnings.append(note)
+    return True
 
 
 def _note_caption_conflict(warnings: Optional[List[str]], stated: str,
@@ -1033,6 +1080,7 @@ def convert_holdings(
             linking_number=link,
             warnings=warnings,
             conformed=True,
+            flagged=_check_enumeration_depth(levels, warnings),
         )
 
     if declared:
@@ -1073,6 +1121,7 @@ def convert_holdings(
         fields_863=fields_863,
         linking_number=linking_number,
         warnings=warnings,
+        flagged=_check_enumeration_depth(levels, warnings),
     )
 
 

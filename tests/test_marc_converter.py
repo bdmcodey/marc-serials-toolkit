@@ -776,3 +776,63 @@ def test_a_level_the_screen_cannot_see_yields_to_one_it_can():
     spec, rejections = resolve_convention("standard", subfields={"enum": {"e1": "d"}})
     assert spec["subfields"]["enum"] == ("d", "b", "c", "e", "f")
     assert any("room for 5 levels" in r for r in rejections)
+
+
+# ---------------------------------------------------------------------------
+# Enumeration depth: the difference between a hierarchy and a list
+# ---------------------------------------------------------------------------
+
+def test_implausible_enumeration_depth_is_flagged_not_refused():
+    """
+    D14. "8,13,15,17,19,20-(1982-1994)" is six separate holdings. Read as a
+    hierarchy it becomes $a 8 $b 13 $c 15 $d 17 $e 19 $f 20 -- one issue,
+    numbered six levels deep, which is not a loss but an invention.
+
+    Nothing here can tell a genuinely deep serial from a list once the values
+    are in hand, so the record is still produced. What it must not do is
+    produce it in silence: an error a cataloguer can catch is worth far more
+    than one they cannot.
+    """
+    from marc_converter import _check_enumeration_depth
+
+    warnings = []
+    levels = {"enum_captions": ["v.", "no.", "pt.", "ser.", None, None]}
+    assert _check_enumeration_depth(levels, warnings) is True
+    assert any("separate holdings" in w for w in warnings)
+
+
+@pytest.mark.parametrize("captions", [
+    ["v."],
+    ["no."],
+    ["v.", "no."],
+    ["ser.", "v.", "no."],          # the deepest the corpus reaches, once
+])
+def test_ordinary_enumeration_depth_is_not_flagged(captions):
+    """
+    89 of the corpus's ranges use two levels and one uses three. A guard that
+    fired on those would be noise, and noise is how a real warning gets missed.
+    """
+    from marc_converter import _check_enumeration_depth
+
+    warnings = []
+    assert _check_enumeration_depth({"enum_captions": captions}, warnings) is False
+    assert warnings == []
+
+
+def test_a_three_level_statement_converts_unflagged():
+    result = convert_holdings(parse_866("v. 1 no. 2 pt. 3 (1990)-v. 4 no. 5 pt. 6 (1995)"))
+    assert result.flagged is False
+    assert result.fields_863[0].display() == \
+        "863 40 $8 1.1 $a 1-4 $b 2-5 $c 3-6 $i 1990-1995"
+
+
+def test_a_flagged_record_still_carries_its_fields():
+    """
+    Flagged is not held. The cataloguer needs to see what the tool would write
+    in order to judge it -- withholding the fields would hide the evidence.
+    """
+    from marc_converter import _check_enumeration_depth
+    warnings = []
+    assert _check_enumeration_depth(
+        {"enum_captions": ["v.", "no.", "pt.", "ser."]}, warnings) is True
+    assert len(warnings) == 1
