@@ -59,8 +59,8 @@ def test_upload_extracts_statements(detector_client, example_marc_bytes):
     assert response.status_code == 200
 
     body = response.get_json()
-    assert body["count"] == 9          # nine 866 $a values across five records
-    assert len(body["statements"]) == 9
+    assert body["count"] == 10         # ten 866 $a values across five records
+    assert len(body["statements"]) == 10
 
 
 def test_test_regex_reports_matches(detector_client):

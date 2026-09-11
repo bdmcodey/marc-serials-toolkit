@@ -19,7 +19,8 @@ from __future__ import annotations
 import pytest
 from pymarc import Field, Subfield
 
-from holdings_parser import parse_866
+from holdings_parser import (parse_866, ParseResult, HoldingsRange,
+                             EnumChron, EnumLevel)
 from marc_converter import (convention_presets, resolve_convention,
                             convert_holdings, convert_record,
                             caption_slot, read_853_slots,
@@ -688,6 +689,90 @@ def test_a_range_inside_one_boundary_is_not_mistaken_for_a_pair():
     assert sub(result.fields_863[0], "a") == "1-51"
     assert sub(result.fields_863[0], "b") is None
     assert any("(1-2)" in w for w in result.warnings), result.warnings
+
+
+# ---------------------------------------------------------------------------
+# Gaps: one 863 per run, and $w to say what the break is
+# ---------------------------------------------------------------------------
+
+def test_a_gapped_statement_becomes_one_863_per_run():
+    """
+    MARC 21 records a gap as another 863 under the same 853, so four runs of
+    holdings are four fields sharing one caption pattern and one $8. Nothing in
+    convert_record() had to change for this: the same shape written out longhand
+    ("v. 1 no. 1 (Jan 1990), v. 1 no. 3 (Mar 1990)") already converted this way.
+    """
+    result = convert_holdings(
+        parse_866("v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"))
+
+    assert result.field_853.display() == (
+        "853 31 $8 1 $a v. $b no. $i (year) $j (month)")
+    assert [f.display() for f in result.fields_863] == [
+        "863 40 $8 1.1 $a 19 $b 1 $i 1915 $j 01 $w g",
+        "863 40 $8 1.2 $a 19 $b 3 $i 1915 $j 03 $w g",
+        "863 40 $8 1.3 $a 19 $b 5 $i 1915 $j 05 $w g",
+        "863 40 $8 1.4 $a 19 $b 7-12 $i 1915 $j 07-12",
+    ]
+    assert result.warnings == []
+
+
+def test_the_break_indicator_marks_the_field_before_the_break():
+    """
+    $w describes the break that follows its field, so the last run carries none
+    -- there is nothing after it to break from.
+    """
+    result = convert_holdings(parse_866("v. 21 nos. 6, 8 (Jun, Aug 1917)"))
+    assert sub(result.fields_863[0], "w") == "g"
+    assert sub(result.fields_863[1], "w") is None
+
+
+def test_runs_that_follow_straight_on_carry_no_break_indicator():
+    """
+    "g" says parts are lacking. Issues 1, 2 and 3 lack nothing, so saying it
+    would be a claim about the collection that the statement contradicts.
+    """
+    result = convert_holdings(parse_866("v. 19 nos. 1, 2, 3 (Jan, Feb, Mar 1915)"))
+    assert [sub(f, "w") for f in result.fields_863] == [None, None, None]
+
+
+# ---------------------------------------------------------------------------
+# The two ends of a range have to agree on what each level is called
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text", [
+    "v. 12 no. 1-no. 6 (1990)",
+    "v. 12 no. 1 - no. 6 (1990)",
+])
+def test_an_end_that_omits_its_leading_level_is_read_at_the_level_it_names(text):
+    """
+    "no. 6" closes the issue level, not the volume level, and position alone
+    could not tell: the end states one level and the start two, so "6" landed at
+    position 0 beside "v. 12" and the field read "$a 12-6" -- volume 12 through
+    volume 6, a range running backwards that the statement never said. The
+    caption is the evidence, and it is unambiguous here.
+    """
+    result = convert_holdings(parse_866(text))
+    f863 = result.fields_863[0]
+    assert (sub(f863, "a"), sub(f863, "b")) == ("12", "1-6")
+    assert result.warnings == []
+
+
+def test_a_closing_level_that_fits_nowhere_is_named_rather_than_placed():
+    """
+    The other half of the same rule. A range opening "v." and closing "pt." has
+    no level to pair, and the captions cannot repair it the way they repair
+    "v. 12 no. 1-no. 6". Writing the value by position is exactly what produced
+    "$a 12-6", so nothing is written and the value is reported instead.
+    """
+    start = EnumChron(enum=[EnumLevel("v.", "1"), EnumLevel("no.", "1")],
+                      year="1990")
+    end = EnumChron(enum=[EnumLevel("pt.", "4")])
+    result = convert_holdings(
+        ParseResult(ranges=[HoldingsRange(start=start, end=end, raw="x")], raw="x"))
+
+    f863 = result.fields_863[0]
+    assert (sub(f863, "a"), sub(f863, "b")) == ("1", "1")
+    assert any("pt.4" in w for w in result.warnings), result.warnings
 
 
 # ---------------------------------------------------------------------------

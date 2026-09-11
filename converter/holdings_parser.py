@@ -148,6 +148,19 @@ class EnumChron:
         return "".join(parts)
 
 
+def _sole_offset(short: List[Optional[str]],
+                 long: List[Optional[str]]) -> Optional[int]:
+    """
+    The one offset at which `short` sits inside `long`, or None if not exactly
+    one does.  A missing caption on either side matches anything, since it
+    states nothing to contradict.
+    """
+    fits = [k for k in range(len(long) - len(short) + 1)
+            if all(a is None or b is None or a == b
+                   for a, b in zip(short, long[k:]))]
+    return fits[0] if len(fits) == 1 else None
+
+
 @dataclass
 class HoldingsRange:
     """A single holdings range (start–end, or start– if open)."""
@@ -155,6 +168,62 @@ class HoldingsRange:
     end: Optional[EnumChron] = None   # None means open-ended
     open_ended: bool = False          # True  ⇒ still being received
     raw: str = ""                     # original text for this range
+    # 863 $w on this field: the break between it and the next 863.  Set only
+    # where the statement itself shows the break -- one run of a discontinuous
+    # list to the next.  Two separate 866s may have a gap between them too, but
+    # that is a reading of the record rather than of the statement, and is not
+    # decided here.
+    break_after: str = ""
+
+    def __post_init__(self) -> None:
+        self.align_boundaries()
+
+    def align_boundaries(self) -> None:
+        """
+        Slide a boundary that omits its leading levels down to where it fits.
+
+        Position in `enum` is the level, and for a range written out in full
+        that is all anyone needs.  A range that states two levels at one end and
+        one at the other breaks it: "v. 12 no. 1-no. 6" puts "no. 6" at position
+        0, where the other end has "v. 12", and the 863 comes out "$a 12-6" --
+        volume 12 to volume 6, a range that runs backwards and is not what the
+        statement says.
+
+        The captions settle it.  The end's "no." can only be the level the start
+        also calls "no.", so an empty level is pushed in front of it and the two
+        line up: "$a 12 $b 1-6".
+
+        Only a boundary whose captions fit at exactly one offset is moved.  If
+        they fit nowhere, or in more than one place, nothing is moved and the
+        converter reports the values it cannot place -- guessing which level a
+        value belongs to is the error this exists to prevent, and a wrong guess
+        here is invisible in the output.
+
+        Run at construction, and again by anything that fills the boundaries in
+        afterwards -- the parser builds an empty range and populates it, so
+        construction is too early there.  Running twice costs nothing: once the
+        captions line up there is nothing left to move.
+        """
+        if self.end is None:
+            return
+
+        s_caps = [lvl.caption for lvl in self.start.enum]
+        e_caps = [lvl.caption for lvl in self.end.enum]
+        if not any(s_caps) or not any(e_caps):
+            return                      # nothing captioned to align by
+
+        if all(s is None or e is None or s == e
+               for s, e in zip(s_caps, e_caps)):
+            return                      # they already agree where both speak
+
+        if len(e_caps) < len(s_caps):
+            offset = _sole_offset(e_caps, s_caps)
+            if offset:
+                self.end.enum = [EnumLevel()] * offset + self.end.enum
+        elif len(s_caps) < len(e_caps):
+            offset = _sole_offset(s_caps, e_caps)
+            if offset:
+                self.start.enum = [EnumLevel()] * offset + self.start.enum
 
     def enum_depth(self) -> int:
         """How many enumeration levels either boundary of this range states."""
@@ -247,6 +316,16 @@ class ParseResult:
 #   iss_num   – issue number
 #   chron_raw – everything inside ( )
 #   year_only – bare year with no parens
+
+# 863 $w, the break indicator: the code that says what the break before the next
+# 863 is.  "g" is a gap -- parts lacking from the holdings, or a break whose
+# cause is not known, which is the honest reading of a cataloguer writing
+# "nos. 1, 3".  "n" is a non-gap break, for parts never published or a
+# discontinuity in the numbering itself; nothing here can tell that apart from a
+# gap, so nothing here writes it.
+BREAK_GAP = "g"
+BREAK_NON_GAP = "n"
+
 
 # Caption words, and the normalised form each is written back as.  The word
 # says what a level is *called*, never which level it is: "no." is ordinary in
@@ -395,6 +474,226 @@ def _is_designation_prefix(before: str, after: str) -> bool:
     if not right_captions:
         return False
     return not any(lvl.caption in right_captions for lvl in left)
+
+
+# ---------------------------------------------------------------------------
+# Discontinuous lists
+# ---------------------------------------------------------------------------
+#
+# "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" is four runs of
+# holdings with gaps between them, written the compact way a cataloguer writes
+# them.  MARC 21 records gaps as separate 863s under one 853, so the four runs
+# are four fields -- which is exactly what the converter already builds from a
+# statement written out longhand:
+#
+#   v. 1 no. 1 (Jan 1990), v. 1 no. 3 (Mar 1990)
+#     -> 863 $8 1.1 $a 1 $b 1 $i 1990 $j 01
+#        863 $8 1.2 $a 1 $b 3 $i 1990 $j 03
+#
+# So the compact form is expanded into the longhand one and handed to the unit
+# parser, rather than given a grammar of its own.  Everything the unit parser
+# knows about captions, combined issues and seasons then applies unchanged.
+
+# One item of a list: a number, a combined designation ("7/8"), or a run
+# ("7-12").  An item carrying its own caption is a new statement, not a
+# continuation of this one, and never reaches here -- _split_ranges() has
+# already cut the statement there.
+_LIST_VALUE = (r"\d+[a-zA-Z]?(?:\s*/\s*\d+[a-zA-Z]?)*"
+               r"(?:\s*-\s*\d+[a-zA-Z]?(?:\s*/\s*\d+[a-zA-Z]?)*)?")
+_LIST_ITEM_RE = re.compile(rf"^{_LIST_VALUE}$")
+
+# The first item of a list, with everything before it: "v. 19 nos. " and "1".
+# The prefix has to end in a caption, because the caption is what every later
+# item inherits.  Without one there is nothing to say what the bare numbers are.
+_LIST_HEAD_RE = re.compile(
+    rf"""^(?P<prefix>.*?(?:{_CAPTION_ALT})\s*\.?\s*)
+         (?P<item>{_LIST_VALUE})\s*$""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# The chronology block at the very end of a statement.
+_TRAILING_CHRON_RE = re.compile(r"\(\s*(?P<chron>[^()]*?)\s*\)\s*$")
+
+# A chronology item that states only a year, or a run of them.
+_BARE_YEAR_ITEM_RE = re.compile(rf"^{_YEAR_TOKEN}(?:\s*-\s*{_YEAR_TOKEN})?$")
+
+_FIRST_INT_RE = re.compile(r"\d+")
+
+
+def _split_top_level(text: str, sep: str = ",") -> List[str]:
+    """Split on `sep`, ignoring any that falls inside brackets of either kind."""
+    depth = 0
+    parts: List[str] = []
+    current: List[str] = []
+    for ch in text:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        if ch == sep and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current))
+    return [p.strip() for p in parts]
+
+
+def _chron_items(raw: str) -> Optional[List[str]]:
+    """
+    The chronology block read as a list, or None if it is not one.
+
+    The list has to be homogeneous: months and seasons throughout, or years
+    throughout.  A mixed one is how the American date convention writes a single
+    date -- "(Apr 18, 1996)" splits into "Apr 18" and "1996" -- and reading that
+    as two items would break one date into two holdings runs.
+    """
+    parts = [p for p in _split_top_level(raw) if p]
+    if len(parts) < 2:
+        return parts
+    if all(p[:1].isalpha() for p in parts):
+        return parts
+    if all(_BARE_YEAR_ITEM_RE.match(p) for p in parts):
+        return parts
+    return None
+
+
+def _carry_year_back(parts: List[str]) -> List[str]:
+    """
+    Give every chronology item the year it is written under.
+
+    "(Jan, Mar, May, Jul-Dec 1915)" states 1915 once, at the end, for all four.
+    "(Nov 1915, Jan 1916)" states one for each.  Reading right to left covers
+    both: an item without a year belongs to the nearest year on its right.
+    """
+    carried: Optional[str] = None
+    out: List[str] = []
+    for part in reversed(parts):
+        found = re.search(rf"\b{_YEAR_TOKEN}", part)
+        if found:
+            carried = found.group(0)
+            out.append(part)
+        elif carried:
+            out.append(f"{part} {carried}")
+        else:
+            out.append(part)
+    return list(reversed(out))
+
+
+def _gap_after(item: str, nxt: str) -> str:
+    """
+    The 863 $w break indicator for the break between two items of a list.
+
+    "g" is a gap break -- parts lacking, or a break whose cause is not known --
+    which is what a cataloguer listing "nos. 1, 3" is recording.  Two items that
+    run straight on ("nos. 1, 2") have no break to indicate, and nothing is
+    written.  Numbering that cannot be read as integers is not evidence of
+    continuity, so it is treated as a gap.
+    """
+    ends = _FIRST_INT_RE.findall(item)
+    starts = _FIRST_INT_RE.findall(nxt)
+    if ends and starts and int(starts[0]) == int(ends[-1]) + 1:
+        return ""
+    return BREAK_GAP
+
+
+def _expand_distributed_list(text: str) -> Optional[List[str]]:
+    """
+    Rewrite a list of discontinuous runs as one statement per run, or None.
+
+    Returns each statement with the list item it came from, since the numbering
+    is what says whether the break after it is a gap.
+
+    "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" becomes
+
+        v. 19 nos. 1 (Jan 1915)
+        v. 19 nos. 3 (Mar 1915)
+        v. 19 nos. 5 (May 1915)
+        v. 19 nos. 7-12 (Jul-Dec 1915)
+
+    All of it or none of it.  The two lists have to be the same length, because
+    pairing them is the whole claim being made: four issue runs against three
+    months says the statement was not understood, and a converter that carried
+    on would file holdings under the wrong dates.  A single bare year is the one
+    exception -- "(1915)" is stated once for every run in the list and applies to
+    all of them.
+    """
+    chron_raw = None
+    head = text.strip()
+    m = _TRAILING_CHRON_RE.search(head)
+    if m:
+        chron_raw = m.group("chron")
+        head = head[:m.start()].strip()
+
+    parts = [p for p in _split_top_level(head) if p]
+    if len(parts) < 2:
+        return None
+
+    first = _LIST_HEAD_RE.match(parts[0])
+    if not first:
+        return None
+    if not all(_LIST_ITEM_RE.match(p) for p in parts[1:]):
+        return None
+
+    prefix = first.group("prefix")
+    items = [first.group("item")] + parts[1:]
+
+    chrons: List[Optional[str]] = [None] * len(items)
+    if chron_raw:
+        chron_parts = _chron_items(chron_raw)
+        if chron_parts is None:
+            return None
+        if len(chron_parts) == 1 and _BARE_YEAR_ITEM_RE.match(chron_parts[0]):
+            chrons = [chron_parts[0]] * len(items)
+        elif len(chron_parts) == len(items):
+            chrons = list(_carry_year_back(chron_parts))
+        else:
+            return None
+
+    return [(f"{prefix}{item}" + (f" ({chron})" if chron else ""), item)
+            for item, chron in zip(items, chrons)]
+
+
+def is_distributed_list(text: str) -> bool:
+    """
+    Whether `text` lists several runs of holdings rather than describing one.
+
+    Public because the Workbench needs the same answer the parser uses. A
+    statement like this is more ranges than a confirmed pattern has roles to
+    describe -- a pattern captures a fixed set of values and pairs them as one
+    compressed range -- so the Workbench neither splits it into fragments for
+    the confirm step nor lets a pattern claim it, and hands it to the parser
+    whole.
+    """
+    return _expand_distributed_list(text) is not None
+
+
+def _parse_distributed_list(text: str,
+                            warnings: Optional[List[str]] = None,
+                            ) -> Optional[List[HoldingsRange]]:
+    """
+    One HoldingsRange per run of a discontinuous list, or None if it is not one.
+
+    Every expanded statement has to parse.  A list the parser can read four
+    fifths of is the case this whole area exists to refuse: the 866 is removed
+    once anything is written from it, so the fifth run would be deleted rather
+    than recorded.
+    """
+    expanded = _expand_distributed_list(text)
+    if expanded is None:
+        return None
+
+    ranges: List[HoldingsRange] = []
+    for stmt, _item in expanded:
+        hr = _parse_one_range(stmt, warnings)
+        if not (hr.start.has_enum() or hr.start.has_chron()):
+            return None
+        hr.raw = stmt
+        ranges.append(hr)
+
+    for i in range(len(ranges) - 1):
+        ranges[i].break_after = _gap_after(expanded[i][1], expanded[i + 1][1])
+    return ranges
 
 
 def _split_ranges(text: str) -> List[str]:
@@ -702,6 +1001,7 @@ def _parse_one_range(raw: str,
         hr.start = start or EnumChron()
         hr.end = end
 
+    hr.align_boundaries()
     return hr
 
 
@@ -992,6 +1292,17 @@ def parse_866(text: str) -> ParseResult:
     notes: List[str] = []
     for seg in segments:
         seg_notes: List[str] = []
+
+        # A segment listing several discontinuous runs is several ranges, and
+        # MARC records them as several 863s.  Tried before the unit parser
+        # because the unit parser reads the first run and refuses the rest.
+        listed = _parse_distributed_list(seg, seg_notes)
+        if listed is not None:
+            notes.extend(w for w in seg_notes if w not in notes)
+            result.ranges.extend(listed)
+            continue
+
+        seg_notes = []
         hr = _parse_one_range(seg, seg_notes)
         notes.extend(w for w in seg_notes if w not in notes)
         if not hr.start.has_enum() and not hr.start.has_chron():

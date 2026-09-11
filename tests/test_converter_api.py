@@ -161,10 +161,10 @@ def test_batch_convert_summarises_every_record(converter_client, example_marc_by
 
     assert body["success"] is True
     assert body["records_processed"] == 5
-    # Record 3 converts one of its two statements: "39 no 1 (Spring 1995)" reads
-    # as v.39 no.1, while "34 no 3, 4 (Summer, Autumn 1990)" is still beyond the
-    # parser and keeps its 866.
-    assert [s["converted_fields"] for s in body["summary"]] == [2, 1, 2, 1, 2]
+    # Record 3 converts two of its three statements. "34 no 3, 4 (Summer, Autumn
+    # 1990)" is a discontinuous list and now converts to two 863s; the third,
+    # "v. 58 Suppl. (Sep 2003)", is beyond the parser and keeps its 866.
+    assert [s["converted_fields"] for s in body["summary"]] == [2, 1, 2, 2, 2]
 
 
 def test_download_returns_valid_marc(converter_client, example_marc_bytes):
@@ -258,16 +258,17 @@ def test_single_record_route_keeps_unconverted_866s(converter_client,
     response = converter_client.post("/api/convert-record", json={
         "record_index": 3,
         "conversions": [{"text": "34 no 3, 4 (Summer, Autumn 1990)"},
-                        {"text": "39 no 1 (Spring 1995)"}],
+                        {"text": "39 no 1 (Spring 1995)"},
+                        {"text": "v. 58 Suppl. (Sep 2003)"}],
     })
     assert response.status_code == 200
 
-    # The statement that converted has its 866 removed; the one that did not
-    # keeps its own. Asserting which field survived rather than how many says
-    # what the route is actually for.
+    # The statements that converted have their 866s removed; the one that did
+    # not keeps its own. Asserting which field survived rather than how many
+    # says what the route is actually for.
     record = _records(converter_client.get("/api/download-converted").data)[3]
     surviving = [(f["a"] or "").strip() for f in record.get_fields("866")]
-    assert surviving == ["34 no 3, 4 (Summer, Autumn 1990)"]
+    assert surviving == ["v. 58 Suppl. (Sep 2003)"]
 
 
 def test_an_edited_statement_never_deletes_an_866(converter_client,

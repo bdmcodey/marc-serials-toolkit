@@ -31,6 +31,13 @@ EXAMPLES = [
     ("Quarterly of Nonexistent Topics", [
         "34 no 3, 4 (Summer, Autumn 1990)",
         "39 no 1 (Spring 1995)",
+        # One statement the parser refuses, on purpose. The rule that matters
+        # most in the Converter is that a statement it cannot read keeps its
+        # 866 -- the field is removed once anything has been written from it --
+        # and a corpus where everything converts leaves that rule untested.
+        # A designation between the enumeration and the chronology is the
+        # simplest shape that is still beyond the parser (D3's remainder).
+        "v. 58 Suppl. (Sep 2003)",
     ]),
     ("Bulletin of Placeholder Serials", [
         "v.1(1990)-v.10(1999)",

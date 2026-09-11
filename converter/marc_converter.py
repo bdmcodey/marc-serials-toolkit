@@ -796,6 +796,52 @@ def _note_caption_conflict(warnings: Optional[List[str]], stated: str,
         warnings.append(note)
 
 
+def _note_level_disagreement(warnings: Optional[List[str]], opens: str,
+                             closes: str, value: str) -> None:
+    """
+    Record a closing value whose caption contradicts the level it would land in.
+
+    A compressed 863 pairs the two ends level by level, so the level a value
+    closes has to be the level the range opened.  "v. 12 no. 1-no. 6" states one
+    level at the end and two at the start; HoldingsRange.align_boundaries()
+    settles that one from the captions.  What reaches here is what the captions
+    cannot settle -- a range that opens "v." and closes "pt." pairs nothing with
+    nothing -- and a value whose level is unknown is not a value to place by
+    position.  That is how "$a 12-6" was written: volume 12 to volume 6, from a
+    statement that said no such thing.
+    """
+    if warnings is None:
+        return
+    note = (
+        f"'{closes}{value}' was left out: this range opens at a '{opens}' level "
+        f"and closes at a '{closes}' level, so which level '{value}' closes "
+        f"cannot be told from the statement. A compressed 863 pairs the two "
+        f"ends level by level, and there is no pairing for this one."
+    )
+    if note not in warnings:
+        warnings.append(note)
+
+
+def _unpairable_end_levels(hr: HoldingsRange,
+                           warnings: Optional[List[str]] = None) -> set:
+    """
+    The end-boundary levels whose caption contradicts the start's at the same
+    position, named as they are found.  Their values are not written.
+    """
+    blocked: set = set()
+    if hr.end is None:
+        return blocked
+    for i, e_lvl in enumerate(hr.end.enum):
+        s_lvl = hr.start.level(i)
+        if not (e_lvl.value and e_lvl.caption and s_lvl and s_lvl.caption):
+            continue
+        if e_lvl.caption != s_lvl.caption:
+            _note_level_disagreement(warnings, s_lvl.caption,
+                                     e_lvl.caption, e_lvl.value)
+            blocked.add(i)
+    return blocked
+
+
 def _note_uncodeable(warnings: Optional[List[str]], label: tuple,
                      value: str) -> None:
     """Record chronology wording the coded subfield cannot hold."""
@@ -962,9 +1008,16 @@ def _build_863_for_range(
 
     planned: List[tuple] = []
 
+    unpairable = _unpairable_end_levels(hr, warnings)
+
+    def _enum_at(ec, i):
+        if ec is None or (ec is hr.end and i in unpairable):
+            return None
+        return ec.value_at(i)
+
     enum_values = _hierarchy_values(
         hr, range(depth),
-        lambda ec, i: ec.value_at(i) if ec else None,
+        _enum_at,
         lambda i: _enum_label(captions[i] if i < len(captions) else None, i),
         warnings,
     )
@@ -1010,6 +1063,14 @@ def _build_863_for_range(
 
     for code, value in sorted(planned, key=lambda p: p[0]):
         sfs.append(SubfieldData(code, value))
+
+    # $w says what the break between this field and the next one is.  Only a
+    # statement that shows the break sets it -- "v. 19 nos. 1, 3" says issue 2
+    # is not held -- and "g" is the code for that: parts lacking, or a break
+    # whose cause is not known.  Two runs that follow straight on set nothing,
+    # having no break to indicate.
+    if hr.break_after:
+        sfs.append(SubfieldData("w", hr.break_after))
 
     # Indicator 1 is Field encoding level, matching Leader/17: 3, 4 or 5.  4 is
     # holdings level 4 -- enumeration and chronology recorded -- which is what

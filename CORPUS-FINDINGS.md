@@ -10,7 +10,8 @@ anything was changed.
 
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
-D10 (0.8.0); D19 (0.8.1); D20 (0.8.2, 11 September 2026).
+D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
+(0.8.5, and on the pattern path in 0.8.6, 11 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -25,24 +26,30 @@ python scripts/corpus_report.py --drift    # only the tags that no longer hold
 
 ## Headline
 
-| | at 0.6.0 | now (0.8.1) |
+| | at 0.6.0 | now (0.8.5) |
 |---|---|---|
 | statements | 117 unique (132 before de-duplication), 11 sections | — |
-| converted cleanly | 67 (60%) | **83 (71%)** |
+| converted cleanly | 67 (60%) | **90 (77%)** |
 | converted with values **silently** dropped | 36 (32%) | **0** |
 | converted, and told the cataloguer what it dropped | 3 | **21** |
-| produced no fields at all | 6 (5%) | **13 (12%)** |
+| produced no fields at all | 6 (5%) | **6 (5%)** |
 | detector clusters | 55, 39 of them singletons | **44, 31 singletons** |
 | one shape split across several clusters | 45 statements, 15 confirmations | **0** |
 | statements a pattern could claim only part of | 37 (33%) | 64, none convert |
 
 The silent-loss column is the one to watch, and the clean rate is not. Statements
-have moved *out* of "clean" in both directions on purpose: ten now refuse
-outright rather than convert a third of themselves (D1, D3), and twenty more
-convert while naming a value they could not place. Both are the same trade —
-less written, and what is written is true. The clean rate rose again in 0.7.0
-for a different reason: four statements the model simply could not express now
-convert whole (D6, D8).
+moved *out* of "clean" in both directions on purpose: ten refused outright rather
+than convert a third of themselves (D1, D3), and twenty more convert while naming
+a value they could not place. Both are the same trade — less written, and what is
+written is true. The clean rate rose again in 0.7.0 for a different reason: four
+statements the model simply could not express now convert whole (D6, D8).
+
+Seven of those ten refusals have since come back as conversions rather than as
+refusals reversed. 0.8.5 reads a discontinuous list properly — one 863 per run,
+with `$w g` marking the gaps — so "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May,
+Jul-Dec 1915)" is four fields, not one refusal and not one wrong field. The
+refusal was the right answer for as long as reading the statement was beyond the
+parser, and the order matters: refuse first, read later.
 
 The number that matters is not the refusals. It was the **36 silent losses**.
 There are now **none**: the last one was the run-on whose day-level dates the
@@ -76,7 +83,7 @@ to 60% purely because the audit got sharper — no code changed.
 
 ## Converter and parser
 
-### D1 — a discontinuous list is truncated at its first comma · 7 statements · **FIXED in 0.6.3**
+### D1 — a discontinuous list is truncated at its first comma · 7 statements · **REFUSED in 0.6.3, READ in 0.8.5**
 
 ```
 v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)
@@ -124,6 +131,95 @@ This does not *parse* a discontinuous list — that is still open, and a bigger
 job. It stops the tool destroying one. A refusal keeps the 866 and puts the
 statement in the review queue, which is where a shape the parser cannot read
 belongs.
+
+**Read in 0.8.5.** MARC 21 records a gap in holdings as another 863 under the
+same 853, so the four runs above are four fields:
+
+```
+853 31 $8 1   $a v. $b no. $i (year) $j (month)
+863 40 $8 1.1 $a 19 $b 1    $i 1915 $j 01     $w g
+863 40 $8 1.2 $a 19 $b 3    $i 1915 $j 03     $w g
+863 40 $8 1.3 $a 19 $b 5    $i 1915 $j 05     $w g
+863 40 $8 1.4 $a 19 $b 7-12 $i 1915 $j 07-12
+```
+
+The converter needed nothing for this. The same holdings written out longhand —
+`v. 1 no. 1 (Jan 1990), v. 1 no. 3 (Mar 1990)` — already converted to two 863s
+sharing one 853 and one `$8`, because `convert_record()` has treated a gap as
+another 863 since 0.5.0. So the compact form is *expanded* into the longhand one
+and handed to the unit parser, rather than given a grammar of its own:
+`_expand_distributed_list()` rewrites one statement as several, and everything
+the unit parser knows about captions, combined issues and seasons applies
+unchanged.
+
+What the expansion has to get right is the pairing, and it refuses rather than
+guess:
+
+- The two lists must be the same length. Three issue runs against two months
+  means the statement was not understood, and filing holdings under the wrong
+  dates is exactly the kind of error nothing downstream could detect.
+- A single bare year is the one exception: `(1915)` is stated once for every run
+  and applies to all of them. `(Jan 1915)` cannot be, and is refused.
+- A year stated once at the end covers every item before it, read right to left,
+  so `(Jan, Mar, May, Jul-Dec 1915)` gives all four runs 1915 while
+  `(Nov 1915, Jan 1916)` gives each its own.
+- A chronology list has to be homogeneous — months and seasons throughout, or
+  years throughout. A mixed one is how the American convention writes a *single*
+  date: `(Apr 18, 1996)` splits into `Apr 18` and `1996`, and reading that as two
+  items would break one date into two holdings runs.
+- Every expanded statement has to parse. All of it or none of it, for the same
+  reason the refusal existed: the 866 is removed once anything has been written
+  from it.
+
+`$w` is new — the break indicator, saying what the break before the next 863 is.
+`g` is a gap break: parts lacking, or a break whose cause is not known, which is
+the honest reading of a cataloguer writing `nos. 1, 3`. `n`, a non-gap break
+(parts never published, or a discontinuity in the numbering itself), is defined
+in `holdings_parser` and never written: nothing here can tell one from the other,
+and a wrong code is a claim about the collection. Runs that follow straight on —
+`nos. 1, 2, 3` — have no break to indicate and get nothing.
+
+`$w` is set only where the *statement* shows the break. Two separate 866s on one
+record may well have a gap between them too, but that is a reading of the record
+rather than of the statement, and it is a different decision.
+
+The corpus moves from 83 clean to 90, and from 13 statements producing no fields
+to 6. The refusals that remain are D3's designations, D7's captionless
+statements, and the two by-design declines.
+
+**The pattern path, in 0.8.6.** The Workbench reaches the same statements by a
+different route, and both halves of that route were wrong.
+
+`split_multi_range()` cut the statement at every top-level comma that looked like
+a separator, so the confirm step was offered `v. 19 nos. 1`, `3`, `5` and
+`7-12 (Jan, Mar, May, Jul-Dec 1915)` as four shapes — two of which mean nothing
+on their own. `split_statement()` in `pattern_bridge` now asks the parser's rule
+first and keeps a list whole. The rule lives in `holdings_parser` and the
+detector stays independent of it: `pattern_detector.py` imports nothing but the
+standard library, which is worth keeping, so the Workbench — which already has
+both in scope — is where the two meet.
+
+A confirmed pattern then matched the whole statement and converted it to one
+compressed 863. A `GroupRole` carries a boundary and a level but no notion of
+*which run* a capture opens, so the pattern paired the first value with the last
+and sent everything between to "not encoded" — two of the statement's twelve
+assertions kept, ten named as dropped. That is within the bounded-errors rule and
+still much worse than the parser's four fields. `build_parse_result()` now stands
+aside for a discontinuous list and lets the parser read it.
+
+Two things that had to be preserved. A pattern marked **skip** still claims the
+statement: skipping is a decision about what the cataloguer will handle by hand,
+and standing aside would convert the very statement they asked to be left alone.
+And the cataloguer is **told** — they confirmed a pattern, and a pattern that
+silently goes unused is the failure mode this whole log keeps finding, so the
+conversion says which pattern matched and why the parser read the statement
+instead.
+
+Supporting runs inside a pattern is still open, and is a real model change:
+`GroupRole` would need a run index, the confirm step would need to show it, and
+the library format would have to carry it. Nothing here is a workaround for that
+— the parser reads these statements properly, and the pattern path's job is to
+not get in the way.
 
 ### D2 — enumeration stated only at the end of a range never reaches the 863 · 8 statements · **FIXED in 0.6.2**
 
@@ -505,6 +601,59 @@ writing the whitespace separator twice between most parts, because each branch
 appends `\s*` after its group and the separators already carry their own.
 `_join()` drops the redundant one. Same language, ~24 characters back on a
 chronology-heavy pattern.
+
+### D21 — a range that closes at a level it did not open reads backwards · **FIXED in 0.8.4**
+
+Found while working out what the tools do with a gapped statement.
+
+```
+v. 12 no. 1-no. 6 (1990)
+  -> 853 $a v. $b no. $i (year)
+     863 $a 12-6 $i 1990
+     ! Only the start of this range gives a no level (1) ... it was left out.
+```
+
+`$a 12-6` is volume 12 through volume 6. The statement says issues 1 through 6
+of volume 12. And the warning, which is the cataloguer's only view of what
+happened, describes a *different* field: it reports the issue level as left out
+for want of an end value, while that end value is what is sitting in `$a`.
+
+**Cause.** Position in `EnumChron.enum` is the level, which is exactly right
+while both boundaries write the same number of levels. This statement writes two
+and then one, so `no. 6` sat at position 0 opposite `v. 12`, and
+`_hierarchy_values()` paired them because pairing by position is all it does.
+Nothing anywhere compared the two ends' captions: `enum_captions()` takes the
+first caption it finds at each level, so the start's `v.` filled position 0 and
+the end's `no.` was never consulted.
+
+The same hole was doing worse damage on the pattern path, where
+`assign_levels()` numbers each boundary's levels from zero independently and
+documents that it does — `v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec
+1915)` produced `$a 19-3`.
+
+**Fixed in 0.8.4** in two halves, because the case splits in two.
+
+Where the captions settle it, they settle it: `HoldingsRange.align_boundaries()`
+slides the shorter boundary down to the one offset its captions fit, padding
+with empty levels. `v. 12 no. 1-no. 6` now gives `$a 12 $b 1-6` with no warning,
+because nothing was lost. It runs at construction and again after the parser
+fills a range in, and is idempotent so that both are safe.
+
+Where they do not — a range opening `v.` and closing `pt.`, or a caption that
+fits at two levels — nothing moves, and `_unpairable_end_levels()` drops the
+closing value and names it:
+
+> 'pt.4' was left out: this range opens at a 'v.' level and closes at a 'pt.'
+> level, so which level '4' closes cannot be told from the statement. A
+> compressed 863 pairs the two ends level by level, and there is no pairing for
+> this one.
+
+No corpus statement exercises either half — this was found by reasoning about
+the model, not by the audit, and the audit's numbers are unchanged. That is
+worth recording on its own: the corpus is 117 statements from one collection,
+and "no statement here does that" is not "no statement does that". The two
+boundaries of a compressed 863 are the whole content of the field, and until now
+nothing checked they were describing the same hierarchy.
 
 ## Pattern detector
 

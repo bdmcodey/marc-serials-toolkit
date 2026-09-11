@@ -96,7 +96,7 @@ def test_upload_serves_the_record_list_and_the_statements(workbench_client,
     """
     body = upload_marc(workbench_client, example_marc_bytes).get_json()
     assert body["total"] == 5
-    assert body["count"] == 9
+    assert body["count"] == 10
     assert "v.6(1995)-" in body["statements"]
     assert body["records"][0]["fields_866"]
 
