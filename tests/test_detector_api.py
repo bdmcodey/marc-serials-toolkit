@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import pytest
 
+from pattern_detector import MAX_REGEX_CHARS
+
 from conftest import upload_marc
 
 
@@ -86,13 +88,13 @@ def test_invalid_regex_is_a_400_not_a_500(detector_client):
     assert "error" in response.get_json()
 
 
-@pytest.mark.parametrize("length, expected_status", [(2000, 200), (2001, 400)])
-def test_regex_length_limit(detector_client, length, expected_status):
+@pytest.mark.parametrize("over, expected_status", [(0, 200), (1, 400)])
+def test_regex_length_limit(detector_client, over, expected_status):
     """
-    The 2,000-character ceiling is what MAX_PATTERN_TOKENS is calibrated
+    The MAX_REGEX_CHARS ceiling is what MAX_PATTERN_TOKENS is calibrated
     against, so the boundary is pinned on both sides.
     """
-    regex = "a" * length
+    regex = "a" * (MAX_REGEX_CHARS + over)
     response = detector_client.post("/api/test-regex",
                                     json={"regex": regex, "statements": ["aaa"]})
     assert response.status_code == expected_status

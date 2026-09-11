@@ -22,7 +22,8 @@ import re
 from flask import (Flask, render_template, request, jsonify,
                    send_from_directory)
 
-from pattern_detector import detect_patterns, split_multi_range
+from pattern_detector import (detect_patterns, split_multi_range,
+                              MAX_REGEX_CHARS)
 
 try:
     from pymarc import MARCReader
@@ -233,12 +234,15 @@ def api_test_regex():
 
     if not regex_str:
         return jsonify({"error": "No regex provided."}), 400
-    if len(regex_str) > 2000:
+    if len(regex_str) > MAX_REGEX_CHARS:
         return jsonify({
-            "error": "Regex exceeds the 2,000-character test limit.",
+            "error": f"Regex exceeds the {MAX_REGEX_CHARS:,}-character test limit.",
         }), 400
-    # User-supplied regex runs against user-supplied text, so bound both to
-    # limit catastrophic-backtracking (ReDoS) exposure on this public endpoint.
+    # A user-supplied regex runs against user-supplied text here, so the input
+    # side is bounded.  Note that the regex *length* limit above is not what
+    # protects this endpoint from catastrophic backtracking -- see the comment
+    # on MAX_REGEX_CHARS.  Bounding the text is what limits the damage, and a
+    # match timeout is what would end it.
     statements = [str(s)[:500] for s in statements[:2000]]
 
     try:

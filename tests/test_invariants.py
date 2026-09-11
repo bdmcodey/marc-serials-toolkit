@@ -220,11 +220,11 @@ def test_every_generated_regex_matches_its_own_cluster(detector_client, any_corp
 
 def test_every_generated_regex_is_testable(detector_client, any_corpus):
     """
-    2,000 characters is the ceiling /api/test-regex enforces. Emitting a longer
+    MAX_REGEX_CHARS is the ceiling /api/test-regex enforces. Emitting a longer
     one would mean the tool rejecting its own output.
     """
     for group in detect_patterns(_statements(detector_client, any_corpus)):
-        assert len(group.regex) <= 2000, group.human_label
+        assert len(group.regex) <= MAX_REGEX_CHARS, group.human_label
 
 
 def test_complexity_guard_and_output_agree(detector_client, any_corpus):

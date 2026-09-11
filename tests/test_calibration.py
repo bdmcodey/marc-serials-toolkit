@@ -29,7 +29,7 @@ from pymarc import MARCReader
 
 from conftest import upload_marc, private_marc, WELLFORMED_NAME, UNKEMPT_NAME
 from holdings_parser import parse_866
-from pattern_detector import detect_patterns
+from pattern_detector import detect_patterns, MAX_REGEX_CHARS
 
 pytestmark = pytest.mark.calibration
 
@@ -119,10 +119,10 @@ def test_detector_regexes_stay_testable(detector_client, corpus):
     """
     The observation MAX_PATTERN_TOKENS was calibrated from: at 40 tokens the
     longest regex these files produced was 1,506 characters, inside the
-    2,000-character limit /api/test-regex enforces.
+    MAX_REGEX_CHARS limit /api/test-regex enforces.
     """
     _, data = corpus
     statements = upload_marc(detector_client, data).get_json()["statements"]
 
     longest = max((len(g.regex) for g in detect_patterns(statements)), default=0)
-    assert longest <= 2000
+    assert longest <= MAX_REGEX_CHARS

@@ -453,17 +453,39 @@ construction rather than by calibration: whatever the detector emits can always
 be tested and stored, whatever future change alters the cost of a token. D19
 would have been caught by it automatically.
 
-Two things were deliberately *not* done. The month alternation could be
-shortened to `(?:Jan|Feb|…)[a-z]*`, saving about 100 characters per copy — but
-that matches "Janissary 1996" as a date, and quiet wrongness is the thing this
-project exists to avoid. The 2,000-character cap could be raised — but it is a
-ReDoS bound on a public endpoint (`/api/test-regex` runs a user-supplied
-expression against user-supplied text), not an arbitrary tidiness limit.
+The month alternation was deliberately *not* shortened. `(?:Jan|Feb|…)[a-z]*`
+would save about 100 characters per copy, but it matches "Janissary 1996" as a
+date, and quiet wrongness is the thing this project exists to avoid.
 
-The cost is one corpus cluster, one statement: `v. 19 nos. 1, 3, 5, 7-12 (Jan,
-Mar, May, Jul-Dec 1915)`, which the converter refuses anyway as a discontinuous
-list (D1). It is reported as "too idiosyncratic to express as a pattern", which
-is a visible finding rather than a silence, and the standard parser reads it.
+**The cap was raised to 4,000 in 0.8.3**, at the cataloguer's request, and the
+reasoning that had kept it at 2,000 turned out to be wrong. It was described as
+a ReDoS bound on a public endpoint — but length is nearly uncorrelated with
+backtracking risk:
+
+```
+^(\s*\w+)*$          11 characters, hangs on a 50-character input
+the 2,384-char one   no nested quantifier, no unbounded .*, two bounded
+                     lazy spans; searches an adversarial 500-char string
+                     in under a millisecond
+```
+
+A length cap turns away *long* expressions, not *dangerous* ones. What actually
+bounds the damage on that endpoint is the input side — 2,000 statements of 500
+characters — and what would end it is a match timeout, which the tool does not
+have at any cap value. That is worth doing and is not done here.
+
+So the cap is what it always really was: the point past which an expression is
+too unwieldy to read, edit or test. 4,000 admits everything the corpus produces
+(worst: 2,384) with headroom for the per-token cost to grow again the way D19
+grew it. The length guard is now a backstop behind `MAX_PATTERN_TOKENS` rather
+than the binding constraint, which is the right relationship: the token count
+decides "too idiosyncratic", and the measured length guarantees the invariant
+whatever future change alters a token's cost.
+
+One corpus cluster came back as a result: `v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar,
+May, Jul-Dec 1915)`, which now generates a usable pattern. The converter still
+refuses the statement as a discontinuous list (D1), so the pattern path is the
+only route it has.
 
 `MAX_REGEX_CHARS` moved to `pattern_detector.py` and is imported by
 `pattern_library.py`. Two copies of a safety limit drift.
