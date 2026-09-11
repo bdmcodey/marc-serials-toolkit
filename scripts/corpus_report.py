@@ -65,7 +65,8 @@ for _d in (REPO_ROOT / "converter", REPO_ROOT / "pattern-detector",
     if str(_d) not in sys.path:
         sys.path.insert(0, str(_d))
 
-from holdings_parser import parse_866, MARC_CHRON_CODES   # noqa: E402
+from holdings_parser import (parse_866, MARC_CHRON_CODES,  # noqa: E402
+                             normalise_year)
 from marc_converter import (convert_holdings, read_853_slots,  # noqa: E402
                             enum_subfield)
 from pattern_detector import detect_patterns, get_signature  # noqa: E402
@@ -146,10 +147,16 @@ def load_corpus(path: Path = CORPUS) -> list[Entry]:
 
 _WORD_RE = re.compile(r"[A-Za-z]{3,}")
 
+# "1996/97" reaches $i as "1996/1997", so the audit compares against the
+# expanded form -- the same reason month *words* are compared as codes.
+# Without this the "97" reads as a digit the record dropped.
+_SPLIT_YEAR_RE = re.compile(r"\b\d{4}\s*/\s*\d{2,4}\b")
+
 
 def _asserted_values(statement: str) -> tuple[list[str], list[str]]:
     """Numbers, and chronology codes for month/season words, present in the text."""
-    numbers = re.findall(r"\d+", statement)
+    expanded = _SPLIT_YEAR_RE.sub(lambda m: normalise_year(m.group(0)), statement)
+    numbers = re.findall(r"\d+", expanded)
     chron = []
     for word in _WORD_RE.findall(statement):
         code = MARC_CHRON_CODES.get(word.lower().rstrip("."))
@@ -496,6 +503,8 @@ DEFECTS = {
     "D16": "chronology only one boundary states (dropped, now named)",
     "D17": "workbench: a pattern claims a substring, discarding the rest",
     "D18": "863 second indicator says uncompressed for a compressed field",
+    "D19": "a year split across the turn of one is unreadable",
+    "D20": "detector: a generated regex exceeds the testable-length cap",
 }
 
 

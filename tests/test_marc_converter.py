@@ -907,3 +907,39 @@ def test_the_day_caption_is_not_read_as_an_enumeration_level():
     slots = read_853_slots(_existing_853(("8", "1"), ("a", "v."), ("i", "(year)"),
                                          ("j", "(month)"), ("k", "(day)")))
     assert slots == {"enum": ("a",), "year": "i", "month": "j", "day": "k"}
+
+
+def test_a_split_year_reaches_the_year_subfield_whole():
+    """
+    Reported from real use. The year subfield takes MARC values, and a year
+    split across the turn of one is slash-joined there exactly as a combined
+    month is in $j -- so "Winter 1996/97" is $i 1996/1997 $j 24, not a
+    statement the converter has to give up on.
+    """
+    result = convert_holdings(parse_866("v. 12 no. 4 (Winter 1996/97)"))
+
+    assert result.field_853.display() == \
+        "853 31 $8 1 $a v. $b no. $i (year) $j (season)"
+    assert result.fields_863[0].display() == \
+        "863 40 $8 1.1 $a 12 $b 4 $i 1996/1997 $j 24"
+    assert result.warnings == []
+
+
+def test_a_range_ending_in_a_split_year_keeps_both_ends():
+    """
+    The failure as reported: the end boundary would not parse, so its year was
+    written off as unreadable wording and the season went with it. The 863 came
+    out as "$j 21" -- claiming the whole run was Spring.
+    """
+    result = convert_holdings(parse_866("v.1(Spring 1996)-v.5(Winter 1996/97)"))
+
+    assert result.fields_863[0].display() == \
+        "863 40 $8 1.1 $a 1-5 $i 1996-1996/1997 $j 21-24"
+    assert result.warnings == []
+
+
+def test_a_split_year_is_a_value_the_year_subfield_accepts():
+    """The coded-value guard has to let it through, or it is dropped as wording."""
+    from marc_converter import _is_codeable
+    assert _is_codeable("year", "1996/1997") is True
+    assert _is_codeable("year", "1996-1996/1997") is True

@@ -108,8 +108,12 @@ _TOK_RE = re.compile(
     r"(?P<VOL_CAP>\bv(?:ol(?:ume)?)?\.?)"
     # Part caption    — pt. | part
     r"|(?P<PT_CAP>\b(?:pt|part)\.?)"
-    # Four-digit year — 1800–2099 range, must precede NUMBER
-    r"|(?P<YEAR>\b(?:1[89]|20)\d{2}\b)"
+    # Four-digit year — 1800–2099 range, must precede NUMBER.  A year split
+    # across the turn of one ("1996/97", "1996/1997") is a single year token:
+    # a serial whose winter issue straddles the new year numbers it that way,
+    # and tokenising the tail separately made "/97" a stray number the
+    # confirmation screen then asked about.
+    r"|(?P<YEAR>\b(?:1[89]|20)\d{2}(?:\s*/\s*\d{2,4})?\b)"
     # Month or season, with any slash-joined continuation ("Jul/Aug",
     # "Winter/Spring").  Must precede ISS_CAP to protect "Nov.", and the
     # word boundary keeps "springtime" out.
@@ -440,8 +444,10 @@ def _build_regex(
         if kind == YEAR:
             name = boundary_name("year")
             named_groups.append(name)
-            # Allow 4-digit years in the realistic range; keep flexible
-            parts.append(rf"(?P<{name}>(?:1[89]|20)\d{{2}})")
+            # Allow 4-digit years in the realistic range, split or not; keep
+            # flexible.  The split half is optional so one pattern reads both
+            # "(Spring 1996)" and "(Winter 1996/97)".
+            parts.append(rf"(?P<{name}>(?:1[89]|20)\d{{2}}(?:\s*/\s*\d{{2,4}})?)")
             parts.append(r"\s*")
             continue
 
@@ -496,7 +502,33 @@ def _build_regex(
         # ── Fallback: escape whatever is left ─────────────────────────────────
         parts.append(_alt_or_literal(unique))
 
-    return "".join(parts), named_groups, cap_variants
+    return _join(parts), named_groups, cap_variants
+
+
+SPACER = r"\s*"
+
+
+def _join(parts: List[str]) -> str:
+    """
+    Assemble the parts, collapsing runs of the whitespace separator.
+
+    Most branches above append r"\s*" after their group, and a token that also
+    *begins* with one leaves "\s*\s*" in the output -- the same language
+    written twice. Purely cosmetic on a short pattern, but these expressions
+    are held to a 2,000-character cap (see MAX_PATTERN_TOKENS), and a
+    chronology-heavy statement spends every character it has.
+    """
+    out: List[str] = []
+    for i, part in enumerate(parts):
+        # The separators carry their own leading \s*, so the one appended after
+        # the preceding group is redundant: "\s*\s*:" and "\s*:" match the
+        # same text.
+        if part == SPACER:
+            nxt = parts[i + 1] if i + 1 < len(parts) else ""
+            if nxt.startswith(SPACER):
+                continue
+        out.append(part)
+    return "".join(out)
 
 
 def _record_variants(

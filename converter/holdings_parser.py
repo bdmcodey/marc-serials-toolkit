@@ -330,15 +330,44 @@ def _parse_enum_levels(text: str) -> Tuple[List[EnumLevel], int]:
     return levels, pos
 
 
+# A year, optionally split across the turn of one: "1996", "1996/97",
+# "1996/1997".  A serial whose winter issue straddles the new year is numbered
+# that way as a matter of course, and MARC records the pair in 863 $i the same
+# way it records a combined month in $j -- slash-joined, both halves in full.
+_YEAR_TOKEN = r"\d{4}(?:\s*/\s*\d{2,4})?"
+_SPLIT_YEAR_RE = re.compile(r"^(\d{4})\s*/\s*(\d{2,4})$")
+
+
+def normalise_year(raw: Optional[str]) -> Optional[str]:
+    """
+    '1996' -> '1996';  '1996/97' -> '1996/1997';  '1999/00' -> '1999/2000'.
+
+    The two-digit half takes the first year's century, and rolls forward when
+    that would put it in the past: "1999/00" is 1999-2000, not 1999-1900.
+    """
+    if not raw:
+        return raw
+    m = _SPLIT_YEAR_RE.match(raw.strip())
+    if not m:
+        return raw.strip()
+    first, second = m.group(1), m.group(2)
+    if len(second) == 4:
+        return f"{first}/{second}"
+    full = int(first[:2] + second.zfill(2))
+    if full < int(first):
+        full += 100
+    return f"{first}/{full}"
+
+
 # Simpler pattern for year-only holdings (e.g. "1990" or "1990-1994")
-_YEAR_ONLY_RE = re.compile(r"^\s*(\d{4})\s*$")
+_YEAR_ONLY_RE = re.compile(rf"^\s*({_YEAR_TOKEN})\s*$")
 
 # Matches the start of a new range: a volume-level caption at the beginning
 # e.g. "v.", "vol.", "volume" – but NOT "no.", "n.", "pt." etc.
 _VOL_START_RE = re.compile(
     r"^\s*(?:v(?:ol(?:ume)?)?)\s*[.\s]", re.IGNORECASE
 )
-_YEAR_START_RE = re.compile(r"^\s*\d{4}\s*(?:$|-)")
+_YEAR_START_RE = re.compile(rf"^\s*{_YEAR_TOKEN}\s*(?:$|-)")
 
 def _is_designation_prefix(before: str, after: str) -> bool:
     """
@@ -449,28 +478,29 @@ def _parse_chron_single(raw: str,
     if not raw:
         return None, None, None
 
-    # Bare year
-    m = re.match(r"^(\d{4})$", raw)
+    # Bare year, including a split one ("1996/97")
+    m = re.match(rf"^({_YEAR_TOKEN})$", raw)
     if m:
-        return m.group(1), None, None
+        return normalise_year(m.group(1)), None, None
 
     # Mon D, YYYY -- a day-level date.  Every other alternative here wants the
     # year adjacent to the month, so "Apr 18, 1996" matched none of them and
     # the whole boundary was returned as (None, None): the month and the year
     # went with the day.  All three levels are kept now; 863 $k holds the day.
-    m = re.match(r"^([A-Za-z.]+)\s+(\d{1,2})\s*,?\s+(\d{4})$", raw)
+    m = re.match(rf"^([A-Za-z.]+)\s+(\d{{1,2}})\s*,?\s+({_YEAR_TOKEN})$", raw)
     if m and chron_unit_code(m.group(1)) is not None:
-        return m.group(3), _chron_unit_value(m.group(1)), m.group(2).lstrip("0") or "0"
+        return (normalise_year(m.group(3)), _chron_unit_value(m.group(1)),
+                m.group(2).lstrip("0") or "0")
 
     # YYYY:Mon. or YYYY Season (year first)
-    m = re.match(r"(\d{4})\s*[:\s]\s*([A-Za-z./]+(?:\s+[A-Za-z./]+)?)$", raw)
+    m = re.match(rf"({_YEAR_TOKEN})\s*[:\s]\s*([A-Za-z./]+(?:\s+[A-Za-z./]+)?)$", raw)
     if m:
-        return m.group(1), _chron_unit_value(m.group(2)), None
+        return normalise_year(m.group(1)), _chron_unit_value(m.group(2)), None
 
     # Mon. YYYY or Season YYYY (chron before year)
-    m = re.match(r"([A-Za-z./]+(?:\s+[A-Za-z./]+)?)\s*[:\s]\s*(\d{4})$", raw)
+    m = re.match(rf"([A-Za-z./]+(?:\s+[A-Za-z./]+)?)\s*[:\s]\s*({_YEAR_TOKEN})$", raw)
     if m:
-        return m.group(2), _chron_unit_value(m.group(1)), None
+        return normalise_year(m.group(2)), _chron_unit_value(m.group(1)), None
 
     # Mon D -- a day-level date with the year supplied by the other boundary
     # or by the block it sits in, e.g. the 'Jan 28' in '[Jan 28-Dec 29]'.
@@ -718,7 +748,7 @@ def _smart_split_range(text: str) -> List[str]:
 
     if best is None:
         # Year-only range shorthand ("1990-1994") still splits on its hyphen.
-        if re.fullmatch(r"\s*\d{4}\s*-\s*\d{4}\s*", text):
+        if re.fullmatch(rf"\s*{_YEAR_TOKEN}\s*-\s*{_YEAR_TOKEN}\s*", text):
             best = candidate_positions[0]
         else:
             # Every remaining candidate is a digit-digit hyphen, i.e. a

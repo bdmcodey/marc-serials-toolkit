@@ -14,6 +14,7 @@ Each test takes `any_corpus` and is therefore run once per corpus.
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 import pytest
 from pymarc import MARCReader
@@ -235,3 +236,33 @@ def test_no_statement_is_lost_in_clustering(detector_client, any_corpus):
     statements = _statements(detector_client, any_corpus)
     groups = detect_patterns(statements)
     assert sum(g.count for g in groups) == len([s for s in statements if s.strip()])
+
+
+@pytest.mark.xfail(reason="a chronology-heavy statement generates a regex past "
+                          "the 2,000-character cap the Test button enforces; "
+                          "MAX_PATTERN_TOKENS was calibrated at 15-45 chars per "
+                          "token and a CHRON group costs 415 on its own",
+                   strict=True)
+def test_every_corpus_regex_is_testable():
+    """
+    The same invariant as test_every_generated_regex_is_testable, held against
+    the 112-statement text corpus rather than the two synthetic .mrc files.
+
+    That reach is the point. The .mrc version passes at 1,980 characters, eight
+    hundred short of the worst the corpus produces -- so the detector has been
+    emitting an expression its own Test button would refuse, and nothing said
+    so. Fixing it means either a cheaper CHRON group or a lower token ceiling;
+    both are calibration decisions, so this records the defect rather than
+    guessing at one.
+    """
+    from pattern_detector import detect_patterns
+
+    statements = []
+    for line in (Path(__file__).resolve().parents[1]
+                 / "data" / "textual_holdings_corpus.txt").read_text().splitlines():
+        text = line.split("#")[0].strip()
+        if text and not text.startswith("["):
+            statements.append(text)
+
+    for group in detect_patterns(statements):
+        assert len(group.regex) <= 2000, f"{group.human_label} -> {len(group.regex)}"

@@ -10,10 +10,10 @@ anything was changed.
 
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
-D10 (0.8.0, 3 September 2026).
+D10 (0.8.0); D19 (0.8.1, 11 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
-why the code looks the way it does now. **D7 and D11 remain open** — see the
-list at the end.
+why the code looks the way it does now. **D7, D11 and D20 remain open** — see
+the list at the end.
 
 Reproduce every number below with:
 
@@ -25,10 +25,10 @@ python scripts/corpus_report.py --drift    # only the tags that no longer hold
 
 ## Headline
 
-| | at 0.6.0 | now (0.8.0) |
+| | at 0.6.0 | now (0.8.1) |
 |---|---|---|
-| statements | 112 unique (127 before de-duplication), 10 sections | — |
-| converted cleanly | 67 (60%) | **78 (70%)** |
+| statements | 117 unique (132 before de-duplication), 11 sections | — |
+| converted cleanly | 67 (60%) | **83 (71%)** |
 | converted with values **silently** dropped | 36 (32%) | **0** |
 | converted, and told the cataloguer what it dropped | 3 | **21** |
 | produced no fields at all | 6 (5%) | **13 (12%)** |
@@ -381,6 +381,76 @@ Four things this had to get right, none of them about the day itself:
   code would be worse than saying the day cannot be placed, so the 863 leaves
   it out, the 853 declares no caption it will not fill, and the record says
   which day was lost and where MARC would put it.
+
+### D19 — a year split across the turn of one is unreadable · **FIXED in 0.8.1**
+
+Reported from real use, not found by the corpus, which had no example of it.
+
+```
+v. 12 no. 4 (Winter 1996/97)
+  was: 853 31 $8 1 $a v. $b no. $i (year) $j (season)
+       863 40 $8 1.1 $a 12 $b 4                          <- no year, no season
+  now: 863 40 $8 1.1 $a 12 $b 4 $i 1996/1997 $j 24
+```
+
+A serial whose winter issue straddles the new year is numbered `1996/97` as a
+matter of course. Every year alternative in `_parse_chron_single()` wanted
+`\d{4}`, so `Winter 1996/97` matched none of them, fell through to the
+give-up branch that returns the raw text as a year, and was then rejected by
+the converter as wording a coded subfield cannot hold. **The season went with
+it** — the statement lost both levels of its chronology, and the report counted
+the whole group as one dropped value rather than two.
+
+Worse in a range. `v.1(Spring 1996)-v.5(Winter 1996/97)` produced `$j 21` and
+nothing else: an 863 asserting the run was *all Spring*. The one-sided rule was
+working exactly as designed — the end boundary genuinely gave no season, because
+it had failed to parse — which is a good illustration of a guard being no better
+than the thing it guards.
+
+MARC records the pair slash-joined in `$i`, the same way the tool already
+slash-joins a combined month in `$j`, so `_YEAR_VALUE_RE` accepted `1996/1997`
+without change. The fix is one shared year token across the parser, the
+detector's tokeniser and the expressions it generates, plus `normalise_year()`
+to write the two-digit half out in full — taking its century from the first
+half and rolling forward where it must, so `1999/00` is `1999/2000`.
+
+Two things fell out of it:
+
+- **The detector used to read `Winter 1996/97` as four tokens** — season, year,
+  free text, number — so a statement carrying one formed its own cluster and
+  the confirmation screen asked what the "97" meant. It is one value now, and
+  `(Spring 1996)` and `(Winter 1996/97)` cluster as **one** pattern.
+- **The corpus audit needed telling.** It compares every number in the source
+  against the generated fields, so the expanded `1997` read as a dropped `97`.
+  Month *words* were already compared as codes for the same reason; a split
+  year is the same kind of normalisation and is now expanded before the
+  comparison.
+
+### D20 — the detector emits expressions its own Test button would refuse
+
+Found while fixing D19, and **open**.
+
+`MAX_PATTERN_TOKENS = 40` was calibrated on the two private `.mrc` files at
+"15–45 regex characters per token", to keep generated expressions under the
+2,000-character cap `/api/test-regex` enforces. The corpus's worst statement
+costs **84 characters per token** and generates **2,384** — because a single
+`CHRON` group is 415 characters on its own, and that statement has four.
+
+It has been over the cap all along: 2,374 on `main` before D19's work, which
+added 19. Nothing caught it because `test_every_generated_regex_is_testable`
+runs against the two committed synthetic `.mrc` files only, and the worst they
+produce is 1,980. The corpus was never in its reach.
+
+`tests/test_invariants.py::test_every_corpus_regex_is_testable` now records
+this as an `xfail`. Fixing it means either a cheaper `CHRON` group — the month
+alternation is written out twice per group — or a lower token ceiling, and both
+are calibration decisions rather than bugs to patch.
+
+One lossless saving was taken while measuring: the generated expressions were
+writing the whitespace separator twice between most parts, because each branch
+appends `\s*` after its group and the separators already carry their own.
+`_join()` drops the redundant one. Same language, ~24 characters back on a
+chronology-heavy pattern.
 
 ## Pattern detector
 
@@ -871,6 +941,10 @@ everything correctly" is not.
 - **D7** — genuinely captionless statements. Expected to keep failing; the
   Workbench's confirm step is the mechanism that could convert them.
 - **D11** — by design, and documented as such.
+- **D20** — the detector generates one expression longer than the 2,000
+  characters its own Test button accepts, and has since before D19. A
+  calibration decision: cheaper `CHRON` groups, or fewer tokens. Recorded as an
+  `xfail`.
 - ~~**D10**~~ Half fixed in 0.8.0. The detector's complexity guard still
   declines the run-on, which is intended; the silent day loss inside it is
   gone.
