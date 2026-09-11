@@ -54,13 +54,14 @@ from marc_converter import (CONVENTION_LEVELS, CONVENTION_STANDARD,
                             enum_level_fields,
                             FREQUENCY_CODES, convention_presets,
                             convert_holdings, convert_record, resolve_convention)
-from pattern_detector import detect_patterns, split_multi_range
+from pattern_detector import detect_patterns
 
 import pattern_library as plib
 from pattern_bridge import (CAPTION_CHOICES, ENCODABLE_KINDS, KIND_IGNORE,
                             KIND_LABELS, KIND_UNRESOLVED,
                             PARSER_SOURCE, SKIPPED_SOURCE, UNMATCHED_SOURCE,
-                            apply_patterns, build_parse_result, infer_roles)
+                            apply_patterns, build_parse_result, infer_roles,
+                            split_statement)
 
 # ---------------------------------------------------------------------------
 
@@ -572,7 +573,7 @@ def _statement_origins(do_split: bool) -> dict:
             text = (fld["a"] or "").strip()
             if not text:
                 continue
-            pieces = split_multi_range(text) if do_split else [text]
+            pieces = split_statement(text) if do_split else [text]
             for piece in pieces:
                 key = piece.strip()[:MAX_STATEMENT_CHARS]
                 if key and key not in origins:
@@ -713,7 +714,7 @@ def api_detect():
     statements: list[str] = []
     for s in raw:
         if do_split:
-            statements.extend(split_multi_range(s))
+            statements.extend(split_statement(s))
         elif s.strip():
             statements.append(s.strip())
 

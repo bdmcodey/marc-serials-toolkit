@@ -31,6 +31,7 @@ from pattern_bridge import (
     infer_roles,
     merge_roles,
     roles_from_regex,
+    split_statement,
 )
 import pattern_library as plib
 
@@ -630,6 +631,60 @@ def test_a_partly_matching_pattern_falls_back_to_the_parser_intact():
     assert parsed.ranges[0].start.value_at(1) == "1"
     assert parsed.ranges[0].start.year == "1995"
     assert parsed.ranges[0].end.value_at(0) == "12"
+
+
+def test_a_discontinuous_list_is_not_split_into_fragments():
+    """
+    The detector's splitter cuts at every top-level comma that looks like a
+    separator, which turned one statement into "v. 19 nos. 1", "3", "5" and
+    "7-12 (Jan, Mar, May, Jul-Dec 1915)" -- and offered the middle two to the
+    cataloguer as shapes to confirm, which they are not.
+    """
+    stmt = "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"
+    assert split_statement(stmt) == [stmt]
+    # Statements that really do carry several ranges still split.
+    assert len(split_statement("v.1(1990)-v.3(1992), v.5(1994)-v.8(1997)")) == 2
+
+
+def test_a_pattern_stands_aside_for_a_discontinuous_list():
+    """
+    A role carries a boundary and a level but no notion of *which run* a capture
+    opens, so a pattern pairs the first value with the last and sends the runs
+    between them to "not encoded": four runs of holdings came out as one
+    compressed 863 holding two of the statement's twelve assertions. The parser
+    reads it as four 863s, so the pattern gives way -- and says so, because the
+    cataloguer confirmed that pattern and would otherwise see it silently
+    unused.
+    """
+    stmt = "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"
+    group = detect_one(stmt)
+    pattern = plib.ConfirmedPattern(
+        id="p1", label=group.human_label, regex=group.regex,
+        roles=infer_roles(group.named_groups),
+    )
+
+    parsed, source = apply_patterns(stmt, [pattern])
+    assert source == "parser"
+    assert len(parsed.ranges) == 4
+    assert any("lists several runs" in w for w in parsed.warnings), parsed.warnings
+
+
+def test_a_skipped_pattern_still_claims_a_discontinuous_list():
+    """
+    Skipping is a decision about which statements the cataloguer will handle by
+    hand. Standing aside for the parser here would convert the very statement
+    they asked to be left alone, which is the opposite of what skipping means.
+    """
+    stmt = "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"
+    group = detect_one(stmt)
+    pattern = plib.ConfirmedPattern(
+        id="p1", label=group.human_label, regex=group.regex,
+        roles=infer_roles(group.named_groups), skip=True,
+    )
+
+    parsed, source = apply_patterns(stmt, [pattern])
+    assert source == "skipped"
+    assert parsed.ranges == []
 
 
 def test_a_value_nobody_has_decided_about_forces_review():

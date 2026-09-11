@@ -11,7 +11,7 @@ anything was changed.
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
 D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
-(0.8.5, 11 September 2026).
+(0.8.5, and on the pattern path in 0.8.6, 11 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -186,6 +186,40 @@ rather than of the statement, and it is a different decision.
 The corpus moves from 83 clean to 90, and from 13 statements producing no fields
 to 6. The refusals that remain are D3's designations, D7's captionless
 statements, and the two by-design declines.
+
+**The pattern path, in 0.8.6.** The Workbench reaches the same statements by a
+different route, and both halves of that route were wrong.
+
+`split_multi_range()` cut the statement at every top-level comma that looked like
+a separator, so the confirm step was offered `v. 19 nos. 1`, `3`, `5` and
+`7-12 (Jan, Mar, May, Jul-Dec 1915)` as four shapes — two of which mean nothing
+on their own. `split_statement()` in `pattern_bridge` now asks the parser's rule
+first and keeps a list whole. The rule lives in `holdings_parser` and the
+detector stays independent of it: `pattern_detector.py` imports nothing but the
+standard library, which is worth keeping, so the Workbench — which already has
+both in scope — is where the two meet.
+
+A confirmed pattern then matched the whole statement and converted it to one
+compressed 863. A `GroupRole` carries a boundary and a level but no notion of
+*which run* a capture opens, so the pattern paired the first value with the last
+and sent everything between to "not encoded" — two of the statement's twelve
+assertions kept, ten named as dropped. That is within the bounded-errors rule and
+still much worse than the parser's four fields. `build_parse_result()` now stands
+aside for a discontinuous list and lets the parser read it.
+
+Two things that had to be preserved. A pattern marked **skip** still claims the
+statement: skipping is a decision about what the cataloguer will handle by hand,
+and standing aside would convert the very statement they asked to be left alone.
+And the cataloguer is **told** — they confirmed a pattern, and a pattern that
+silently goes unused is the failure mode this whole log keeps finding, so the
+conversion says which pattern matched and why the parser read the statement
+instead.
+
+Supporting runs inside a pattern is still open, and is a real model change:
+`GroupRole` would need a run index, the confirm step would need to show it, and
+the library format would have to carry it. Nothing here is a workaround for that
+— the parser reads these statements properly, and the pattern path's job is to
+not get in the way.
 
 ### D2 — enumeration stated only at the end of a range never reaches the 863 · 8 statements · **FIXED in 0.6.2**
 

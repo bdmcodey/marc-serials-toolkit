@@ -654,6 +654,20 @@ def _expand_distributed_list(text: str) -> Optional[List[str]]:
             for item, chron in zip(items, chrons)]
 
 
+def is_distributed_list(text: str) -> bool:
+    """
+    Whether `text` lists several runs of holdings rather than describing one.
+
+    Public because the Workbench needs the same answer the parser uses. A
+    statement like this is more ranges than a confirmed pattern has roles to
+    describe -- a pattern captures a fixed set of values and pairs them as one
+    compressed range -- so the Workbench neither splits it into fragments for
+    the confirm step nor lets a pattern claim it, and hands it to the parser
+    whole.
+    """
+    return _expand_distributed_list(text) is not None
+
+
 def _parse_distributed_list(text: str,
                             warnings: Optional[List[str]] = None,
                             ) -> Optional[List[HoldingsRange]]:

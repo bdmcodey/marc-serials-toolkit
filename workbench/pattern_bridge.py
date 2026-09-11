@@ -33,6 +33,7 @@ from holdings_parser import (
     EnumLevel,
     HoldingsRange,
     ParseResult,
+    is_distributed_list,
     normalise_year,
     parse_866,
     # Private only by convention, and deliberately reused: months, seasons and
@@ -41,6 +42,25 @@ from holdings_parser import (
     _chron_unit_value,
 )
 from pattern_detector import split_multi_range
+
+
+def split_statement(text: str) -> list[str]:
+    """
+    Split a statement into the units the confirm step and the patterns see.
+
+    The detector's own splitter cuts at every top-level comma that looks like a
+    separator, which turns "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec
+    1915)" into "v. 19 nos. 1", "3", "5" and "7-12 (Jan, Mar, May, Jul-Dec
+    1915)" -- four fragments, three of which mean nothing on their own and are
+    then offered to the cataloguer as three shapes to confirm.
+
+    A statement listing several runs of holdings is one statement, and the
+    parser reads it whole.  The detector stays independent of the parser, so the
+    rule lives here, where both are already in scope.
+    """
+    if is_distributed_list(text):
+        return [text.strip()]
+    return split_multi_range(text)
 
 
 # ── Roles ─────────────────────────────────────────────────────────────────────
@@ -391,6 +411,7 @@ def build_parse_result(
     roles: Sequence[GroupRole],
     split: bool = True,
     fallback: bool = True,
+    defer_lists: bool = True,
 ) -> Optional[ParseResult]:
     """
     Parse `text` with a confirmed pattern, or return None if it does not apply.
@@ -423,14 +444,22 @@ def build_parse_result(
     if not text:
         return None
 
-    segments = [s for s in (split_multi_range(text) if split else [text]) if s.strip()]
+    segments = [s for s in (split_statement(text) if split else [text]) if s.strip()]
     result = ParseResult(raw=text)
     any_match = False
     undecided: list[str] = []
 
     for seg in segments:
         seg = seg.strip()
-        m = compiled.fullmatch(seg)
+        # A segment listing several runs of holdings is more ranges than a
+        # pattern can describe. Roles carry a boundary and a level but no notion
+        # of *which run* a capture opens, so the pattern pairs the first value
+        # with the last and the runs between them go to "not encoded" -- "v. 19
+        # nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" came out as one
+        # compressed 863 holding two of its twelve assertions. The parser reads
+        # it as four 863s, so the pattern stands aside.
+        m = None if (defer_lists and is_distributed_list(seg)) \
+            else compiled.fullmatch(seg)
         if m is None:
             if not fallback:
                 # All or nothing: see the note above about half a statement.
@@ -499,15 +528,27 @@ def apply_patterns(text: str, patterns: Sequence,
     opposite of what skipping asks for.  It claims only a statement it matches
     *whole*, so marking one shape to be left alone cannot quietly capture a
     longer statement it merely begins.
+
+    A statement listing several runs of holdings is handed to the parser even
+    where a pattern matches it, because a pattern cannot describe more than one
+    run -- and the cataloguer is told, since they confirmed that pattern and
+    would otherwise see it quietly unused.
     """
+    passed_over = ""
+
     for pattern in patterns:
         try:
             compiled = pattern.compiled()
         except re.error:
             continue                      # validated on entry; never fatal here
         if getattr(pattern, "skip", False):
+            # Skipping is a decision about which statements the cataloguer will
+            # handle by hand, so it claims a discontinuous list like any other
+            # shape -- standing aside for the parser would convert the very
+            # statement they asked to be left alone.
             claimed = build_parse_result(text, compiled, pattern.roles,
-                                         pattern.split, fallback=False)
+                                         pattern.split, fallback=False,
+                                         defer_lists=False)
             if claimed is not None:
                 return _untouched(
                     text,
@@ -515,13 +556,25 @@ def apply_patterns(text: str, patterns: Sequence,
                     "was left exactly as it is."
                 ), SKIPPED_SOURCE
             continue
+        if not passed_over and is_distributed_list(text) \
+                and compiled.fullmatch(text.strip()):
+            passed_over = pattern.label
+
         result = build_parse_result(text, compiled, pattern.roles,
                                     pattern.split, fallback)
         if result is not None:
             return result, pattern.id
 
     if fallback:
-        return parse_866(text), PARSER_SOURCE
+        result = parse_866(text)
+        if passed_over:
+            result.warnings.append(
+                f"'{passed_over}' matches this statement, but the statement "
+                "lists several runs of holdings with gaps between them and a "
+                "pattern describes one run. It was read by the standard parser "
+                "instead, which records each run as its own 863."
+            )
+        return result, PARSER_SOURCE
 
     return _untouched(
         text,
