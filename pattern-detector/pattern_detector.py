@@ -62,7 +62,7 @@ _VALUE_KINDS   = {YEAR, CHRON, NUMBER}
 # Calibrated against two real MARC extracts (52 and 116 statements).  Real
 # statements cost 15–45 regex characters per token — month alternations alone
 # run ~180 characters — so the ceiling is set by /api/test-regex, which refuses
-# any regex over 2,000 characters: above ~45 tokens this module would emit
+# any regex over MAX_REGEX_CHARS: above ~45 tokens this module would emit
 # patterns the tool's own Test button rejects.  At 40 the longest generated
 # regex observed was 1,470 characters.
 #
@@ -77,7 +77,21 @@ MAX_PATTERN_TOKENS = 40
 # before being trusted, so emitting one would put "generated" and "usable" out
 # of step.  Enforced on the generated expression itself, not estimated from the
 # token count -- see the guard in detect_patterns().
-MAX_REGEX_CHARS = 2000
+#
+# Raised from 2,000 in 0.8.3, because 2,000 was turning away expressions the
+# detector legitimately produces: a statement with five months in it costs
+# 2,384 characters and is an ordinary discontinuous list, not an attack.
+#
+# What this number is *not* is the defence against catastrophic backtracking,
+# though it was once described that way.  Length is nearly uncorrelated with
+# that risk: "^(\s*\w+)*$" is eleven characters and hangs on a 50-character
+# input, while the 2,384-character expression above has no nested quantifier,
+# no unbounded .* and two bounded lazy spans, and searches an adversarial
+# 500-character string in under a millisecond.  A cap turns away long
+# expressions, not dangerous ones.  What actually bounds the damage here is the
+# input side -- 2,000 statements of 500 characters -- and, for real safety, a
+# match timeout, which this tool does not yet have at any cap value.
+MAX_REGEX_CHARS = 4000
 
 # General month/season patterns used in generated regex output —
 # broad enough to match any standard form, not just the forms observed.
@@ -522,7 +536,7 @@ def _join(parts: List[str]) -> str:
     Most branches above append r"\s*" after their group, and a token that also
     *begins* with one leaves "\s*\s*" in the output -- the same language
     written twice. Purely cosmetic on a short pattern, but these expressions
-    are held to a 2,000-character cap (see MAX_PATTERN_TOKENS), and a
+    are held to MAX_REGEX_CHARS, and a
     chronology-heavy statement spends every character it has.
     """
     out: List[str] = []

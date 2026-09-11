@@ -351,18 +351,20 @@ def test_free_text_is_visible_in_the_label():
     assert "text" in noisy
 
 
+# Ten months in one statement: few tokens, and an expression far past the cap.
+# A CHRON token spends the month alternation twice, about 180 characters, where
+# a NUMBER spends 25 -- which is exactly why the token count cannot stand in
+# for the length.
+_COSTLY = "v.1(Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct 1915)"
+
+
 def test_a_cluster_whose_regex_would_be_untestable_is_declined():
     """
     D20. The token count is only a proxy for how long the expression will be,
-    and a poor one: a CHRON token spends the month alternation twice, about 180
-    characters, where a NUMBER spends 25. "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar,
-    May, Jul-Dec 1915)" is 25 tokens -- well inside MAX_PATTERN_TOKENS -- and
-    generated 2,384 characters, well past what the Test button accepts.
-
-    Measuring the expression itself makes the invariant true by construction:
-    whatever is emitted can always be tested and stored.
+    and a poor one. Measuring the expression itself makes the invariant true by
+    construction: whatever is emitted can always be tested and stored.
     """
-    groups = detect_patterns(["v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"])
+    groups = detect_patterns([_COSTLY])
     assert len(groups) == 1
     group = groups[0]
 
@@ -384,8 +386,7 @@ def test_a_declined_cluster_says_which_limit_refused_it():
     assert long_one.too_complex is True
     assert "parts long" in long_one.decline_reason
 
-    costly = detect_patterns(
-        ["v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"])[0]
+    costly = detect_patterns([_COSTLY])[0]
     assert costly.too_complex is True
     assert "characters" in costly.decline_reason
     assert "parts long" not in costly.decline_reason
@@ -396,7 +397,7 @@ def test_the_declined_cluster_still_reports_itself():
     Declining is a finding, not a silence: the card says the statements are too
     idiosyncratic to express, and the standard parser reads them.
     """
-    group = detect_patterns(["v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"])[0]
+    group = detect_patterns([_COSTLY])[0]
     assert group.count == 1
     assert group.examples
     assert group.human_label

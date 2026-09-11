@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "released": "2026-09-11",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,21 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.8.3",
+      "date": "2026-09-11",
+      "summary": "Longer patterns are allowed: the limit was turning away expressions the tool legitimately produces.",
+      "changes": [
+        {
+          "tool": "Pattern Detector",
+          "text": "The limit on how long a generated expression may be is raised from 2,000 characters to 4,000. Statements carrying several months are expensive to describe \u2014 \"v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)\" needs 2,384 characters and is an ordinary discontinuous list, not anything exotic \u2014 so the old limit was setting aside patterns that were perfectly good. That statement now gets a pattern again, which is its only route to conversion: the standard parser declines it."
+        },
+        {
+          "tool": "Pattern Detector",
+          "text": "The limit is still there, and the Test button still honours it: an expression past 4,000 characters is one nobody could read, edit or check, so the tool declines to offer it rather than handing over something unusable."
+        }
+      ]
+    },
     {
       "version": "0.8.2",
       "date": "2026-09-11",
