@@ -350,19 +350,40 @@ def test_block_dispatch_gate(text, is_block):
     assert _looks_like_block(text) is is_block
 
 
-def test_block_number_inside_parens_is_an_issue():
+def test_block_number_inside_parens_keeps_the_lower_position():
     """
-    Positional role rule: inside the parens, a bare number is the issue.
+    Positional role rule: the number before the parens is the higher level and
+    the number inside is the lower one. That is all the format says, so it is
+    all the parser reads -- and it means the lower one keeps its position when
+    the higher is absent, rather than sliding up into it.
 
-    With no volume stated, that issue is the statement's only enumeration
-    level, so it is the *first* one -- 853 captions run $a downwards from the
-    most significant level present. The caption is what says it is an issue.
+    Sliding was what happened, and it put the same level of one serial into two
+    subfields: "N1984: (2 (1))M1985: 2 (2 [summer])" sent the 1984 issue to $a
+    and the 1985 issue to $b, under an 853 reading "$a no. $b no." -- two levels
+    with one name. An empty level now holds the place the block omits.
+
+    Where *no* block in the statement states the higher level, there is nothing
+    to be in step with and the placeholder is dropped, so this statement still
+    reads as the one level it has. Declaring the other would put a level in the
+    853 that the serial does not have.
+
+    Neither level carries a caption. The format names neither, and the 853
+    writes "(*)" for a level nobody has named.
     """
     r = parse_866("1993: (1 [Feb])")
     assert len(r.ranges) == 1
     start = r.ranges[0].start
-    assert [(lvl.caption, lvl.value) for lvl in start.enum] == [("no.", "1")]
+    assert [(lvl.caption, lvl.value) for lvl in start.enum] == [(None, "1")]
     assert (start.year, start.month) == ("1993", "02")
+
+
+def test_a_placeholder_level_survives_when_another_block_fills_it():
+    """The other half: one block states the higher level, so it is a real one."""
+    r = parse_866("N1984: (2 (1))M1985: 2 (2 [summer])")
+    assert [[(l.caption, l.value) for l in hr.start.enum] for hr in r.ranges] == [
+        [(None, None), (None, "2")],
+        [(None, "2"), (None, "2")],
+    ]
 
 
 def test_block_number_before_parens_is_a_volume():
@@ -380,7 +401,8 @@ def test_multi_year_block_run_on_yields_one_range_per_year():
     assert [hr.start.year for hr in r.ranges] == ["2019", "2020"]
     assert r.ranges[0].start.month == "02"
     assert r.ranges[0].end.month == "11"
-    assert [(lvl.caption, lvl.value) for lvl in r.ranges[1].start.enum] == [("no.", "7-12")]
+    assert [(lvl.caption, lvl.value) for lvl in r.ranges[1].start.enum] == [
+        (None, "7-12")]
 
 
 def test_unexplained_marker_parses_and_warns():

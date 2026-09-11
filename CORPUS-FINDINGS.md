@@ -12,7 +12,7 @@ anything was changed.
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
 D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
 (0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7); D7 in part
-(0.8.9, 11 September 2026).
+(0.8.9); the block grammar's invented captions (0.9.0, 11 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -477,11 +477,48 @@ with nothing to caption. The asterisk does not reach them. The Workbench's confi
 step remains the mechanism that could, since a human says once what the captured
 values mean.
 
-**Left open.** The chronology-first block grammar hard-codes `v.` and `no.` in
-`holdings_parser` on the same positional reasoning, for 5 corpus statements. That
-is a house format whose cataloguers may genuinely know what those numbers are,
-and changing it would alter records that convert cleanly today. It is the same
-invention and it should be a deliberate decision, not a side effect of this one.
+**The block grammar, in 0.9.0 — and what was hiding behind it.** The
+chronology-first grammar hard-coded `v.` and `no.` on the same positional
+reasoning, for 5 corpus statements. Removing them exposed a defect the words had
+been covering:
+
+```
+N1984: (2 (1))M1985: 2 (2 [summer])
+  -> 853 $a no. $b no. $i (year) $j (season)
+     863 $8 1.1 $a 2 $i 1984
+     863 $8 1.2 $b 2 $i 1985 $j 22
+     ! 'v.2' was left out: this record's 853 calls that level 'no.' … Split the
+       statements that number differently onto their own records.
+```
+
+Both `2`s are the same level of the same serial, and they are in different
+subfields. The 853 declares two levels and calls them both `no.`. And a volume
+the statement *does* state was dropped, with advice to split records that "number
+differently" — they do not number differently; one block omits a level.
+
+**Cause.** `year: A (B [chron])` fixes the positions — `A` is the higher level,
+`B` the lower — and the parser appended whichever were present in turn, so a
+block with no `A` slid its `B` into position 0. Position is the level, so that
+made an issue into a volume. The captions were the only thing that showed it, and
+they showed it as the nonsense `$a no. $b no.`. Remove them first and the
+misplacement would have gone silent.
+
+**Fixed** by holding the place with an empty level, and dropping that placeholder
+again when no block in the statement ever fills it — otherwise `1993: (1 [Feb])`
+would declare a level the serial does not have. So:
+
+```
+1993: (1 [Feb])                      -> 853 $a (*)          863 $a 1
+2019: (1-6 …)2020: (7-12 …)          -> 853 $a (*)          863 $a 1-6 / $a 7-12
+N1984: (2 (1))M1985: 2 (2 [summer])  -> 853 $a (*) $b (*)   863 $b 2 / $a 2 $b 2
+```
+
+The dropped volume is recovered and the spurious warning is gone.
+
+This is the same lesson as D21 and the year-range regression, from the other
+direction: the invented captions were wrong, *and* they were the only thing
+making a worse bug visible. Taking them out without looking would have traded a
+loud error for a quiet one.
 
 ### D8, D9, D11 — smaller things, all warned or by design (D9 **FIXED in 0.6.4**)
 
