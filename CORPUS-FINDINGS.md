@@ -11,7 +11,8 @@ anything was changed.
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
 D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
-(0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7, 11 September 2026).
+(0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7); D7 in part
+(0.8.9, 11 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -26,13 +27,13 @@ python scripts/corpus_report.py --drift    # only the tags that no longer hold
 
 ## Headline
 
-| | at 0.6.0 | now (0.8.5) |
+| | at 0.6.0 | now (0.8.9) |
 |---|---|---|
 | statements | 117 unique (132 before de-duplication), 11 sections | — |
 | converted cleanly | 67 (60%) | **90 (77%)** |
 | converted with values **silently** dropped | 36 (32%) | **0** |
-| converted, and told the cataloguer what it dropped | 3 | **21** |
-| produced no fields at all | 6 (5%) | **6 (5%)** |
+| converted, and told the cataloguer what it dropped | 3 | **22** |
+| produced no fields at all | 6 (5%) | **5 (4%)** |
 | detector clusters | 55, 39 of them singletons | **44, 31 singletons** |
 | one shape split across several clusters | 45 statements, 15 confirmations | **0** |
 | statements a pattern could claim only part of | 37 (33%) | 64, none convert |
@@ -410,7 +411,7 @@ statements:
   hierarchies cannot share one. `v.1(1990), no.5(1995)` would have written the
   `5` into `$a v.` — read downstream as volume 5. It is now left out and named.
 
-### D7 — genuinely captionless statements · 3 statements · expected fail
+### D7 — genuinely captionless statements · 3 statements · **1 of 3 READ in 0.8.9**
 
 ```
 8,13,15,17,19,20-(1982-1994)
@@ -418,15 +419,69 @@ statements:
 Special Issue (October/November 1995)
 ```
 
-These the monolith never handled either, and they should stay failing. Nothing in
-`8,13,15,...` says whether those are volumes, issues or years, and refusing is
-the documented, correct behaviour — the same argument the README makes about
-`?: 16` under "How the Workbench joins the two tools". A cataloguer supplies the
+These the monolith never handled either. Nothing in `8,13,15,...` says whether
+those are volumes, issues or years, and refusing was the documented behaviour —
+the same argument the README makes about `?: 16`. A cataloguer supplies the
 level; the parser cannot.
 
-`Special Issue` and `50th Anniversary Issue` are worth one note: the Workbench's
-confirm step is exactly the mechanism that could convert these, since a human
-says once what the captured values mean.
+**The question turned out to be the wrong one.** The parser does not need to know
+whether they are volumes. It needs to know they are an enumeration level, and
+position already says which: they are the most significant one, and the only one.
+What was missing was a way to write a level down without naming it — and MARC 21
+has one. From the 853-855 documentation: where a level has no caption on the
+piece, a caption may be invented and bracketed, *or an asterisk used in place of
+data*, to achieve full correlation. Full correlation is **required** wherever the
+863 is compressed, which is every field this tool writes.
+
+So `NO_CAPTION = "(*)"` (0.8.9), and the statement reads:
+
+```
+853 31 $8 1   $a (*)
+863 40 $8 1.1 $a 8   $w g
+863 40 $8 1.2 $a 13  $w g
+863 40 $8 1.3 $a 15  $w g
+863 40 $8 1.4 $a 17  $w g
+863 40 $8 1.5 $a 19
+863 40 $8 1.6 $a 20-
+! '1982-1994' was left out: it is stated once for all 6 runs …
+```
+
+`19` runs straight on into `20`, so no `$w` there; `20-` is still being received.
+The date range is the 0.8.8 case — it spans the statement and belongs to no run
+in it — so it is named rather than copied onto all six. That is the whole
+statement accounted for: six runs encoded, one range named, nothing silent.
+
+**The larger thing this exposed.** The asterisk was not really needed for D7. It
+was needed because the converter was *already* inventing captions, silently, in a
+place nobody had audited. `DEFAULT_ENUM_CAPTIONS = ("v.", "no.", "pt.")` filled
+any level a statement did not caption, so `39 no 1 (Spring 1995)` produced
+`853 $a v. $b no.` — asserting that 39 is a volume on the strength of position
+alone. Very probably true. Not something to write into a record as though the
+piece had said it, and the fourth appearance of this log's recurring shape.
+
+The constant split in two. `NO_CAPTION` is what the 853 gets when nothing else is
+known; `SUGGESTED_ENUM_CAPTIONS` keeps `v./no./pt.` as what to *offer* a
+cataloguer, which claims nothing. Precedence is unchanged and is the point: a
+caption supplied by hand wins, then one the statement wrote, and only then the
+asterisk. Both settings dialogs now say so, and note that a supplied caption can
+be bracketed — `[v.]` — to show in the record that it was supplied.
+
+`caption_slot()` had to learn to read the asterisk back. It required a caption to
+begin with a letter, so `(*)` returned None: the tool would have written an 853 it
+could not read, and a record it had already converted would have stopped
+conforming to its own field on the next run.
+
+**Still failing, and rightly.** `50th Anniversary Issue (2017)` and `Special
+Issue (October/November 1995)` have no enumeration at all — a phrase and a date,
+with nothing to caption. The asterisk does not reach them. The Workbench's confirm
+step remains the mechanism that could, since a human says once what the captured
+values mean.
+
+**Left open.** The chronology-first block grammar hard-codes `v.` and `no.` in
+`holdings_parser` on the same positional reasoning, for 5 corpus statements. That
+is a house format whose cataloguers may genuinely know what those numbers are,
+and changing it would alter records that convert cleanly today. It is the same
+invention and it should be a deliberate decision, not a side effect of this one.
 
 ### D8, D9, D11 — smaller things, all warned or by design (D9 **FIXED in 0.6.4**)
 

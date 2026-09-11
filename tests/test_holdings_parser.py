@@ -202,6 +202,47 @@ def test_a_list_can_sit_at_any_level():
     assert [hr.break_after for hr in r.ranges] == ["", "g", ""]
 
 
+def test_a_list_with_no_caption_anywhere_is_still_a_list():
+    """
+    D7's statement. Nothing in "8,13,15,17,19,20-" says whether those are
+    volumes, issues or years -- and nothing has to. They are the only
+    enumeration level there is, and 0.8.9 writes "(*)" for a level with no
+    caption rather than guessing at one, so the list can be read as six runs.
+
+    The unit parser still refuses a lone captionless number, which is right: on
+    its own it says nothing about which level it is. Inside a list it is not on
+    its own.
+    """
+    r = parse_866("8,13,15,17,19,20-(1982-1994)")
+    assert [hr.start.value_at(0) for hr in r.ranges] == \
+        ["8", "13", "15", "17", "19", "20"]
+    assert all(hr.start.enum[0].caption is None for hr in r.ranges)
+    # 19 runs straight on into 20; every other break is a gap.
+    assert [hr.break_after for hr in r.ranges] == ["g", "g", "g", "g", "", ""]
+
+
+def test_a_bare_number_on_its_own_is_still_refused():
+    """The guard the list reader must not have relaxed."""
+    assert parse_866("106").ranges == []
+
+
+def test_the_last_run_of_a_list_can_still_be_open():
+    """
+    "20-" is holdings still being received, and the hyphen saying so is the last
+    thing before the chronology. Taken off before the list is split, and put
+    back on the run built from it.
+    """
+    r = parse_866("8,13,15,17,19,20-(1982-1994)")
+    assert [hr.open_ended for hr in r.ranges] == [False] * 5 + [True]
+
+
+def test_a_captionless_list_reads_its_own_chronology():
+    """The chronology side is unaffected by there being no caption."""
+    r = parse_866("8,13,15 (1982, 1984, 1986)")
+    assert [(hr.start.value_at(0), hr.start.year) for hr in r.ranges] == [
+        ("8", "1982"), ("13", "1984"), ("15", "1986")]
+
+
 @pytest.mark.parametrize("text, ranges", [
     # An American date puts a comma inside one date. Splitting there would turn
     # "Apr 18, 1996" into two holdings runs.
