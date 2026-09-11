@@ -72,6 +72,13 @@ _VALUE_KINDS   = {YEAR, CHRON, NUMBER}
 # permissive toward pattern shapes not present in those samples.
 MAX_PATTERN_TOKENS = 40
 
+# What /api/test-regex accepts, and what pattern_library will store.  An
+# expression longer than this could never be checked against real statements
+# before being trusted, so emitting one would put "generated" and "usable" out
+# of step.  Enforced on the generated expression itself, not estimated from the
+# token count -- see the guard in detect_patterns().
+MAX_REGEX_CHARS = 2000
+
 # General month/season patterns used in generated regex output —
 # broad enough to match any standard form, not just the forms observed.
 _MON_RE = (
@@ -592,7 +599,11 @@ class PatternGroup:
     caption_variants: dict[str, list[str]]  # e.g. {"vol": ["v.", "Vol."]}
     is_open_ended: bool
     token_count: int = 0                    # collapsed structural tokens
-    too_complex: bool = False               # over MAX_PATTERN_TOKENS; no regex
+    too_complex: bool = False               # declined; no regex offered
+    # Why it was declined, in the cataloguer's terms.  Two different limits can
+    # refuse a cluster and they refuse very different things, so the card says
+    # which rather than assuming the token count was the one that fired.
+    decline_reason: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -609,6 +620,7 @@ class PatternGroup:
             "is_open_ended":    self.is_open_ended,
             "token_count":      self.token_count,
             "too_complex":      self.too_complex,
+            "decline_reason":   self.decline_reason,
         }
 
 
@@ -648,11 +660,9 @@ def detect_patterns(statements: list[str]) -> list[PatternGroup]:
         open_ended    = _is_open_ended(template)
         label         = _compact_label(template, range_sep_idx)
 
-        # Guard *before* generating: a cluster this long yields a regex nobody
-        # can read or edit, and is almost always a one-off rather than a real
-        # pattern.  Report it as a finding instead of emitting the regex.
-        if len(template) > MAX_PATTERN_TOKENS:
-            groups.append(PatternGroup(
+        def _declined(reason: str) -> PatternGroup:
+            """A cluster reported as a finding, with no regex to offer."""
+            return PatternGroup(
                 signature        = sig,
                 human_label      = (label or sig)[:80],
                 count            = len(members),
@@ -666,10 +676,40 @@ def detect_patterns(statements: list[str]) -> list[PatternGroup]:
                 is_open_ended    = open_ended,
                 token_count      = len(template),
                 too_complex      = True,
+                decline_reason   = reason,
+            )
+
+        # Guard *before* generating: a cluster this long yields a regex nobody
+        # can read or edit, and is almost always a one-off rather than a real
+        # pattern.  Report it as a finding instead of emitting the regex.
+        if len(template) > MAX_PATTERN_TOKENS:
+            groups.append(_declined(
+                f"These statements are {len(template)} parts long, which is past "
+                f"the point where a single expression can describe them usefully."
             ))
             continue
 
         regex, named_groups, cap_variants = _build_regex(all_stripped)
+
+        # And again *after*, on the thing itself.  The token count is only a
+        # proxy for how long the expression will be, and a poor one: a CHRON
+        # token spends the month alternation twice, about 180 characters, where
+        # a NUMBER spends 25.  A statement with five of them reached 2,384
+        # characters at 25 tokens -- well inside the token ceiling and well
+        # past the 2,000 the Test button accepts, so the detector was handing
+        # the cataloguer an expression it would then refuse to test.
+        #
+        # Measuring the regex makes that impossible by construction rather than
+        # by calibration: whatever is emitted can always be tested and stored.
+        if len(regex) > MAX_REGEX_CHARS:
+            groups.append(_declined(
+                f"The expression for these statements comes to "
+                f"{len(regex):,} characters, past the {MAX_REGEX_CHARS:,} that "
+                f"can be tested here \u2014 months and seasons are expensive to "
+                f"describe, and these statements carry several."
+            ))
+            continue
+
         match_rate, matched, failed       = _validate(regex, members)
 
         groups.append(PatternGroup(

@@ -349,3 +349,54 @@ def test_free_text_is_visible_in_the_label():
     noisy = detect_patterns(["v. 58 Suppl. (Sep 2003)"])[0].human_label
     assert plain != noisy
     assert "text" in noisy
+
+
+def test_a_cluster_whose_regex_would_be_untestable_is_declined():
+    """
+    D20. The token count is only a proxy for how long the expression will be,
+    and a poor one: a CHRON token spends the month alternation twice, about 180
+    characters, where a NUMBER spends 25. "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar,
+    May, Jul-Dec 1915)" is 25 tokens -- well inside MAX_PATTERN_TOKENS -- and
+    generated 2,384 characters, well past what the Test button accepts.
+
+    Measuring the expression itself makes the invariant true by construction:
+    whatever is emitted can always be tested and stored.
+    """
+    groups = detect_patterns(["v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"])
+    assert len(groups) == 1
+    group = groups[0]
+
+    assert group.too_complex is True
+    assert group.regex == ""
+    assert group.token_count <= MAX_PATTERN_TOKENS, \
+        "declined on length, not on token count -- that is the point"
+
+
+def test_a_declined_cluster_says_which_limit_refused_it():
+    """
+    Two different limits decline a cluster and they mean very different things.
+    A card reading "25 parts long, past the point where a single expression can
+    describe them" is simply false when the token ceiling is 40 -- the
+    cataloguer would reasonably wonder why 25 is too many when the pattern
+    above it has 30.
+    """
+    long_one = detect_patterns(["2019: (1-6 [Feb-Nov])" * 25])[0]
+    assert long_one.too_complex is True
+    assert "parts long" in long_one.decline_reason
+
+    costly = detect_patterns(
+        ["v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"])[0]
+    assert costly.too_complex is True
+    assert "characters" in costly.decline_reason
+    assert "parts long" not in costly.decline_reason
+
+
+def test_the_declined_cluster_still_reports_itself():
+    """
+    Declining is a finding, not a silence: the card says the statements are too
+    idiosyncratic to express, and the standard parser reads them.
+    """
+    group = detect_patterns(["v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"])[0]
+    assert group.count == 1
+    assert group.examples
+    assert group.human_label

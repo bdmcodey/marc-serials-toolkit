@@ -649,6 +649,7 @@ function buildCard(group, idx) {
       <strong>Too idiosyncratic to express as a pattern.</strong><br />
       ${group.count} statement${group.count !== 1 ? 's' : ''} affected ·
       ${group.token_count} structural tokens.
+      ${group.decline_reason ? esc(group.decline_reason) + ' ' : ''}
       These are likely one-off statements rather than shared structure —
       review them individually, or split them into smaller ranges first.
     </div>`;

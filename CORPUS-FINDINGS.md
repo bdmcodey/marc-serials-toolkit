@@ -10,10 +10,10 @@ anything was changed.
 
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
-D10 (0.8.0); D19 (0.8.1, 11 September 2026).
+D10 (0.8.0); D19 (0.8.1); D20 (0.8.2, 11 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
-why the code looks the way it does now. **D7, D11 and D20 remain open** — see
-the list at the end.
+why the code looks the way it does now. **D7 and D11 remain open** — see the
+list at the end.
 
 Reproduce every number below with:
 
@@ -426,9 +426,9 @@ Two things fell out of it:
   year is the same kind of normalisation and is now expanded before the
   comparison.
 
-### D20 — the detector emits expressions its own Test button would refuse
+### D20 — the detector emits expressions its own Test button would refuse · **FIXED in 0.8.2**
 
-Found while fixing D19, and **open**.
+Found while fixing D19.
 
 `MAX_PATTERN_TOKENS = 40` was calibrated on the two private `.mrc` files at
 "15–45 regex characters per token", to keep generated expressions under the
@@ -441,10 +441,42 @@ added 19. Nothing caught it because `test_every_generated_regex_is_testable`
 runs against the two committed synthetic `.mrc` files only, and the worst they
 produce is 1,980. The corpus was never in its reach.
 
-`tests/test_invariants.py::test_every_corpus_regex_is_testable` now records
-this as an `xfail`. Fixing it means either a cheaper `CHRON` group — the month
-alternation is written out twice per group — or a lower token ceiling, and both
-are calibration decisions rather than bugs to patch.
+**Fixed by measuring the expression instead of estimating it.** The token count
+was only ever a proxy for length, and the proxy fails because token kinds cost
+wildly different amounts: a `CHRON` spends the month alternation twice, about
+180 characters, where a `NUMBER` spends 25. The worst statement is 25 tokens —
+comfortably inside `MAX_PATTERN_TOKENS = 40` — and 2,384 characters.
+
+`detect_patterns()` now builds the regex and checks its actual length against
+`MAX_REGEX_CHARS`, declining the cluster if it is over. The invariant holds by
+construction rather than by calibration: whatever the detector emits can always
+be tested and stored, whatever future change alters the cost of a token. D19
+would have been caught by it automatically.
+
+Two things were deliberately *not* done. The month alternation could be
+shortened to `(?:Jan|Feb|…)[a-z]*`, saving about 100 characters per copy — but
+that matches "Janissary 1996" as a date, and quiet wrongness is the thing this
+project exists to avoid. The 2,000-character cap could be raised — but it is a
+ReDoS bound on a public endpoint (`/api/test-regex` runs a user-supplied
+expression against user-supplied text), not an arbitrary tidiness limit.
+
+The cost is one corpus cluster, one statement: `v. 19 nos. 1, 3, 5, 7-12 (Jan,
+Mar, May, Jul-Dec 1915)`, which the converter refuses anyway as a discontinuous
+list (D1). It is reported as "too idiosyncratic to express as a pattern", which
+is a visible finding rather than a silence, and the standard parser reads it.
+
+`MAX_REGEX_CHARS` moved to `pattern_detector.py` and is imported by
+`pattern_library.py`. Two copies of a safety limit drift.
+
+One thing the fix exposed. The declined card read "These statements are 25
+parts long, which is past the point where a single expression can describe
+them" — false, with the token ceiling at 40, and a cataloguer would reasonably
+wonder why 25 was too many when the pattern above it had 30. The card had only
+ever had one reason to give because there had only ever been one limit. Each
+guard now carries its own sentence, and the cluster declined on length says so:
+"The expression for these statements comes to 2,384 characters, past the 2,000
+that can be tested here — months and seasons are expensive to describe, and
+these statements carry several."
 
 One lossless saving was taken while measuring: the generated expressions were
 writing the whitespace separator twice between most parts, because each branch
@@ -941,10 +973,9 @@ everything correctly" is not.
 - **D7** — genuinely captionless statements. Expected to keep failing; the
   Workbench's confirm step is the mechanism that could convert them.
 - **D11** — by design, and documented as such.
-- **D20** — the detector generates one expression longer than the 2,000
-  characters its own Test button accepts, and has since before D19. A
-  calibration decision: cheaper `CHRON` groups, or fewer tokens. Recorded as an
-  `xfail`.
+- ~~**D20**~~ Fixed in 0.8.2 — the guard measures the generated expression
+  rather than estimating from the token count, so the invariant holds by
+  construction.
 - ~~**D10**~~ Half fixed in 0.8.0. The detector's complexity guard still
   declines the run-on, which is intended; the silent day loss inside it is
   gone.

@@ -37,8 +37,9 @@ SCHEMA_VERSION = 1
 
 # The pattern detector's own Test button refuses anything longer, so a pattern
 # over this length could never be checked against real statements before being
-# trusted.  Matching the cap keeps "testable" and "usable" the same set.
-MAX_REGEX_CHARS = 2000
+# trusted.  Matching the cap keeps "testable" and "usable" the same set --
+# imported rather than repeated, because two copies of a safety limit drift.
+from pattern_detector import MAX_REGEX_CHARS  # noqa: E402,F401
 
 MAX_PATTERNS = 200
 
