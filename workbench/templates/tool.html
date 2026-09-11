@@ -2206,6 +2206,11 @@ async function saveLibrary(patterns) {
     body: JSON.stringify({ patterns }),
   });
   const data = await res.json();
+  // A refusal leaves the stored library exactly as it was -- a pattern whose
+  // expression will not finish is never stored -- so the screen has to keep
+  // showing what is still there rather than emptying itself. The caller reads
+  // `rejected` and says why.
+  if (!res.ok || !data.patterns) return data;
   library = data.patterns || [];
   renderLibrary();
   // Every record's conversion depends on the library, so the review page and

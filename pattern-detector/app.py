@@ -24,6 +24,8 @@ from flask import (Flask, render_template, request, jsonify,
 
 from pattern_detector import (detect_patterns, split_multi_range,
                               MAX_REGEX_CHARS)
+from regex_budget import (MatchFailed, MatchTimeout, match_statements,
+                          too_slow_message)
 
 try:
     from pymarc import MARCReader
@@ -239,10 +241,11 @@ def api_test_regex():
             "error": f"Regex exceeds the {MAX_REGEX_CHARS:,}-character test limit.",
         }), 400
     # A user-supplied regex runs against user-supplied text here, so the input
-    # side is bounded.  Note that the regex *length* limit above is not what
-    # protects this endpoint from catastrophic backtracking -- see the comment
-    # on MAX_REGEX_CHARS.  Bounding the text is what limits the damage, and a
-    # match timeout is what would end it.
+    # side is bounded.  The regex *length* limit above is not what protects this
+    # endpoint from catastrophic backtracking -- see the comment on
+    # MAX_REGEX_CHARS -- and bounding the text only limits the damage.  What
+    # ends it is the budget: the matching runs in a child process this request
+    # can kill, so a hand-edited expression cannot wedge the worker.
     statements = [str(s)[:500] for s in statements[:2000]]
 
     try:
@@ -250,27 +253,21 @@ def api_test_regex():
     except re.error as exc:
         return jsonify({"error": f"Invalid regex: {exc}"}), 400
 
-    results = []
-    for s in statements:
-        s = s.strip()
-        fm = compiled.fullmatch(s)
-        m  = fm or compiled.search(s)
-        if m:
-            results.append({
-                "statement":  s,
-                "matched":    True,
-                "full_match": fm is not None,
-                "groups":     m.groupdict(),
-                "span":       list(m.span()),
-            })
-        else:
-            results.append({
-                "statement":  s,
-                "matched":    False,
-                "full_match": False,
-                "groups":     {},
-                "span":       None,
-            })
+    statements = [s.strip() for s in statements]
+    try:
+        matches = match_statements(regex_str, statements)
+    except MatchTimeout:
+        return jsonify({"error": too_slow_message()}), 400
+    except MatchFailed as exc:
+        return jsonify({"error": f"The expression could not be run: {exc}"}), 400
+
+    results = [{
+        "statement":  s,
+        "matched":    m["full"] or m["partial"],
+        "full_match": m["full"],
+        "groups":     m["groups"],
+        "span":       m["span"],
+    } for s, m in zip(statements, matches)]
 
     matched_n = sum(1 for r in results if r["matched"])
     return jsonify({

@@ -691,6 +691,20 @@ def test_a_range_inside_one_boundary_is_not_mistaken_for_a_pair():
     assert any("(1-2)" in w for w in result.warnings), result.warnings
 
 
+def test_a_caption_named_in_a_warning_reads_as_a_word_not_a_negation():
+    """
+    The commonest caption is "no.", and unquoted it ran straight into the
+    sentence around it: "so with no no level at the end it was left out". A
+    cataloguer reading that sees a typo, not a caption. The caption is quoted
+    and keeps its period, and the clause no longer needs a negation at all.
+    """
+    result = convert_holdings(parse_866("v. 1 (1956) - v. 51 nos. 1-2 (2006)"))
+    note, = [w for w in result.warnings if "(1-2)" in w]
+    assert "no no" not in note
+    assert "a 'no.' level" in note
+    assert "nothing at the start to pair it with" in note
+
+
 # ---------------------------------------------------------------------------
 # Gaps: one 863 per run, and $w to say what the break is
 # ---------------------------------------------------------------------------

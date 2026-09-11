@@ -88,9 +88,11 @@ MAX_PATTERN_TOKENS = 40
 # input, while the 2,384-character expression above has no nested quantifier,
 # no unbounded .* and two bounded lazy spans, and searches an adversarial
 # 500-character string in under a millisecond.  A cap turns away long
-# expressions, not dangerous ones.  What actually bounds the damage here is the
-# input side -- 2,000 statements of 500 characters -- and, for real safety, a
-# match timeout, which this tool does not yet have at any cap value.
+# expressions, not dangerous ones.  What bounds the damage is the input side --
+# 2,000 statements of 500 characters -- and what ends it is the match budget in
+# regex_budget.py, added in 0.8.7: the matching runs in a child process the
+# request can kill.  This number and that one answer different questions, and
+# neither substitutes for the other.
 MAX_REGEX_CHARS = 4000
 
 # General month/season patterns used in generated regex output —

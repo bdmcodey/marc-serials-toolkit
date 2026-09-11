@@ -11,7 +11,7 @@ anything was changed.
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
 D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
-(0.8.5, and on the pattern path in 0.8.6, 11 September 2026).
+(0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7, 11 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -567,8 +567,8 @@ the 2,384-char one   no nested quantifier, no unbounded .*, two bounded
 
 A length cap turns away *long* expressions, not *dangerous* ones. What actually
 bounds the damage on that endpoint is the input side — 2,000 statements of 500
-characters — and what would end it is a match timeout, which the tool does not
-have at any cap value. That is worth doing and is not done here.
+characters — and what would end it is a match timeout, which the tool did not
+have at any cap value. **Added in 0.8.7** — see D22.
 
 So the cap is what it always really was: the point past which an expression is
 too unwieldy to read, edit or test. 4,000 admits everything the corpus produces
@@ -579,9 +579,9 @@ decides "too idiosyncratic", and the measured length guarantees the invariant
 whatever future change alters a token's cost.
 
 One corpus cluster came back as a result: `v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar,
-May, Jul-Dec 1915)`, which now generates a usable pattern. The converter still
-refuses the statement as a discontinuous list (D1), so the pattern path is the
-only route it has.
+May, Jul-Dec 1915)`, which now generates a usable pattern. The converter refused
+the statement as a discontinuous list at the time, so the pattern path was the
+only route it had; 0.8.5 gave it the better one.
 
 `MAX_REGEX_CHARS` moved to `pattern_detector.py` and is imported by
 `pattern_library.py`. Two copies of a safety limit drift.
@@ -654,6 +654,72 @@ worth recording on its own: the corpus is 117 statements from one collection,
 and "no statement here does that" is not "no statement does that". The two
 boundaries of a compressed 863 are the whole content of the field, and until now
 nothing checked they were describing the same hierarchy.
+
+### D22 — a hand-edited expression can hang the server · **FIXED in 0.8.7**
+
+The loose end D20 left. Python's `re` cannot be interrupted: there is no timeout
+argument, and a match in progress ignores signals until it returns. So an
+expression a cataloguer has edited by hand — `^(\s*\w+)*$` is eleven characters
+— takes a gunicorn worker out of service permanently. With `--workers 2`, two of
+them take the site down until someone restarts it.
+
+`MAX_REGEX_CHARS` never protected against this and, since 0.8.3, says so.
+
+**Fixed in 0.8.7** by running the match in a **child process** the request kills
+when the budget runs out (`pattern-detector/regex_budget.py`). Two alternatives
+were considered:
+
+- `signal.setitimer` only works in the main thread. Gunicorn's sync workers
+  would be fine, but Flask's development server is threaded by default and the
+  guard would silently do nothing there. A safety measure that is present in
+  some configurations and absent in others is worse than an honest one.
+- The third-party `regex` module takes a `timeout=`. Adding a dependency to a
+  tool a librarian installs with `pip install flask pymarc gunicorn` costs more
+  than the file does.
+
+The budget is five seconds, from measurement rather than taste. The largest
+payload any endpoint accepts — the longest expression the detector generates
+(2,384 characters) against 2,000 copies of a 500-character adversarial string —
+takes 26 ms of matching and 321 ms end to end, the difference being the child's
+startup and the JSON in both directions. Five seconds is about fifteen times
+that, and the trade is asymmetric: three more seconds of waiting costs a
+cataloguer very little, and a good pattern wrongly refused for being slow costs
+them the pattern. `MARC_MATCH_BUDGET` overrides it.
+
+**Where it is applied.** Every door a user-supplied expression comes through:
+
+| door | what it protects |
+|---|---|
+| Pattern Detector `/api/test-regex` | the Test button |
+| Workbench `/api/test-regex` | the Test button on the confirmation card |
+| Workbench `/api/pattern-preview` | the candidate run through a whole conversion |
+| Workbench `PUT /api/patterns`, `/api/patterns/import` | the library |
+
+The library is the one that matters most, and it is the one a timeout on the
+Test endpoint alone would have missed. A pattern on the Test screen is bounded
+by the request it runs in; a pattern *stored* is run by every conversion
+afterwards, against every statement of every record, with nothing able to stop
+it — and nothing obliges a cataloguer to press Test before confirming. Storing
+one is now checked on the way in, against the session's own statements plus a
+few fixed strings that provoke the classic runaway shapes. Only expressions the
+session has not already stored are tried, so reordering and removing — the same
+PUT as confirming — cost nothing.
+
+Two things worth being honest about.
+
+The library check is a **screen, not a proof**. An expression that finishes on
+these statements may still blow up on one nobody has tried. The only guarantee
+this gives is the one `match_statements()` gives: whatever runs, stops.
+
+And the message matters as much as the guard. A cataloguer told only that
+something timed out concludes the tool is broken. The cause is nearly always one
+shape — a repeat inside a repeat — so the message names it and says what to do,
+which is the difference between that and a fixed expression.
+
+One client-side bug fell out of it. `saveLibrary()` set `library = data.patterns
+|| []` on every response, so a refusal — which returns no `patterns` — emptied
+the screen's copy of a library the server had in fact left untouched. The
+cataloguer would have seen every confirmation disappear.
 
 ## Pattern detector
 

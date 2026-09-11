@@ -100,6 +100,26 @@ def test_regex_length_limit(detector_client, over, expected_status):
     assert response.status_code == expected_status
 
 
+def test_a_runaway_expression_is_stopped_rather_than_hanging_the_worker(
+        detector_client):
+    """
+    The Test button runs a hand-edited expression against real text, which is
+    where a runaway one comes from. MAX_REGEX_CHARS above does not help: this
+    one is eleven characters. The matching happens in a child process the
+    request kills, so the endpoint answers and the worker stays usable.
+    """
+    response = detector_client.post("/api/test-regex", json={
+        "regex": r"^(a+)+$", "statements": ["a" * 30 + "!"]})
+    assert response.status_code == 400
+    assert "repeat" in response.get_json()["error"]
+
+    # The worker is not wedged: the next request is served normally.
+    ok = detector_client.post("/api/test-regex", json={
+        "regex": r"v\.(?P<vol>\d+)", "statements": ["v.1(1990)"]})
+    assert ok.status_code == 200
+    assert ok.get_json()["matched"] == 1
+
+
 def test_generated_regexes_survive_the_tools_own_test_button(detector_client,
                                                              example_marc_bytes):
     """

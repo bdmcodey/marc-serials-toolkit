@@ -52,6 +52,18 @@ sudo systemctl enable --now mcsite-converter mcsite-patterns mcsite-workbench
 sudo systemctl status mcsite-converter mcsite-patterns mcsite-workbench --no-pager
 ```
 
+Both the Pattern Detector and the Workbench run cataloguer-edited regular
+expressions. A regular expression can be written so that it never finishes, so
+the match runs in a child process and is killed after five seconds. If starting
+a Python interpreter on your server is slow enough that a legitimate expression
+is being refused, raise it in the unit file:
+
+```ini
+Environment="MARC_MATCH_BUDGET=10"
+```
+
+The measurements behind the default are in `pattern-detector/regex_budget.py`.
+
 ### 4. nginx + TLS
 ```bash
 sudo cp deploy/nginx-tools.conf /etc/nginx/sites-available/tools

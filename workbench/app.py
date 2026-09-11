@@ -55,6 +55,9 @@ from marc_converter import (CONVENTION_LEVELS, CONVENTION_STANDARD,
                             FREQUENCY_CODES, convention_presets,
                             convert_holdings, convert_record, resolve_convention)
 from pattern_detector import detect_patterns
+from regex_budget import (BACKTRACKING_PROBES, MatchFailed, MatchTimeout,
+                          completes_within_budget, match_statements,
+                          too_slow_message)
 
 import pattern_library as plib
 from pattern_bridge import (CAPTION_CHOICES, ENCODABLE_KINDS, KIND_IGNORE,
@@ -767,24 +770,29 @@ def api_test_regex():
     except re.error as exc:
         return jsonify({"error": f"Invalid regex: {exc}"}), 400
 
+    # The expression on this screen has usually just been edited by hand, which
+    # is where a runaway one comes from. The matching runs in a child process
+    # this request can kill; see regex_budget.
+    statements = [s.strip() for s in statements]
+    try:
+        matches = match_statements(regex_str, statements)
+    except MatchTimeout:
+        return jsonify({"error": too_slow_message()}), 400
+    except MatchFailed as exc:
+        return jsonify({"error": f"The expression could not be run: {exc}"}), 400
+
     # "matched" means the pattern spans the whole statement, because that is
     # what the Workbench will convert on -- see pattern_bridge. A partial hit is
     # still reported, with the span it covers, so the cataloguer can see how
     # close the expression came and what it missed; it just does not count.
-    results = []
-    for s in statements:
-        s = s.strip()
-        fm = compiled.fullmatch(s)
-        partial = None if fm else compiled.search(s)
-        m = fm or partial
-        results.append({
-            "statement": s,
-            "matched": fm is not None,
-            "full_match": fm is not None,
-            "partial_match": partial is not None,
-            "groups": fm.groupdict() if fm else {},
-            "span": list(m.span()) if m else None,
-        })
+    results = [{
+        "statement": s,
+        "matched": m["full"],
+        "full_match": m["full"],
+        "partial_match": m["partial"],
+        "groups": m["groups"] if m["full"] else {},
+        "span": m["span"],
+    } for s, m in zip(statements, matches)]
 
     matched_n = sum(1 for r in results if r["matched"])
     names = sorted(compiled.groupindex, key=lambda n: compiled.groupindex[n])
@@ -885,6 +893,11 @@ def api_pattern_preview():
                     texts.append(text)
                     field_indexes.append(idx)
 
+            # The candidate is about to be run against this record's
+            # statements by the conversion below, which nothing could stop.
+            if not completes_within_budget(regex_str, texts):
+                return jsonify({"error": too_slow_message()}), 400
+
             patterns = [candidate] + _load_library()
             parsed, sources = _parse_all(texts, patterns,
                                          _parser_fallback(data))
@@ -919,6 +932,9 @@ def api_pattern_preview():
                   for s in (data.get("statements") or [])[:EXAMPLE_LIMIT]]
     if not statements:
         return jsonify({"error": "No statements to preview."}), 400
+
+    if not completes_within_budget(regex_str, statements):
+        return jsonify({"error": too_slow_message()}), 400
 
     def _fields(parse_result):
         conversion = convert_holdings(
@@ -960,6 +976,61 @@ def api_pattern_preview():
     })
 
 
+# How many of the session's own statements a stored pattern is tried against.
+# The probe is one child process either way; this bounds what it is handed.
+PROBE_STATEMENT_LIMIT = 200
+
+
+def _runaway_message(labels) -> str:
+    """Name the patterns that were refused, and say what is wrong with them."""
+    named = ", ".join(f"'{label}'" for label in labels)
+    plural = "these patterns" if len(labels) > 1 else "this pattern"
+    return (
+        f"{named} could not be stored: the expression did not finish in time, "
+        f"so {plural} would hang every conversion it was used in. "
+        + too_slow_message().split(". ", 1)[1]
+    )
+
+
+def _probe_statements() -> list:
+    """
+    Text to try a pattern against when nothing in particular is being converted.
+
+    The session's own statements where there is a file, because a pattern that
+    runs away does it on the shapes it nearly matches, and those are here. Plus
+    the fixed probes, which catch the classic runaway shapes and are all there
+    is to go on when statements were pasted rather than uploaded.
+    """
+    mine: list = []
+    try:
+        mine = list(_statement_origins(True))[:PROBE_STATEMENT_LIMIT]
+    except Exception:                    # pragma: no cover - no file, bad file
+        mine = []
+    return list(BACKTRACKING_PROBES) + mine
+
+
+def _runaway_patterns(patterns, known: frozenset) -> list:
+    """
+    Which of `patterns` do not finish against the probe text, by label.
+
+    Only expressions this session has not already stored are tried: reordering
+    and removing are the same PUT as confirming, and re-probing an expression
+    that is already in the library would charge a child process for a drag of
+    the mouse.
+
+    The library is the one door that matters. A pattern on the Test screen runs
+    under regex_budget and cannot wedge anything; a pattern *stored* is run by
+    every conversion afterwards, against every statement of every record, with
+    nothing able to stop it. So it is checked on the way in.
+    """
+    fresh = [p for p in patterns if p.regex not in known]
+    if not fresh:
+        return []
+    text = _probe_statements()
+    return [p.label or p.id for p in fresh
+            if not completes_within_budget(p.regex, text)]
+
+
 @app.route("/api/patterns", methods=["GET", "PUT"])
 def api_patterns():
     """
@@ -978,6 +1049,15 @@ def api_patterns():
 
     data = request.get_json(force=True) or {}
     patterns, errors = plib.load_patterns(data.get("patterns"))
+
+    known = frozenset(p.regex for p in _load_library())
+    runaway = _runaway_patterns(patterns, known)
+    if runaway:
+        return jsonify({
+            "error": _runaway_message(runaway),
+            "rejected": errors + [_runaway_message(runaway)],
+        }), 400
+
     _save_library(patterns)
     return jsonify({
         "patterns": [p.to_dict() for p in patterns],
@@ -1025,6 +1105,15 @@ def api_patterns_import():
     combined, more_errors = plib.load_patterns(
         [p.to_dict() for p in existing] + [p.to_dict() for p in incoming]
     )
+
+    # An exported library is a file from somewhere else, so every expression in
+    # it is new to this session and every one is tried.
+    runaway = _runaway_patterns(combined, frozenset(p.regex for p in existing))
+    if runaway:
+        return jsonify({"error": _runaway_message(runaway),
+                        "rejected": errors + more_errors +
+                                    [_runaway_message(runaway)]}), 400
+
     _save_library(combined)
 
     return jsonify({
