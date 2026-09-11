@@ -18,7 +18,8 @@ from __future__ import annotations
 import pytest
 
 from holdings_parser import (parse_866, _looks_like_block, chron_unit_code,
-                             normalise_chron_unit, normalise_year)
+                             normalise_chron_unit, normalise_year,
+                             HoldingsRange, EnumChron, EnumLevel)
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +96,78 @@ def test_empty_input_fails_with_a_warning(text):
     assert r.success is False
     assert r.ranges == []
     assert r.warnings
+
+
+# ---------------------------------------------------------------------------
+# Lining the two boundaries up
+# ---------------------------------------------------------------------------
+
+def test_an_end_stating_fewer_levels_slides_to_where_its_caption_fits():
+    """
+    Position in `enum` is the level, which holds only while both ends write the
+    same number of levels. "v. 12 no. 1-no. 6" writes two and then one, so "6"
+    sat at position 0 opposite "v. 12" and the converter read the range as
+    volume 12 to volume 6. Its caption says otherwise and says so unambiguously,
+    so an empty level goes in front of it.
+    """
+    hr = parse_866("v. 12 no. 1-no. 6 (1990)").ranges[0]
+    assert [lvl.caption for lvl in hr.end.enum] == [None, "no."]
+    assert (hr.end.value_at(0), hr.end.value_at(1)) == (None, "6")
+
+
+def test_a_start_stating_fewer_levels_slides_the_same_way():
+    """The rule is about the shorter boundary, not about which end it is."""
+    start = EnumChron(enum=[EnumLevel("no.", "1")])
+    end = EnumChron(enum=[EnumLevel("v.", "2"), EnumLevel("no.", "4")])
+    hr = HoldingsRange(start=start, end=end)
+    assert [lvl.caption for lvl in hr.start.enum] == [None, "no."]
+
+
+def test_a_caption_that_fits_nowhere_moves_nothing():
+    """
+    Alignment is only ever allowed to act on evidence. "pt." appears at no level
+    of a range numbered by volume and issue, so there is nothing to conclude and
+    the boundary is left exactly where it was -- the converter then reports the
+    value rather than placing it by position.
+    """
+    start = EnumChron(enum=[EnumLevel("v.", "1"), EnumLevel("no.", "1")])
+    end = EnumChron(enum=[EnumLevel("pt.", "4")])
+    hr = HoldingsRange(start=start, end=end)
+    assert [lvl.caption for lvl in hr.end.enum] == ["pt."]
+
+
+def test_a_caption_that_fits_twice_moves_nothing():
+    """
+    Two levels of the same name give two answers, and a wrong guess between them
+    is invisible in the output. Silence is the safe half of the trade.
+    """
+    start = EnumChron(enum=[EnumLevel("v.", "1"), EnumLevel("pt.", "1"),
+                            EnumLevel("pt.", "2")])
+    end = EnumChron(enum=[EnumLevel("pt.", "9")])
+    hr = HoldingsRange(start=start, end=end)
+    assert [lvl.caption for lvl in hr.end.enum] == ["pt."]
+
+
+def test_a_boundary_without_captions_is_left_alone():
+    """
+    "v. 1 no. 1-4" states its second value with no caption of its own. There is
+    nothing to align by, and the existing reading -- position -- is the only one
+    available.
+    """
+    start = EnumChron(enum=[EnumLevel("v.", "1"), EnumLevel("no.", "1")])
+    end = EnumChron(enum=[EnumLevel(None, "4")])
+    hr = HoldingsRange(start=start, end=end)
+    assert [lvl.caption for lvl in hr.end.enum] == [None]
+
+
+def test_aligning_twice_is_the_same_as_aligning_once():
+    """
+    The parser builds an empty range and fills it in, so alignment runs at
+    construction and again afterwards. It has to be safe to repeat.
+    """
+    hr = parse_866("v. 12 no. 1-no. 6 (1990)").ranges[0]
+    hr.align_boundaries()
+    assert [lvl.caption for lvl in hr.end.enum] == [None, "no."]
 
 
 # ---------------------------------------------------------------------------

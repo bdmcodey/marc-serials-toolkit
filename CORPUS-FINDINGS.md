@@ -10,7 +10,7 @@ anything was changed.
 
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
-D10 (0.8.0); D19 (0.8.1); D20 (0.8.2, 11 September 2026).
+D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4, 11 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -505,6 +505,59 @@ writing the whitespace separator twice between most parts, because each branch
 appends `\s*` after its group and the separators already carry their own.
 `_join()` drops the redundant one. Same language, ~24 characters back on a
 chronology-heavy pattern.
+
+### D21 — a range that closes at a level it did not open reads backwards · **FIXED in 0.8.4**
+
+Found while working out what the tools do with a gapped statement.
+
+```
+v. 12 no. 1-no. 6 (1990)
+  -> 853 $a v. $b no. $i (year)
+     863 $a 12-6 $i 1990
+     ! Only the start of this range gives a no level (1) ... it was left out.
+```
+
+`$a 12-6` is volume 12 through volume 6. The statement says issues 1 through 6
+of volume 12. And the warning, which is the cataloguer's only view of what
+happened, describes a *different* field: it reports the issue level as left out
+for want of an end value, while that end value is what is sitting in `$a`.
+
+**Cause.** Position in `EnumChron.enum` is the level, which is exactly right
+while both boundaries write the same number of levels. This statement writes two
+and then one, so `no. 6` sat at position 0 opposite `v. 12`, and
+`_hierarchy_values()` paired them because pairing by position is all it does.
+Nothing anywhere compared the two ends' captions: `enum_captions()` takes the
+first caption it finds at each level, so the start's `v.` filled position 0 and
+the end's `no.` was never consulted.
+
+The same hole was doing worse damage on the pattern path, where
+`assign_levels()` numbers each boundary's levels from zero independently and
+documents that it does — `v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec
+1915)` produced `$a 19-3`.
+
+**Fixed in 0.8.4** in two halves, because the case splits in two.
+
+Where the captions settle it, they settle it: `HoldingsRange.align_boundaries()`
+slides the shorter boundary down to the one offset its captions fit, padding
+with empty levels. `v. 12 no. 1-no. 6` now gives `$a 12 $b 1-6` with no warning,
+because nothing was lost. It runs at construction and again after the parser
+fills a range in, and is idempotent so that both are safe.
+
+Where they do not — a range opening `v.` and closing `pt.`, or a caption that
+fits at two levels — nothing moves, and `_unpairable_end_levels()` drops the
+closing value and names it:
+
+> 'pt.4' was left out: this range opens at a 'v.' level and closes at a 'pt.'
+> level, so which level '4' closes cannot be told from the statement. A
+> compressed 863 pairs the two ends level by level, and there is no pairing for
+> this one.
+
+No corpus statement exercises either half — this was found by reasoning about
+the model, not by the audit, and the audit's numbers are unchanged. That is
+worth recording on its own: the corpus is 117 statements from one collection,
+and "no statement here does that" is not "no statement does that". The two
+boundaries of a compressed 863 are the whole content of the field, and until now
+nothing checked they were describing the same hierarchy.
 
 ## Pattern detector
 

@@ -19,7 +19,8 @@ from __future__ import annotations
 import pytest
 from pymarc import Field, Subfield
 
-from holdings_parser import parse_866
+from holdings_parser import (parse_866, ParseResult, HoldingsRange,
+                             EnumChron, EnumLevel)
 from marc_converter import (convention_presets, resolve_convention,
                             convert_holdings, convert_record,
                             caption_slot, read_853_slots,
@@ -688,6 +689,46 @@ def test_a_range_inside_one_boundary_is_not_mistaken_for_a_pair():
     assert sub(result.fields_863[0], "a") == "1-51"
     assert sub(result.fields_863[0], "b") is None
     assert any("(1-2)" in w for w in result.warnings), result.warnings
+
+
+# ---------------------------------------------------------------------------
+# The two ends of a range have to agree on what each level is called
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text", [
+    "v. 12 no. 1-no. 6 (1990)",
+    "v. 12 no. 1 - no. 6 (1990)",
+])
+def test_an_end_that_omits_its_leading_level_is_read_at_the_level_it_names(text):
+    """
+    "no. 6" closes the issue level, not the volume level, and position alone
+    could not tell: the end states one level and the start two, so "6" landed at
+    position 0 beside "v. 12" and the field read "$a 12-6" -- volume 12 through
+    volume 6, a range running backwards that the statement never said. The
+    caption is the evidence, and it is unambiguous here.
+    """
+    result = convert_holdings(parse_866(text))
+    f863 = result.fields_863[0]
+    assert (sub(f863, "a"), sub(f863, "b")) == ("12", "1-6")
+    assert result.warnings == []
+
+
+def test_a_closing_level_that_fits_nowhere_is_named_rather_than_placed():
+    """
+    The other half of the same rule. A range opening "v." and closing "pt." has
+    no level to pair, and the captions cannot repair it the way they repair
+    "v. 12 no. 1-no. 6". Writing the value by position is exactly what produced
+    "$a 12-6", so nothing is written and the value is reported instead.
+    """
+    start = EnumChron(enum=[EnumLevel("v.", "1"), EnumLevel("no.", "1")],
+                      year="1990")
+    end = EnumChron(enum=[EnumLevel("pt.", "4")])
+    result = convert_holdings(
+        ParseResult(ranges=[HoldingsRange(start=start, end=end, raw="x")], raw="x"))
+
+    f863 = result.fields_863[0]
+    assert (sub(f863, "a"), sub(f863, "b")) == ("1", "1")
+    assert any("pt.4" in w for w in result.warnings), result.warnings
 
 
 # ---------------------------------------------------------------------------

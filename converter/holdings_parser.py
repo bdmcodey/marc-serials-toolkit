@@ -148,6 +148,19 @@ class EnumChron:
         return "".join(parts)
 
 
+def _sole_offset(short: List[Optional[str]],
+                 long: List[Optional[str]]) -> Optional[int]:
+    """
+    The one offset at which `short` sits inside `long`, or None if not exactly
+    one does.  A missing caption on either side matches anything, since it
+    states nothing to contradict.
+    """
+    fits = [k for k in range(len(long) - len(short) + 1)
+            if all(a is None or b is None or a == b
+                   for a, b in zip(short, long[k:]))]
+    return fits[0] if len(fits) == 1 else None
+
+
 @dataclass
 class HoldingsRange:
     """A single holdings range (start–end, or start– if open)."""
@@ -155,6 +168,56 @@ class HoldingsRange:
     end: Optional[EnumChron] = None   # None means open-ended
     open_ended: bool = False          # True  ⇒ still being received
     raw: str = ""                     # original text for this range
+
+    def __post_init__(self) -> None:
+        self.align_boundaries()
+
+    def align_boundaries(self) -> None:
+        """
+        Slide a boundary that omits its leading levels down to where it fits.
+
+        Position in `enum` is the level, and for a range written out in full
+        that is all anyone needs.  A range that states two levels at one end and
+        one at the other breaks it: "v. 12 no. 1-no. 6" puts "no. 6" at position
+        0, where the other end has "v. 12", and the 863 comes out "$a 12-6" --
+        volume 12 to volume 6, a range that runs backwards and is not what the
+        statement says.
+
+        The captions settle it.  The end's "no." can only be the level the start
+        also calls "no.", so an empty level is pushed in front of it and the two
+        line up: "$a 12 $b 1-6".
+
+        Only a boundary whose captions fit at exactly one offset is moved.  If
+        they fit nowhere, or in more than one place, nothing is moved and the
+        converter reports the values it cannot place -- guessing which level a
+        value belongs to is the error this exists to prevent, and a wrong guess
+        here is invisible in the output.
+
+        Run at construction, and again by anything that fills the boundaries in
+        afterwards -- the parser builds an empty range and populates it, so
+        construction is too early there.  Running twice costs nothing: once the
+        captions line up there is nothing left to move.
+        """
+        if self.end is None:
+            return
+
+        s_caps = [lvl.caption for lvl in self.start.enum]
+        e_caps = [lvl.caption for lvl in self.end.enum]
+        if not any(s_caps) or not any(e_caps):
+            return                      # nothing captioned to align by
+
+        if all(s is None or e is None or s == e
+               for s, e in zip(s_caps, e_caps)):
+            return                      # they already agree where both speak
+
+        if len(e_caps) < len(s_caps):
+            offset = _sole_offset(e_caps, s_caps)
+            if offset:
+                self.end.enum = [EnumLevel()] * offset + self.end.enum
+        elif len(s_caps) < len(e_caps):
+            offset = _sole_offset(s_caps, e_caps)
+            if offset:
+                self.start.enum = [EnumLevel()] * offset + self.start.enum
 
     def enum_depth(self) -> int:
         """How many enumeration levels either boundary of this range states."""
@@ -702,6 +765,7 @@ def _parse_one_range(raw: str,
         hr.start = start or EnumChron()
         hr.end = end
 
+    hr.align_boundaries()
     return hr
 
 
