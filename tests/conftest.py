@@ -59,6 +59,10 @@ for _app_dir in (CONVERTER_DIR, DETECTOR_DIR, WORKBENCH_DIR):
     if str(_app_dir) not in sys.path:
         sys.path.insert(0, str(_app_dir))
 
+# Imported after the path is set up, and by the same bare name the apps use, so
+# the fixture below patches the one module object every caller resolves against.
+import regex_budget                                    # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Loading the two colliding app modules
@@ -91,6 +95,24 @@ def _load_app_module(alias: str, path: Path) -> ModuleType:
         sys.modules.pop(alias, None)
         raise
     return module
+
+
+@pytest.fixture(autouse=True)
+def _short_match_budget(monkeypatch):
+    """
+    Shorten the regex budget for the whole suite.
+
+    Several tests deliberately run an expression that never finishes, and each
+    one costs its whole budget in wall clock. What is under test is the
+    mechanism -- that a runaway expression is stopped and reported -- not the
+    number, so the number is made small. The tests send a handful of statements,
+    and an empty round trip through the child costs about 37 ms, so half a
+    second is still more than ten times what any of them needs.
+
+    Every caller resolves the budget from this module attribute at call time,
+    which is why patching it here reaches the app routes as well.
+    """
+    monkeypatch.setattr(regex_budget, "MATCH_BUDGET_SECONDS", 0.5)
 
 
 @pytest.fixture(scope="session")

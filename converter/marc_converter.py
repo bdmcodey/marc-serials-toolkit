@@ -665,10 +665,19 @@ _LEVEL_WORDS = {
 
 
 def _enum_label(caption: Optional[str], index: int) -> tuple:
-    """Name an enumeration level for a warning, by its caption where there is one."""
-    word = (caption or default_enum_caption(index)).strip().rstrip(".")
+    """
+    Name an enumeration level for a warning, by its caption where there is one.
+
+    The caption is quoted and keeps its period, because it is a word the
+    cataloguer wrote and one of the commonest is "no.".  Bare and stripped, it
+    ran straight into the sentence around it -- "with no no level at the end",
+    where the first "no" is a negation and the second is a caption.
+    """
+    word = (caption or default_enum_caption(index)).strip()
     article = "an" if word[:1].lower() in "aeiou" else "a"
-    return (article, f"{word} level")
+    if word.lower().startswith("level"):
+        return (article, word)      # "level 4" already names itself
+    return (article, f"'{word}' level")
 
 
 # A chronology subfield an 853 labels "(month)" or "(season)" holds MARC codes:
@@ -712,8 +721,8 @@ def _note_unplaceable(warnings: Optional[List[str]], which: str,
     other = "end" if which == "start" else "start"
     note = (
         f"Only the {which} of this range gives {article} {word} ({value}); a "
-        f"compressed 863 records the first and last part held, so with no "
-        f"{word} at the {other} it was left out."
+        f"compressed 863 records the first and last part held, and there is "
+        f"nothing at the {other} to pair it with, so it was left out."
     )
     if note not in warnings:
         warnings.append(note)

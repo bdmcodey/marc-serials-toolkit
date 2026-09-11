@@ -263,6 +263,75 @@ def test_an_unreadable_expression_is_reported_not_raised(workbench_client):
     assert "Invalid regex" in response.get_json()["error"]
 
 
+RUNAWAY_REGEX = r"^(?P<start_vol>a+)+$"
+RUNAWAY_VICTIM = "a" * 30 + "!"
+RUNAWAY_ROLES = [{"group": "start_vol", "kind": "enum", "boundary": "start",
+                  "level": 0, "caption": "v."}]
+
+
+def test_a_runaway_expression_on_the_test_screen_is_stopped(workbench_client):
+    """
+    Where a runaway expression comes from: an edit on the confirmation screen.
+    The matching runs in a child process the request kills, so the endpoint
+    answers and the worker is still usable afterwards.
+    """
+    response = workbench_client.post("/api/test-regex", json={
+        "regex": RUNAWAY_REGEX, "statements": [RUNAWAY_VICTIM]})
+    assert response.status_code == 400
+    assert "repeat" in response.get_json()["error"]
+
+    ok = workbench_client.post("/api/test-regex", json={
+        "regex": r"v\.(?P<start_vol>\d+)", "statements": ["v.1"]})
+    assert ok.status_code == 200
+
+
+def test_a_runaway_expression_never_reaches_the_preview(workbench_client):
+    """
+    The preview runs the candidate through the whole conversion, which nothing
+    could interrupt. It is checked against the same statements first.
+    """
+    response = workbench_client.post("/api/pattern-preview", json={
+        "regex": RUNAWAY_REGEX, "roles": RUNAWAY_ROLES,
+        "statements": [RUNAWAY_VICTIM]})
+    assert response.status_code == 400
+
+
+def test_a_runaway_expression_is_refused_by_the_library(workbench_client):
+    """
+    The door that matters. A pattern on the Test screen is bounded; a pattern
+    *stored* is run by every conversion afterwards, against every statement of
+    every record, with nothing able to stop it. The library keeps what it had.
+    """
+    response = workbench_client.put("/api/patterns", json={"patterns": [{
+        "id": "runaway", "label": "runaway", "regex": RUNAWAY_REGEX,
+        "roles": RUNAWAY_ROLES}]})
+    assert response.status_code == 400
+    assert "runaway" in response.get_json()["error"]
+    assert workbench_client.get("/api/patterns").get_json()["count"] == 0
+
+
+def test_an_ordinary_pattern_is_still_stored(workbench_client):
+    """The guard has to be invisible to every pattern that is not a runaway."""
+    response = workbench_client.put("/api/patterns", json={"patterns": [{
+        "id": "fine", "label": "fine", "regex": r"v\.(?P<start_vol>\d+)",
+        "roles": RUNAWAY_ROLES}]})
+    assert response.status_code == 200
+    assert workbench_client.get("/api/patterns").get_json()["count"] == 1
+
+
+def test_an_imported_library_is_checked_the_same_way(workbench_client):
+    """
+    An exported file comes from somewhere else, so every expression in it is
+    new to this session and every one is tried.
+    """
+    response = workbench_client.post("/api/patterns/import", json={
+        "library": {"schema": 1, "patterns": [{
+            "id": "runaway", "label": "runaway", "regex": RUNAWAY_REGEX,
+            "roles": RUNAWAY_ROLES}]}})
+    assert response.status_code == 400
+    assert workbench_client.get("/api/patterns").get_json()["count"] == 0
+
+
 def test_preview_numbers_a_statement_as_its_record_would(workbench_client,
                                                          example_marc_bytes):
     """
