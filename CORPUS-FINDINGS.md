@@ -158,8 +158,23 @@ guess:
 - The two lists must be the same length. Three issue runs against two months
   means the statement was not understood, and filing holdings under the wrong
   dates is exactly the kind of error nothing downstream could detect.
-- A single bare year is the one exception: `(1915)` is stated once for every run
-  and applies to all of them. `(Jan 1915)` cannot be, and is refused.
+- A single **year** is the one exception: `(1915)` is stated once for every run
+  and applies to all of them, and `1915/16` is the same — one publication year
+  written across the turn of one.
+
+  **Corrected in 0.8.8.** The rule was first written as "a single bare *year*",
+  and the regex behind that admitted a year *range*, so
+  `v. 19 nos. 1, 3, 5 (1982-1994)` wrote `$i 1982-1994` onto each of three
+  863s — each one then claiming a single issue spans twelve years. A range
+  belongs to the statement as a whole and to no run in it. No corpus statement
+  has that shape, which is why the audit said nothing; it was found by working
+  out what D7's `8,13,15,17,19,20-(1982-1994)` ought to produce.
+
+  The correction is not a refusal. The enumeration is unambiguous and is kept;
+  only the chronology has nowhere to go, so it is named — the same treatment
+  every other readable-but-unplaceable value gets (D2, D16). That also relaxes
+  the old refusal of `(Jan 1915)` for two runs: it now converts the issues and
+  names the date.
 - A year stated once at the end covers every item before it, read right to left,
   so `(Jan, Mar, May, Jul-Dec 1915)` gives all four runs 1915 while
   `(Nov 1915, Jan 1916)` gives each its own.

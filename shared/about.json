@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "released": "2026-09-11",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,25 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.8.8",
+      "date": "2026-09-11",
+      "summary": "A date that covers a whole statement is no longer copied onto each of its runs, and the pattern preview works again for statements you paste in.",
+      "changes": [
+        {
+          "tool": "Converter",
+          "text": "\"v. 19 nos. 1, 3, 5 (1982-1994)\" was writing 1982-1994 onto all three 863s, so each one claimed a single issue spanned twelve years. A span like that belongs to the statement as a whole, not to any one run in it. The issues are still recorded; the dates are named as left out, so you can add them by hand. A single year — \"(1915)\", or \"1915/16\" — really is every run's year and is still written to all of them."
+        },
+        {
+          "tool": "Converter",
+          "text": "For the same reason, \"v. 19 nos. 1, 3 (Jan 1915)\" no longer refuses outright. January cannot be true of both no. 1 and no. 3, but the issues themselves are perfectly clear, so they are recorded and the date is named."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "Pasting holdings statements into the text box instead of uploading a file no longer breaks the preview. The confirmation step was showing \"renderPreviewPair is not defined\" where the 853 and 863 fields should be — for every pasted statement, which is the quickest way to try the tool. It now shows what your pattern writes beside what the standard parser writes, as it was meant to."
+        }
+      ]
+    },
     {
       "version": "0.8.7",
       "date": "2026-09-11",

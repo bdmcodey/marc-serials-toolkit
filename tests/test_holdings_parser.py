@@ -138,12 +138,35 @@ def test_a_list_crossing_a_year_keeps_each_run_on_its_own_year():
 def test_one_bare_year_is_stated_once_for_the_whole_list():
     """
     "(1915)" is not a list of one against a list of two -- it is the year every
-    run in the statement falls in, and applies to all of them. A chronology that
-    says more than the year cannot be shared this way and is refused instead,
-    since "(Jan 1915)" cannot be true of both no. 1 and no. 3.
+    run in the statement falls in, and applies to all of them. "1915/16" is the
+    same: one publication year written across the turn of one.
     """
-    assert len(parse_866("v. 19 nos. 1, 3 (1915)").ranges) == 2
-    assert parse_866("v. 19 nos. 1, 3 (Jan 1915)").ranges == []
+    assert {hr.start.year for hr in parse_866("v. 19 nos. 1, 3 (1915)").ranges} \
+        == {"1915"}
+    assert {hr.start.year for hr in parse_866("v. 19 nos. 1, 3 (1915/16)").ranges} \
+        == {"1915/1916"}
+
+
+@pytest.mark.parametrize("text, dropped", [
+    # A range spans the statement, not any one run in it. Writing it to each
+    # 863 put twelve years on a single issue -- which is what this did until
+    # the rule was narrowed from "a bare year" to "a single year".
+    ("v. 19 nos. 1, 3, 5 (1982-1994)", "1982-1994"),
+    # Anything more specific than a year cannot be true of every run either.
+    ("v. 19 nos. 1, 3 (Jan 1915)", "Jan 1915"),
+])
+def test_a_chronology_that_cannot_be_shared_is_named_not_copied(text, dropped):
+    """
+    The enumeration is unambiguous and is kept; only the chronology has nowhere
+    to go. Refusing the statement would throw away holdings the parser read
+    perfectly well, and copying the chronology onto each run would assert
+    something the statement never said -- so it is named, which is what this
+    toolkit does with every other value it can read and cannot place.
+    """
+    result = parse_866(text)
+    assert len(result.ranges) > 1
+    assert all(hr.start.year is None for hr in result.ranges)
+    assert any(dropped in w for w in result.warnings), result.warnings
 
 
 def test_the_two_lists_have_to_be_the_same_length():
