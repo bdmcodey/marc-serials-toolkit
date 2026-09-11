@@ -33,6 +33,7 @@ from holdings_parser import (
     EnumLevel,
     HoldingsRange,
     ParseResult,
+    normalise_year,
     parse_866,
     # Private only by convention, and deliberately reused: months, seasons and
     # combined issues ("Jan/Feb" -> "01/02") must encode exactly as they do on
@@ -315,6 +316,9 @@ def _value_for(kind: str, raw: str) -> str:
     """
     if kind == KIND_MONTH:
         return _chron_unit_value(raw)
+    if kind == KIND_YEAR:
+        # "1996/97" -> "1996/1997", as on the parser path.
+        return normalise_year(raw)
     return raw
 
 

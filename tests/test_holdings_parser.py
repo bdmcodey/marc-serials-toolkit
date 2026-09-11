@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 from holdings_parser import (parse_866, _looks_like_block, chron_unit_code,
-                             normalise_chron_unit)
+                             normalise_chron_unit, normalise_year)
 
 
 # ---------------------------------------------------------------------------
@@ -540,3 +540,48 @@ def test_a_day_only_one_end_gives_is_dropped_and_named():
     assert chron.month == "04-12"
     assert chron.day is None
     assert any("day (18)" in w for w in r.warnings), r.warnings
+
+
+# ---------------------------------------------------------------------------
+# Years split across the turn of one
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw, expected", [
+    ("1996", "1996"),
+    ("1996/97", "1996/1997"),
+    ("1996/1997", "1996/1997"),
+    ("1996 / 97", "1996/1997"),
+    ("1999/00", "1999/2000"),      # rolls forward over the century
+    ("1899/00", "1899/1900"),
+    ("2019/20", "2019/2020"),
+])
+def test_a_split_year_is_written_out_in_full(raw, expected):
+    """
+    A serial whose winter issue straddles the new year is numbered "1996/97".
+    MARC records the pair in $i slash-joined with both halves in full, the same
+    way it records a combined month in $j.
+    """
+    assert normalise_year(raw) == expected
+
+
+def test_a_split_year_parses_as_one_year():
+    r = parse_866("v. 12 no. 4 (Winter 1996/97)")
+    start = r.ranges[0].start
+    assert (start.year, start.month) == ("1996/1997", "24")
+
+
+def test_a_split_year_at_the_end_of_a_range():
+    """
+    The shape that reported this: the whole end boundary used to fail to parse,
+    so the year was dropped as unreadable wording and the season with it -- the
+    range came out claiming to be all Spring.
+    """
+    r = parse_866("v.1(Spring 1996)-v.5(Winter 1996/97)")
+    hr = r.ranges[0]
+    assert (hr.start.year, hr.start.month) == ("1996", "21")
+    assert (hr.end.year, hr.end.month) == ("1996/1997", "24")
+
+
+def test_a_bare_split_year_needs_no_season():
+    r = parse_866("v.8(1996/1997)")
+    assert r.ranges[0].start.year == "1996/1997"

@@ -203,3 +203,16 @@ N?: 1 (4)1984: 2 (1)M1985: 2 (2 [summer])                            # known:D11
 # Source: reviewing real records, not the original hand-collected file.
 v. 41 no. 1-v. 43 no. 1 (Jun 1984-Jan/Apr 1986)
 v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)                       # warn:D16
+
+[section: split-year]
+# Reported from real use, 11 September 2026. A serial whose winter issue
+#   straddles the turn of the year numbers it "1996/97", and MARC records the
+#   pair in 863 $i as 1996/1997 -- the same slash-joining it already uses for a
+#   combined month in $j. Infrequent, but a standard convention across many
+#   publications.
+# Source: the cataloguer, from records in hand.
+v. 12 no. 4 (Winter 1996/97)
+v.1(Spring 1996)-v.5(Winter 1996/97)
+v. 3 no. 2 (Fall 1999)-v. 4 no. 1 (Winter 1999/00)
+(Spring 1996-Winter 1996/97)
+v.8(1996/1997)

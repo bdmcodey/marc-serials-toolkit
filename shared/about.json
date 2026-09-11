@@ -1,7 +1,7 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.8.0",
-  "released": "2026-09-03",
+  "version": "0.8.1",
+  "released": "2026-09-11",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
   "licensing": "No license is granted at this time; the repository is published for reference only while institutional intellectual property rights are reviewed. See NOTICE.md.",
@@ -11,6 +11,33 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.8.1",
+      "date": "2026-09-11",
+      "summary": "A year split across the turn of one \u2014 \"Winter 1996/97\" \u2014 is read and recorded in full.",
+      "changes": [
+        {
+          "tool": "Converter",
+          "text": "\"Winter 1996/97\" now converts to $i 1996/1997 $j 24. A serial whose winter issue straddles the new year is numbered that way as a matter of course, and MARC joins the pair with a slash in $i exactly as it joins a combined month in $j. Until now the whole date failed to parse: \"v. 12 no. 4 (Winter 1996/97)\" produced a record with no year and no season at all, and the season was lost as quietly as the year."
+        },
+        {
+          "tool": "Converter",
+          "text": "A range ending in a split year keeps both ends. \"v.1(Spring 1996)-v.5(Winter 1996/97)\" recorded only \"$j 21\" \u2014 which said the whole run was Spring \u2014 and now gives $i 1996-1996/1997 $j 21-24."
+        },
+        {
+          "tool": "Converter",
+          "text": "The two-digit half is written out in full, taking its century from the first half and rolling forward where it has to: 1996/97 is 1996/1997, and 1999/00 is 1999/2000."
+        },
+        {
+          "tool": "Pattern Detector",
+          "text": "A split year is one value rather than three. \"Winter 1996/97\" used to read as a season, a year, some text and a stray number, so a statement carrying one formed its own pattern and asked you about the \"97\". It now clusters with its ordinary siblings: \"(Spring 1996)\" and \"(Winter 1996/97)\" are one pattern to confirm, not two."
+        },
+        {
+          "tool": "Pattern Detector",
+          "text": "Generated expressions are a little shorter, with no change to what they match \u2014 the whitespace between parts was being written twice. It matters because expressions are capped at 2,000 characters so that the Test button can always check them, and a chronology-heavy statement spends everything it has."
+        }
+      ]
+    },
     {
       "version": "0.8.0",
       "date": "2026-09-03",
