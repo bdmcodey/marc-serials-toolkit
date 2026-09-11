@@ -8,7 +8,12 @@ elsewhere would be baffling -- so they are caught here instead.
 
 from __future__ import annotations
 
+import re
 import sys
+
+import pytest
+
+from conftest import REPO_ROOT
 
 CONVERTER_ROUTES = {
     "/", "/ui.css", "/static/<path:filename>",
@@ -125,6 +130,39 @@ def test_the_workbench_page_carries_its_fold_controls(workbench_client):
                    'class="rec-skip"', 'pc-skip', 'data-filter="skipped"',
                    'jump-to-pattern', 'id="review-notice"'):
         assert anchor in page, anchor
+
+
+# A callback passed to .map() by name: the shape of the bug this catches.
+_MAP_CALLBACK_RE = re.compile(r"\.map\(\s*([A-Za-z_$][\w$]*)\s*\)")
+
+# How the templates declare a function, either form.
+def _declared_names(script: str) -> set:
+    return (set(re.findall(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\(", script))
+            | set(re.findall(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=", script)))
+
+
+@pytest.mark.parametrize("template", sorted(
+    p for p in (REPO_ROOT / "workbench" / "templates").glob("*.html")))
+def test_every_named_map_callback_in_the_template_exists(template):
+    """
+    The one bug the Python suite could not see.
+
+    renderPreviewPair() was deleted when record-scope preview arrived, and the
+    line calling it was left behind. Every pasted statement -- the path a
+    cataloguer takes when trying the tool without a .mrc file -- reached
+    `data.previews.map(renderPreviewPair)` and threw "renderPreviewPair is not
+    defined", showing an error where the generated fields should be. The server
+    was fine throughout, so no route test could have noticed.
+
+    Nothing here type-checks the template. It catches exactly the shape that
+    went wrong: a callback passed to .map() by a name that nothing defines.
+    """
+    script = template.read_text(encoding="utf-8")
+    declared = _declared_names(script)
+    used = set(_MAP_CALLBACK_RE.findall(script))
+    # Built-ins are legitimate callbacks and are not declared anywhere.
+    missing = sorted(used - declared - {"Number", "String", "Boolean", "parseInt"})
+    assert not missing, f"{template.name} maps over undefined: {missing}"
 
 
 def test_index_pages_render(converter_client, detector_client, workbench_client):

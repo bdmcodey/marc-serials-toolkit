@@ -1997,7 +1997,8 @@ async function runPreview(card) {
     });
     target.innerHTML = data.scope === 'record'
       ? renderRecordPreview(data)
-      : data.previews.map(renderPreviewPair).join('');
+      : data.previews.map(renderPreviewPair).join('')
+        || '<div class="alert alert-info">Nothing to preview.</div>';
   } catch (err) {
     showAlert(target, err.message, 'err');
   }
@@ -2079,6 +2080,56 @@ function renderRecordPreview(data) {
       every holdings statement on the record, with the linking numbers it would receive.</div>
     ${blocks}${held}`;
 }
+
+/**
+ * One statement, converted both ways.
+ *
+ * The statement-scope counterpart to renderRecordPreview. Statements pasted
+ * rather than uploaded have no record to sit in, so the linking numbers cannot
+ * be shown and the useful comparison is a different one: what this pattern
+ * writes, beside what the standard parser writes today.
+ *
+ * It was deleted when record scope arrived and its caller was not, so every
+ * pasted statement reached `data.previews.map(renderPreviewPair)` and threw
+ * "renderPreviewPair is not defined" -- with the confirmation step showing an
+ * error where the generated fields should be. The styles it uses were never
+ * removed, which is the clearest sign the deletion was an accident.
+ */
+function renderPreviewPair(pv) {
+  const side = (fields, label) => {
+    if (!fields) {
+      return `<div>
+        <div class="pair-col-label">${label}</div>
+        <div class="alert alert-warn">This pattern does not match the statement.</div>
+      </div>`;
+    }
+    const lines = [
+      fields.field_853 ? fieldHtml(fields.field_853, 'f853') : '',
+      ...fields.fields_863.map(f => fieldHtml(f, 'f863')),
+    ].filter(Boolean).join('');
+    return `<div>
+      <div class="pair-col-label">${label}</div>
+      ${lines || '<div class="alert alert-warn">Nothing was converted from this statement.</div>'}
+      ${(fields.warnings || []).map(
+        w => `<div class="alert alert-warn mt-1">${escHtml(w)}</div>`).join('')}
+    </div>`;
+  };
+
+  return `
+    <div class="preview-pair">
+      <div style="grid-column:1/-1;">
+        <div class="preview-head">
+          <span class="preview-stmt">${escHtml(pv.statement)}</span>
+          ${pv.differs
+            ? '<span class="pill decide">differs from the standard parser</span>'
+            : '<span class="pill has-866">same as the standard parser</span>'}
+        </div>
+      </div>
+      ${side(pv.pattern, 'With this pattern')}
+      ${side(pv.parser, 'Standard parser (used today)')}
+    </div>`;
+}
+
 
 async function testPattern(card) {
   const box = card.querySelector('.test-result');

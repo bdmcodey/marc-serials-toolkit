@@ -517,6 +517,11 @@ _TRAILING_CHRON_RE = re.compile(r"\(\s*(?P<chron>[^()]*?)\s*\)\s*$")
 # A chronology item that states only a year, or a run of them.
 _BARE_YEAR_ITEM_RE = re.compile(rf"^{_YEAR_TOKEN}(?:\s*-\s*{_YEAR_TOKEN})?$")
 
+# One year, which "1915/16" still is -- a single publication year written across
+# the turn of one.  "1982-1994" is not, and the difference decides whether a
+# chronology stated once can be given to every run of a list.
+_SINGLE_YEAR_ITEM_RE = re.compile(rf"^{_YEAR_TOKEN}$")
+
 _FIRST_INT_RE = re.compile(r"\d+")
 
 
@@ -597,7 +602,33 @@ def _gap_after(item: str, nxt: str) -> str:
     return BREAK_GAP
 
 
-def _expand_distributed_list(text: str) -> Optional[List[str]]:
+def _note_undistributable(warnings: Optional[List[str]], chron: str,
+                          runs: int) -> None:
+    """
+    Record a chronology stated once for a list it cannot be shared across.
+
+    A compressed 863 carries the dates of its own run.  A single year can be
+    every run's year and is written to all of them; a range, or anything more
+    specific than a year, belongs to the statement as a whole and to no
+    particular run in it.  There is no notation for that, so it is named --
+    which keeps it accounted for, and tells the cataloguer what to add by hand.
+    """
+    if warnings is None:
+        return
+    note = (
+        f"'{chron}' was left out: it is stated once for all {runs} runs of this "
+        f"statement, and it is not a single year that could be true of each of "
+        f"them. Each 863 records the dates of its own run, and there is no way "
+        f"to divide this one between them. The holdings themselves are "
+        f"recorded; add the dates by hand if they matter."
+    )
+    if note not in warnings:
+        warnings.append(note)
+
+
+def _expand_distributed_list(text: str,
+                             warnings: Optional[List[str]] = None,
+                             ) -> Optional[List[str]]:
     """
     Rewrite a list of discontinuous runs as one statement per run, or None.
 
@@ -643,10 +674,18 @@ def _expand_distributed_list(text: str) -> Optional[List[str]]:
         chron_parts = _chron_items(chron_raw)
         if chron_parts is None:
             return None
-        if len(chron_parts) == 1 and _BARE_YEAR_ITEM_RE.match(chron_parts[0]):
+        if len(chron_parts) == 1 and _SINGLE_YEAR_ITEM_RE.match(chron_parts[0]):
+            # "(1915)" is the year every run in the list falls in, stated once.
             chrons = [chron_parts[0]] * len(items)
         elif len(chron_parts) == len(items):
             chrons = list(_carry_year_back(chron_parts))
+        elif len(chron_parts) == 1:
+            # One chronology for several runs that is not a single year.
+            # "(1982-1994)" spans the statement, not any one run in it, and
+            # "(Jan 1915)" cannot be true of both no. 1 and no. 3.  Giving it to
+            # each run would put twelve years on a single issue.  The
+            # enumeration is unambiguous and is kept; the chronology is named.
+            _note_undistributable(warnings, chron_raw.strip(), len(items))
         else:
             return None
 
@@ -679,7 +718,7 @@ def _parse_distributed_list(text: str,
     once anything is written from it, so the fifth run would be deleted rather
     than recorded.
     """
-    expanded = _expand_distributed_list(text)
+    expanded = _expand_distributed_list(text, warnings)
     if expanded is None:
         return None
 
