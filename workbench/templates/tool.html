@@ -1652,8 +1652,8 @@ function buildPatternCard(group, idx) {
         <span class="pill decide">too idiosyncratic to express as a pattern</span>
       </div>
       <div class="pc-body">
-        <p class="small dim">These statements are ${group.token_count} parts long, which
-          is past the point where a single expression can describe them usefully.
+        <p class="small dim">${escHtml(group.decline_reason
+          || `These statements are ${group.token_count} parts long, which is past the point where a single expression can describe them usefully.`)}
           They will be converted by the standard parser.</p>
         ${buildExamplesHtml(group.examples)}
       </div>`;

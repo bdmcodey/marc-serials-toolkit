@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "released": "2026-09-11",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,25 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.8.2",
+      "date": "2026-09-11",
+      "summary": "The detector no longer offers a pattern it would then refuse to test.",
+      "changes": [
+        {
+          "tool": "Pattern Detector",
+          "text": "A pattern whose expression comes out longer than the Test button accepts is now reported as too idiosyncratic to express, the same as an over-long statement, instead of being handed to you as a pattern that cannot be tested or saved. One statement in the test collection did this \u2014 \"v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)\" \u2014 and had for some time; the standard parser reads it as before."
+        },
+        {
+          "tool": "Pattern Detector",
+          "text": "The length limit is now measured on the expression itself rather than estimated from how many parts a statement has. The estimate was the problem: a month or season costs roughly seven times what a plain number costs, so a short statement full of dates could quietly exceed the limit."
+        },
+        {
+          "tool": "Pattern Detector",
+          "text": "A pattern set aside now says which limit refused it. The card had one explanation because there had only ever been one limit, so a statement declined for length was told it was \"25 parts long, past the point where a single expression can describe them\" \u2014 which is not true when the limit on parts is 40."
+        }
+      ]
+    },
     {
       "version": "0.8.1",
       "date": "2026-09-11",

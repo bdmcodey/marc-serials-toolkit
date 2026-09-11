@@ -20,7 +20,8 @@ import pytest
 from pymarc import MARCReader
 
 from conftest import upload_marc
-from pattern_detector import detect_patterns, MAX_PATTERN_TOKENS
+from pattern_detector import (detect_patterns, MAX_PATTERN_TOKENS,
+                              MAX_REGEX_CHARS)
 
 
 # ---------------------------------------------------------------------------
@@ -238,22 +239,16 @@ def test_no_statement_is_lost_in_clustering(detector_client, any_corpus):
     assert sum(g.count for g in groups) == len([s for s in statements if s.strip()])
 
 
-@pytest.mark.xfail(reason="a chronology-heavy statement generates a regex past "
-                          "the 2,000-character cap the Test button enforces; "
-                          "MAX_PATTERN_TOKENS was calibrated at 15-45 chars per "
-                          "token and a CHRON group costs 415 on its own",
-                   strict=True)
 def test_every_corpus_regex_is_testable():
     """
     The same invariant as test_every_generated_regex_is_testable, held against
-    the 112-statement text corpus rather than the two synthetic .mrc files.
+    the text corpus rather than the two synthetic .mrc files.
 
-    That reach is the point. The .mrc version passes at 1,980 characters, eight
-    hundred short of the worst the corpus produces -- so the detector has been
-    emitting an expression its own Test button would refuse, and nothing said
-    so. Fixing it means either a cheaper CHRON group or a lower token ceiling;
-    both are calibration decisions, so this records the defect rather than
-    guessing at one.
+    That reach is the point. The .mrc version passed throughout at 1,980
+    characters while the corpus produced 2,384 -- so the detector was emitting
+    an expression its own Test button would refuse, and no test could see it.
+    The guard is measured on the generated expression now rather than estimated
+    from the token count, so this holds by construction.
     """
     from pattern_detector import detect_patterns
 
@@ -265,4 +260,5 @@ def test_every_corpus_regex_is_testable():
             statements.append(text)
 
     for group in detect_patterns(statements):
-        assert len(group.regex) <= 2000, f"{group.human_label} -> {len(group.regex)}"
+        assert len(group.regex) <= MAX_REGEX_CHARS, \
+            f"{group.human_label} -> {len(group.regex)}"
