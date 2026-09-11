@@ -709,6 +709,44 @@ def test_a_caption_named_in_a_warning_reads_as_a_word_not_a_negation():
 # A level with no caption says so, rather than being given one
 # ---------------------------------------------------------------------------
 
+def test_a_block_that_omits_its_higher_level_keeps_the_lower_one_in_place():
+    """
+    The chronology-first format is positional: the number before the parens is
+    the higher level, the number inside is the lower one. The lower one used to
+    slide up when the higher was absent, which put the same level of one serial
+    into two subfields -- the 1984 issue in $a, the 1985 issue in $b, under an
+    853 reading "$a no. $b no.", two levels with one name.
+
+    The volume the second block does state was then dropped outright, with a
+    warning telling the cataloguer to split records that "number differently".
+    They do not number differently; one block just omits a level.
+    """
+    result = convert_holdings(parse_866("N1984: (2 (1))M1985: 2 (2 [summer])"))
+    assert result.field_853.display().startswith("853 31 $8 1 $a (*) $b (*)")
+    assert [(sub(f, "a"), sub(f, "b")) for f in result.fields_863] == [
+        (None, "2"), ("2", "2")]
+    assert not any("number differently" in w for w in result.warnings)
+
+
+def test_the_block_format_names_no_level_so_the_853_does_not_either():
+    """
+    "1979: 1 (6-8 [Sep-Dec])" is positional notation. It says which level is
+    which; it does not say what either is called. Reading "volume" and "issue"
+    out of it was the tool supplying two words the record never used.
+
+    A cataloguer who knows this house format sets the captions once in the
+    settings, which is a stated choice rather than a hidden default.
+    """
+    result = convert_holdings(parse_866("1979: 1 (6-8 [Sep-Dec])"))
+    assert result.field_853.display() == (
+        "853 31 $8 1 $a (*) $b (*) $i (year) $j (month)")
+
+    named = convert_holdings(parse_866("1979: 1 (6-8 [Sep-Dec])"),
+                             captions={"e1": "v.", "e2": "no."})
+    assert named.field_853.display() == (
+        "853 31 $8 1 $a v. $b no. $i (year) $j (month)")
+
+
 def test_an_uncaptioned_level_is_written_as_no_caption():
     """
     "39 no 1" captions its second level and not its first. The 853 used to read
@@ -1030,7 +1068,7 @@ def test_a_day_reaches_the_third_chronology_subfield():
     result = convert_holdings(parse_866("1983: 5 (7-30 [Jan 28-Dec 29])"))
 
     assert result.field_853.display() == \
-        "853 31 $8 1 $a v. $b no. $i (year) $j (month) $k (day)"
+        "853 31 $8 1 $a (*) $b (*) $i (year) $j (month) $k (day)"
     assert result.fields_863[0].display() == \
         "863 40 $8 1.1 $a 5 $b 7-30 $i 1983 $j 01-12 $k 28-29"
 

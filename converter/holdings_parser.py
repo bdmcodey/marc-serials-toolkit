@@ -1232,6 +1232,27 @@ def _parse_bracket_chron(raw: str) -> Tuple[Tuple[Optional[str], Optional[str]],
     return _bracket_chron_unit(raw), (None, None)
 
 
+def _drop_unfilled_top_level(ranges: List[HoldingsRange]) -> None:
+    """
+    Remove a placeholder level no block in the statement ever fills.
+
+    The empty level exists to keep a block that omits its higher level in step
+    with one that states it -- the two "2"s of
+    "N1984: (2 (1))M1985: 2 (2 [summer])" are the same level and belong in the
+    same subfield.  Where *no* block states it there is nothing to be in step
+    with, and declaring it anyway would put a level in the 853 that the serial
+    does not have: "1993: (1 [Feb])" would produce "$a (*) $b (*)" over an 863
+    filling only $b.
+    """
+    if not any(len(hr.start.enum) > 1 for hr in ranges):
+        return
+    if any(hr.start.value_at(0) for hr in ranges):
+        return
+    for hr in ranges:
+        if hr.start.enum and hr.start.enum[0].value is None:
+            hr.start.enum = hr.start.enum[1:]
+
+
 def _parse_block_format(text: str) -> ParseResult:
     """
     Parse the chronology-first block grammar into HoldingsRange objects.
@@ -1289,13 +1310,28 @@ def _parse_block_format(text: str) -> ParseResult:
                 continue
 
             # Positional, and it always was: a number *before* the parens is
-            # the higher level and numbers *inside* are the lower one.  The
-            # block grammar names neither, so the captions are the defaults.
+            # the higher level and numbers *inside* are the lower one.
+            #
+            # Which means the lower one keeps its position when the higher is
+            # absent.  Appending both in turn shifted it up instead, so
+            # "N1984: (2 (1))M1985: 2 (2 [summer])" put the 1984 issue in $a and
+            # the 1985 issue in $b -- the same level of the same serial in two
+            # subfields, under an 853 that then read "$a no. $b no.", two levels
+            # with one name.  An empty level holds the place the block omits.
+            #
+            # Neither level is captioned, because the format names neither.  It
+            # is positional notation; reading "volume" and "issue" out of it was
+            # the tool supplying two words the record never used, and the 853
+            # writes NO_CAPTION for a level nobody has named.  A cataloguer who
+            # knows this house format can set the captions once in the settings,
+            # which is a stated choice rather than a hidden default.
             enum: List[EnumLevel] = []
             if vol:
-                enum.append(EnumLevel(caption="v.", value=vol))
+                enum.append(EnumLevel(value=vol))
             if issue:
-                enum.append(EnumLevel(caption="no.", value=issue))
+                if not vol:
+                    enum.append(EnumLevel())
+                enum.append(EnumLevel(value=issue))
             start = EnumChron(enum=enum, year=year, month=c_start, day=d_start)
             # The end boundary exists when either chronology level differs:
             # "[Jan 5-Jan 26]" is one month and two days, and dropping the end
@@ -1308,6 +1344,7 @@ def _parse_block_format(text: str) -> ParseResult:
             )
 
     if result.ranges:
+        _drop_unfilled_top_level(result.ranges)
         return result
 
     # ── Degenerate forms: "?: 2", "?: 16" — a value with no positional
