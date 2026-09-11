@@ -1064,6 +1064,14 @@ def _build_863_for_range(
     for code, value in sorted(planned, key=lambda p: p[0]):
         sfs.append(SubfieldData(code, value))
 
+    # $w says what the break between this field and the next one is.  Only a
+    # statement that shows the break sets it -- "v. 19 nos. 1, 3" says issue 2
+    # is not held -- and "g" is the code for that: parts lacking, or a break
+    # whose cause is not known.  Two runs that follow straight on set nothing,
+    # having no break to indicate.
+    if hr.break_after:
+        sfs.append(SubfieldData("w", hr.break_after))
+
     # Indicator 1 is Field encoding level, matching Leader/17: 3, 4 or 5.  4 is
     # holdings level 4 -- enumeration and chronology recorded -- which is what
     # this field carries.

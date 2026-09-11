@@ -692,6 +692,50 @@ def test_a_range_inside_one_boundary_is_not_mistaken_for_a_pair():
 
 
 # ---------------------------------------------------------------------------
+# Gaps: one 863 per run, and $w to say what the break is
+# ---------------------------------------------------------------------------
+
+def test_a_gapped_statement_becomes_one_863_per_run():
+    """
+    MARC 21 records a gap as another 863 under the same 853, so four runs of
+    holdings are four fields sharing one caption pattern and one $8. Nothing in
+    convert_record() had to change for this: the same shape written out longhand
+    ("v. 1 no. 1 (Jan 1990), v. 1 no. 3 (Mar 1990)") already converted this way.
+    """
+    result = convert_holdings(
+        parse_866("v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"))
+
+    assert result.field_853.display() == (
+        "853 31 $8 1 $a v. $b no. $i (year) $j (month)")
+    assert [f.display() for f in result.fields_863] == [
+        "863 40 $8 1.1 $a 19 $b 1 $i 1915 $j 01 $w g",
+        "863 40 $8 1.2 $a 19 $b 3 $i 1915 $j 03 $w g",
+        "863 40 $8 1.3 $a 19 $b 5 $i 1915 $j 05 $w g",
+        "863 40 $8 1.4 $a 19 $b 7-12 $i 1915 $j 07-12",
+    ]
+    assert result.warnings == []
+
+
+def test_the_break_indicator_marks_the_field_before_the_break():
+    """
+    $w describes the break that follows its field, so the last run carries none
+    -- there is nothing after it to break from.
+    """
+    result = convert_holdings(parse_866("v. 21 nos. 6, 8 (Jun, Aug 1917)"))
+    assert sub(result.fields_863[0], "w") == "g"
+    assert sub(result.fields_863[1], "w") is None
+
+
+def test_runs_that_follow_straight_on_carry_no_break_indicator():
+    """
+    "g" says parts are lacking. Issues 1, 2 and 3 lack nothing, so saying it
+    would be a claim about the collection that the statement contradicts.
+    """
+    result = convert_holdings(parse_866("v. 19 nos. 1, 2, 3 (Jan, Feb, Mar 1915)"))
+    assert [sub(f, "w") for f in result.fields_863] == [None, None, None]
+
+
+# ---------------------------------------------------------------------------
 # The two ends of a range have to agree on what each level is called
 # ---------------------------------------------------------------------------
 

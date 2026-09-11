@@ -99,6 +99,100 @@ def test_empty_input_fails_with_a_warning(text):
 
 
 # ---------------------------------------------------------------------------
+# Discontinuous lists
+# ---------------------------------------------------------------------------
+
+def test_a_discontinuous_list_is_one_range_per_run():
+    """
+    Four runs of holdings with gaps between them, written the compact way. MARC
+    21 records gaps as separate 863s, so four runs are four ranges. The parser
+    refused the whole statement before this -- correctly, since reading only
+    "v. 19 no. 1" and removing the 866 would have deleted the other three runs.
+    """
+    r = parse_866("v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)")
+    assert [(hr.start.value_at(0), hr.start.value_at(1),
+             hr.start.year, hr.start.month) for hr in r.ranges] == [
+        ("19", "1", "1915", "01"),
+        ("19", "3", "1915", "03"),
+        ("19", "5", "1915", "05"),
+        ("19", "7-12", "1915", "07-12"),
+    ]
+
+
+def test_a_year_stated_once_at_the_end_covers_every_run_before_it():
+    """
+    "(Jan, Mar, May, Jul-Dec 1915)" writes 1915 once, for all four. Reading the
+    list right to left is what gets each item the year it is written under.
+    """
+    r = parse_866("v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)")
+    assert {hr.start.year for hr in r.ranges} == {"1915"}
+
+
+def test_a_list_crossing_a_year_keeps_each_run_on_its_own_year():
+    """The same rule, where the years differ: nearest year to the right."""
+    r = parse_866("v. 19 nos. 1, 3 (Nov 1915, Jan 1916)")
+    assert [(hr.start.month, hr.start.year) for hr in r.ranges] == [
+        ("11", "1915"), ("01", "1916")]
+
+
+def test_one_bare_year_is_stated_once_for_the_whole_list():
+    """
+    "(1915)" is not a list of one against a list of two -- it is the year every
+    run in the statement falls in, and applies to all of them. A chronology that
+    says more than the year cannot be shared this way and is refused instead,
+    since "(Jan 1915)" cannot be true of both no. 1 and no. 3.
+    """
+    assert len(parse_866("v. 19 nos. 1, 3 (1915)").ranges) == 2
+    assert parse_866("v. 19 nos. 1, 3 (Jan 1915)").ranges == []
+
+
+def test_the_two_lists_have_to_be_the_same_length():
+    """
+    Pairing them is the whole claim. Three issue runs against two months means
+    the statement was not understood, and a converter that carried on would file
+    holdings under the wrong dates.
+    """
+    assert parse_866("v. 19 nos. 1, 3, 5 (Jan, Mar 1915)").ranges == []
+
+
+def test_a_gap_between_runs_is_marked_and_a_continuation_is_not():
+    """
+    863 $w: "g" is a gap break -- parts lacking, or a break whose cause is not
+    known, which is what listing "nos. 1, 3" records. Runs that follow straight
+    on have no break to indicate.
+    """
+    gapped = parse_866("v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)")
+    assert [hr.break_after for hr in gapped.ranges] == ["g", "g", "g", ""]
+
+    contiguous = parse_866("v. 19 nos. 1, 2, 3 (Jan, Feb, Mar 1915)")
+    assert [hr.break_after for hr in contiguous.ranges] == ["", "", ""]
+
+
+def test_a_list_can_sit_at_any_level():
+    """
+    Nothing here is about issues. The caption before the first item is what the
+    later items inherit, whatever it is.
+    """
+    r = parse_866("v. 19, 20, 22 (1915, 1916, 1918)")
+    assert [(hr.start.value_at(0), hr.start.year) for hr in r.ranges] == [
+        ("19", "1915"), ("20", "1916"), ("22", "1918")]
+    assert [hr.break_after for hr in r.ranges] == ["", "g", ""]
+
+
+@pytest.mark.parametrize("text, ranges", [
+    # An American date puts a comma inside one date. Splitting there would turn
+    # "Apr 18, 1996" into two holdings runs.
+    ("v. 34 no. 8/9-v. 35 no. 23/24 (Apr 18, 1996-Dec 1997)", 1),
+    # A comma between a volume and its issue caption is not a list separator.
+    ("Vol. 1, No. 1 (Spring 1990)", 1),
+    # Genuine multi-range statements were always split, and still are.
+    ("v.1(1990)-v.3(1992), v.5(1994)-v.8(1997)", 2),
+])
+def test_a_comma_that_is_not_a_list_separator_is_left_alone(text, ranges):
+    assert len(parse_866(text).ranges) == ranges
+
+
+# ---------------------------------------------------------------------------
 # Lining the two boundaries up
 # ---------------------------------------------------------------------------
 
@@ -390,16 +484,23 @@ def test_a_bare_number_with_no_issue_after_it_is_not_a_volume():
     assert r.ranges[0].start.year == "2016"
 
 
-def test_a_partly_readable_statement_is_left_alone_rather_than_half_converted():
+def test_a_captionless_list_is_read_the_same_way_a_captioned_one_is():
     """
-    "34 no 3, 4 (Summer, Autumn 1990)" reads as far as "34 no 3" and no further.
-    Converting that much would be worse than converting nothing: the 866 is
-    removed once anything has been written from it, so the second issue and both
-    seasons would be deleted with it.
+    "34 no 3, 4 (Summer, Autumn 1990)" used to read as far as "34 no 3" and no
+    further, and refused the statement rather than converting a third of it --
+    the 866 is removed once anything has been written from it, so the second
+    issue and both seasons would have been deleted with it.
+
+    It is a two-run list, and is now read as one. The captionless leading number
+    is unchanged by any of this: "34 no 3 (Summer 1990)" on its own has always
+    been read as v.34 no.3, and the list form now agrees with it.
     """
     r = parse_866("34 no 3, 4 (Summer, Autumn 1990)")
-    assert r.ranges == []
-    assert r.success is False
+    assert len(r.ranges) == 2
+    assert [(hr.start.value_at(0), hr.start.value_at(1), hr.start.month)
+            for hr in r.ranges] == [("34", "3", "22"), ("34", "4", "23")]
+    # Issue 3 runs straight on into issue 4, so there is no break to indicate.
+    assert [hr.break_after for hr in r.ranges] == ["", ""]
 
 
 def test_a_captioned_volume_is_unaffected_by_the_relaxed_caption():
@@ -477,12 +578,14 @@ def test_a_compressed_range_is_still_one_unit(text, vol, year):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("text, read, unread", [
-    # A discontinuous list: the regex stops at the first comma.
-    ("v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)",
-     "v. 19 nos. 1", ", 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)"),
     # A designation between the enumeration and the chronology.
     ("v. 58 Suppl. (Sep 2003)", "v. 58", "Suppl. (Sep 2003)"),
     ("v. 19 no. 2 Suppl. (1998)", "v. 19 no. 2", "Suppl. (1998)"),
+    # A discontinuous list whose two halves do not pair: three issue runs
+    # against two months. The list is read as a list, then refused as a whole
+    # rather than paired off in the order they happen to appear.
+    ("v. 19 nos. 1, 3, 5 (Jan, Mar 1915)",
+     "v. 19 nos. 1", ", 3, 5 (Jan, Mar 1915)"),
 ])
 def test_a_partly_matched_unit_converts_nothing(text, read, unread):
     """
@@ -498,6 +601,10 @@ def test_a_partly_matched_unit_converts_nothing(text, read, unread):
     never for the same shape with a "v." in front -- the common one. It now
     applies whenever the match does not account for the whole unit, and says
     how far it got.
+
+    That statement is no longer among the cases here: the parser reads a
+    discontinuous list properly now, one 863 per run. The guard is what still
+    stands behind the lists it cannot read whole.
     """
     result = parse_866(text)
     assert result.ranges == []
