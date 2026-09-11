@@ -503,8 +503,11 @@ _LIST_VALUE = (r"\d+[a-zA-Z]?(?:\s*/\s*\d+[a-zA-Z]?)*"
 _LIST_ITEM_RE = re.compile(rf"^{_LIST_VALUE}$")
 
 # The first item of a list, with everything before it: "v. 19 nos. " and "1".
-# The prefix has to end in a caption, because the caption is what every later
-# item inherits.  Without one there is nothing to say what the bare numbers are.
+# The prefix ends in a caption, because the caption is what every later item
+# inherits.  A list with no caption anywhere -- "8,13,15,17,19,20-" -- is
+# matched by _LIST_ITEM_RE instead and takes an empty prefix: nothing says what
+# those numbers are, and nothing has to, because they are the most significant
+# enumeration level and the 853 writes "(*)" for a level with no caption.
 _LIST_HEAD_RE = re.compile(
     rf"""^(?P<prefix>.*?(?:{_CAPTION_ALT})\s*\.?\s*)
          (?P<item>{_LIST_VALUE})\s*$""",
@@ -628,12 +631,14 @@ def _note_undistributable(warnings: Optional[List[str]], chron: str,
 
 def _expand_distributed_list(text: str,
                              warnings: Optional[List[str]] = None,
-                             ) -> Optional[List[str]]:
+                             ) -> Optional[tuple]:
     """
-    Rewrite a list of discontinuous runs as one statement per run, or None.
+    Read a list of discontinuous runs, or None if the statement is not one.
 
-    Returns each statement with the list item it came from, since the numbering
-    is what says whether the break after it is a gap.
+    Returns what the list *is* -- the prefix every item inherits, the items
+    themselves, a chronology for each, and whether the last one is still open --
+    and leaves reading each run to the caller, which has two ways to do it
+    depending on whether the list captions anything.
 
     "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" becomes
 
@@ -656,18 +661,29 @@ def _expand_distributed_list(text: str,
         chron_raw = m.group("chron")
         head = head[:m.start()].strip()
 
+    # "8,13,15,17,19,20-(1982-1994)" is still being received, and the hyphen
+    # saying so is the last thing before the chronology.  Taken off here so the
+    # final item parses as a plain number, and put back on the statement built
+    # from it, which is where _parse_one_range looks for it.
+    open_ended = bool(re.search(r"-\s*$", head))
+    if open_ended:
+        head = re.sub(r"-\s*$", "", head).strip()
+
     parts = [p for p in _split_top_level(head) if p]
     if len(parts) < 2:
         return None
 
     first = _LIST_HEAD_RE.match(parts[0])
-    if not first:
+    if first:
+        prefix, first_item = first.group("prefix"), first.group("item")
+    elif _LIST_ITEM_RE.match(parts[0]):
+        prefix, first_item = "", parts[0]
+    else:
         return None
     if not all(_LIST_ITEM_RE.match(p) for p in parts[1:]):
         return None
 
-    prefix = first.group("prefix")
-    items = [first.group("item")] + parts[1:]
+    items = [first_item] + parts[1:]
 
     chrons: List[Optional[str]] = [None] * len(items)
     if chron_raw:
@@ -689,8 +705,7 @@ def _expand_distributed_list(text: str,
         else:
             return None
 
-    return [(f"{prefix}{item}" + (f" ({chron})" if chron else ""), item)
-            for item, chron in zip(items, chrons)]
+    return prefix, items, chrons, open_ended
 
 
 def is_distributed_list(text: str) -> bool:
@@ -718,20 +733,46 @@ def _parse_distributed_list(text: str,
     once anything is written from it, so the fifth run would be deleted rather
     than recorded.
     """
-    expanded = _expand_distributed_list(text, warnings)
-    if expanded is None:
+    read = _expand_distributed_list(text, warnings)
+    if read is None:
         return None
+    prefix, items, chrons, open_ended = read
 
     ranges: List[HoldingsRange] = []
-    for stmt, _item in expanded:
-        hr = _parse_one_range(stmt, warnings)
-        if not (hr.start.has_enum() or hr.start.has_chron()):
-            return None
-        hr.raw = stmt
+    for i, (item, chron) in enumerate(zip(items, chrons)):
+        last = i == len(items) - 1
+
+        if prefix:
+            # Written back out longhand and handed to the unit parser, so
+            # everything it knows about captions, combined issues and seasons
+            # applies unchanged.
+            stmt = f"{prefix}{item}" + (f" ({chron})" if chron else "")
+            if last and open_ended:
+                stmt += "-"
+            hr = _parse_one_range(stmt, warnings)
+            if not (hr.start.has_enum() or hr.start.has_chron()):
+                return None
+            hr.raw = stmt
+        else:
+            # No caption anywhere in the list.  There is nothing to parse on the
+            # enumeration side -- _LIST_ITEM_RE has already established that the
+            # item is a plain value -- and the unit parser refuses a lone
+            # captionless number by design, because on its own it says nothing
+            # about which level it is.  Inside a list it is not on its own: it
+            # is the only enumeration level there is, and the 853 writes "(*)"
+            # for a level with no caption rather than guessing at one.
+            year, month, day = (_parse_chron(chron, warnings) if chron
+                                else (None, None, None))
+            hr = HoldingsRange(
+                start=EnumChron(enum=[EnumLevel(value=item)],
+                                year=year, month=month, day=day),
+                open_ended=last and open_ended,
+                raw=item,
+            )
         ranges.append(hr)
 
     for i in range(len(ranges) - 1):
-        ranges[i].break_after = _gap_after(expanded[i][1], expanded[i + 1][1])
+        ranges[i].break_after = _gap_after(items[i], items[i + 1])
     return ranges
 
 

@@ -63,14 +63,29 @@ DEFAULT_CAPTIONS = {
     "day":   "(day)",
 }
 
-# What to call an enumeration level the statement did not caption -- the "39"
-# of "39 no 1".  By position, because position is all there is to go on.
-DEFAULT_ENUM_CAPTIONS = ("v.", "no.", "pt.")
+# What MARC 21 writes where a level has no caption on the piece.  The standard
+# allows either a caption invented and bracketed, or "an asterisk used in place
+# of data", and full correlation between an 853's captions and its 863's values
+# is *required* where the 863 is compressed -- which every field this tool
+# writes is.  So the level cannot simply be left out, and it must not be guessed
+# at either: the "39" of "39 no 1" is very probably a volume, and "very probably"
+# is not something to write into a record as though the piece had said it.
+#
+# The parenthesised form is Harvard's documented practice and sits with the
+# "(year)" and "(month)" captions already written into the same field.
+NO_CAPTION = "(*)"
+
+# Suggestions for a cataloguer filling the caption in by hand, by position.
+# Only suggestions: until 0.8.9 these were written into the 853 whenever a
+# statement captioned nothing, so a record asserted "v. 39" on the strength of
+# position alone, with nothing on screen to say the word had been supplied.
+SUGGESTED_ENUM_CAPTIONS = ("v.", "no.", "pt.")
 
 
-def default_enum_caption(index: int) -> str:
-    if index < len(DEFAULT_ENUM_CAPTIONS):
-        return DEFAULT_ENUM_CAPTIONS[index]
+def suggested_enum_caption(index: int) -> str:
+    """What to offer a cataloguer for this level, not what to write without one."""
+    if index < len(SUGGESTED_ENUM_CAPTIONS):
+        return SUGGESTED_ENUM_CAPTIONS[index]
     return f"level {index + 1}"
 
 # ---------------------------------------------------------------------------
@@ -134,7 +149,12 @@ def enum_level_fields(count: int = EDITABLE_ENUM_LEVELS) -> List[Dict[str, str]]
     """
     return [{"key": f"e{i + 1}",
              "label": f"{_ORDINALS[i]} enumeration",
-             "default_caption": default_enum_caption(i)}
+             # What the field produces when left blank, which is what a
+             # placeholder is for. The suggestion sits in the help text beside
+             # the grid instead: a placeholder reading "v." promised a caption
+             # the tool would not write.
+             "default_caption": NO_CAPTION,
+             "suggestion": suggested_enum_caption(i)}
             for i in range(count)]
 
 
@@ -387,10 +407,15 @@ def caption_slot(caption: str) -> Optional[str]:
     # numbering level.
     if "day" in c:
         return "day"
+    # An asterisk is MARC's "this level has no caption", in either of the two
+    # written forms. Without this the tool could not read back the 853 it writes
+    # itself, and a record it had already converted would stop conforming.
+    if c in ("*", "(*)", "[*]"):
+        return "enum"
     # Anything else short enough to be a caption is an enumeration caption.
     # MARC 21 does not restrict the words, and cataloguers use more than three
     # of them -- "Bd.", "Heft", "Report no.", "n.s. v."
-    if re.fullmatch(r"\(?[a-z][a-z0-9 .,/'-]{0,23}\)?", c):
+    if re.fullmatch(r"\(?\[?[a-z][a-z0-9 .,/'\]-]{0,23}\)?", c):
         return "enum"
     return None
 
@@ -611,7 +636,10 @@ def _build_853(
                 if note not in warnings:
                     warnings.append(note)
             continue
-        planned.append((code, enum_caps.get(i) or caption or default_enum_caption(i)))
+        # A caption the cataloguer supplied wins, then one the statement wrote,
+        # and only then NO_CAPTION -- which is a statement that there was none,
+        # not a guess at what it would have been.
+        planned.append((code, enum_caps.get(i) or caption or NO_CAPTION))
 
     if levels.get("year"):
         planned.append((smap["year"], caps["year"]))
@@ -673,7 +701,12 @@ def _enum_label(caption: Optional[str], index: int) -> tuple:
     ran straight into the sentence around it -- "with no no level at the end",
     where the first "no" is a negation and the second is a caption.
     """
-    word = (caption or default_enum_caption(index)).strip()
+    word = (caption or "").strip()
+    if not word or word == NO_CAPTION:
+        # Naming it by the caption it might have had would be the same guess
+        # the 853 no longer makes. Position is what is actually known.
+        ordinal = _ORDINALS[index] if index < len(_ORDINALS) else f"{index + 1}th"
+        return ("the", f"{ordinal} enumeration level, which has no caption")
     article = "an" if word[:1].lower() in "aeiou" else "a"
     if word.lower().startswith("level"):
         return (article, word)      # "level 4" already names itself
@@ -757,7 +790,7 @@ def _check_enumeration_depth(levels: Dict[str, Any],
         return False
     if warnings is not None:
         named = ", ".join(
-            f"{cap or default_enum_caption(i)}" for i, cap in enumerate(captions))
+            f"{cap or NO_CAPTION}" for i, cap in enumerate(captions))
         note = (
             f"{len(captions)} enumeration levels are claimed here ({named}). "
             f"Serials are numbered two or three levels deep; more than that "

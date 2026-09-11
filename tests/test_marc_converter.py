@@ -24,7 +24,7 @@ from holdings_parser import (parse_866, ParseResult, HoldingsRange,
 from marc_converter import (convention_presets, resolve_convention,
                             convert_holdings, convert_record,
                             caption_slot, read_853_slots,
-                            CONVENTION_LEVELS)
+                            CONVENTION_LEVELS, NO_CAPTION, _enum_label)
 
 
 def _existing_853(*pairs, indicators=("2", "0")) -> Field:
@@ -703,6 +703,74 @@ def test_a_caption_named_in_a_warning_reads_as_a_word_not_a_negation():
     assert "no no" not in note
     assert "a 'no.' level" in note
     assert "nothing at the start to pair it with" in note
+
+
+# ---------------------------------------------------------------------------
+# A level with no caption says so, rather than being given one
+# ---------------------------------------------------------------------------
+
+def test_an_uncaptioned_level_is_written_as_no_caption():
+    """
+    "39 no 1" captions its second level and not its first. The 853 used to read
+    "$a v. $b no." -- asserting the 39 is a volume on the strength of position
+    alone, with nothing on screen to say the word had been supplied. Very
+    probably true, and not something to write into a record as though the piece
+    had said it.
+
+    MARC 21 has a notation for exactly this: a caption may be invented and
+    bracketed, or an asterisk used in place of data. The level cannot simply be
+    left out, because full correlation between an 853's captions and its 863's
+    values is required wherever the 863 is compressed -- which every field this
+    tool writes is.
+    """
+    result = convert_holdings(parse_866("39 no 1 (Spring 1995)"))
+    assert result.field_853.display() == (
+        "853 31 $8 1 $a (*) $b no. $i (year) $j (season)")
+    assert sub(result.fields_863[0], "a") == "39"
+
+
+def test_a_caption_the_statement_states_is_untouched():
+    """The change is only ever about a level that states nothing."""
+    result = convert_holdings(parse_866("v. 39 no 1 (Spring 1995)"))
+    assert "(*)" not in result.field_853.display()
+    assert result.field_853.display().startswith("853 31 $8 1 $a v. $b no.")
+
+
+def test_a_cataloguer_can_still_supply_the_caption():
+    """
+    The tool declining to guess must not stop someone who knows. A caption set
+    by hand wins over both the statement and the default.
+    """
+    result = convert_holdings(parse_866("39 no 1 (Spring 1995)"),
+                              captions={"e1": "[v.]"})
+    assert result.field_853.display().startswith("853 31 $8 1 $a [v.] $b no.")
+
+
+@pytest.mark.parametrize("caption", ["(*)", "*", "[*]", "[v.]"])
+def test_the_853_the_tool_writes_can_be_read_back(caption):
+    """
+    caption_slot() decides what kind of level an existing 853 subfield labels,
+    and it required a caption to begin with a letter -- so "(*)" came back as
+    None. A record this tool had already converted would have stopped conforming
+    to its own 853 on the next run.
+    """
+    assert caption_slot(caption) == "enum"
+
+
+def test_a_warning_names_an_uncaptioned_level_by_position():
+    """
+    Naming it by the caption it might have had would be the same guess the 853
+    no longer makes. Position is what is actually known about it.
+    """
+    start = EnumChron(enum=[EnumLevel(None, "39"), EnumLevel("no.", "1")],
+                      year="1995")
+    end = EnumChron(enum=[EnumLevel(None, "41")])
+    result = convert_holdings(ParseResult(
+        ranges=[HoldingsRange(start=start, end=end, raw="x")], raw="x"))
+    # Nothing to warn about here; the interesting case is the label itself.
+    assert "1st enumeration level" in _enum_label(None, 0)[1]
+    assert "no caption" in _enum_label(None, 0)[1]
+    assert result.field_853.display().startswith("853 31 $8 1 $a (*)")
 
 
 # ---------------------------------------------------------------------------

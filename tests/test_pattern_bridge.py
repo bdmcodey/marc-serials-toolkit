@@ -802,14 +802,20 @@ def test_a_skip_survives_export_and_import():
     assert restored[0].skip is True
 
 
-def test_a_list_confirmed_as_a_hierarchy_is_flagged_end_to_end():
+def test_a_list_is_now_read_as_a_list_rather_than_confirmed_as_a_hierarchy():
     """
-    D14, by the route a cataloguer actually takes: the detector clusters the
-    list happily, the confirm screen offers six undecided numbers, and nothing
-    stops them being assigned as six enumeration levels.
+    D14's statement, by the route a cataloguer actually takes -- and the route
+    changed under it, for the better.
 
-    The record is still written -- the tool cannot know which reading is right
-    -- but it no longer comes out looking unremarkable.
+    The danger D14 named was real: the detector clusters "8,13,15,17,19,20-"
+    happily, the confirm screen offers six undecided numbers, and nothing stopped
+    them being assigned as six enumeration levels. 0.7.4 could only flag the
+    result, because the tool could not tell which reading was right.
+
+    It can now. 0.8.9 reads the statement as what it is -- six runs of holdings
+    with gaps between them -- so the pattern stands aside for the parser (0.8.6)
+    and the six-deep hierarchy is never written at all. The depth guard below
+    still stands behind every other statement.
     """
     from marc_converter import convert_holdings
 
@@ -831,8 +837,27 @@ def test_a_list_confirmed_as_a_hierarchy_is_flagged_end_to_end():
     assert not errors, errors
 
     result, source = apply_patterns(statement, [pattern])
-    assert source == pattern.id
+    assert source == "parser", "a discontinuous list is the parser's to read"
+
     conversion = convert_holdings(result)
+    assert len(conversion.fields_863) == 6
+    assert conversion.flagged is False
+    assert conversion.field_853.display() == "853 31 $8 1 $a (*)"
+
+
+def test_the_depth_guard_still_flags_a_hierarchy_nothing_else_catches():
+    """
+    The guard D14 produced, on a statement the list reader does not claim. Six
+    enumeration levels is not a serial; it is a list of separate holdings, and
+    separate holdings cannot share one 863.
+    """
+    from marc_converter import convert_holdings
+    from holdings_parser import (EnumChron, EnumLevel, HoldingsRange,
+                                 ParseResult)
+
+    start = EnumChron(enum=[EnumLevel(f"lvl{i}.", str(i)) for i in range(6)])
+    conversion = convert_holdings(
+        ParseResult(ranges=[HoldingsRange(start=start, raw="x")], raw="x"))
 
     assert conversion.fields_863                      # still written
     assert conversion.flagged is True
