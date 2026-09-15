@@ -51,9 +51,8 @@ SEASON_MAP: dict[str, str] = {
 
 # MARC 21 chronology codes used in 863 $j: months 01-12, seasons 21-24.
 #
-# Ported from the marc_853_encoding table in ai-regex/test_enum_update.py,
-# which derives from extract.py by Phani Chaitanya Pendyala (MIT).
-# See THIRD-PARTY-NOTICES.md.
+# Ported from the marc_853_encoding table in extract.py by Phani Chaitanya
+# Pendyala (MIT). See THIRD-PARTY-NOTICES.md.
 MARC_CHRON_CODES: dict[str, str] = {
     "jan": "01", "january": "01",
     "feb": "02", "february": "02",

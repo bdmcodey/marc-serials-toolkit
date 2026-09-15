@@ -14,10 +14,13 @@ notices are reproduced below.
 Portions of this project derive from `extract.py` in the above repository.
 The derivation appears in:
 
-- `ai-regex/test_enum_update.py` — retains structure, identifiers, and the
-  month/season chronology code mapping from the original script.
 - `converter/holdings_parser.py` — the `MARC_CHRON_CODES` table is a port of
   the original's `marc_853_encoding` mapping.
+
+An earlier file, `ai-regex/test_enum_update.py`, retained more of the original
+script's structure and identifiers. It was removed from this repository, so the
+port of the chronology code table is now the only derivation present. This
+notice is retained for it, as the MIT license requires.
 
 ```
 MIT License

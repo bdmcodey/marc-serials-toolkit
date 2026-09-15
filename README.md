@@ -2,8 +2,7 @@
 
 A small toolkit for **enhancing MARC serials holdings** — turning the free-text
 holdings summaries libraries keep in the MARC **866** field into structured,
-machine-actionable **853 / 863** enumeration-and-chronology fields, and for
-exploring different ways (including AI) of doing so at scale.
+machine-actionable **853 / 863** enumeration-and-chronology fields.
 
 It grew out of a real cataloging problem and is the subject of an upcoming
 conference presentation on applying AI to serials-holdings enhancement.
@@ -19,12 +18,9 @@ engines rather than copying them, so it needs the whole repository present.
 | **Holdings Workbench** | [`workbench/`](workbench/) | Detect patterns, confirm what each captured value means in MARC, and convert with them — the other two tools joined up | Flask web app |
 | **Converter** | [`converter/`](converter/) | Convert an 866 statement — or a whole MARC file — into structured 853 / 863 fields | Flask web app |
 | **Pattern Detector** | [`pattern-detector/`](pattern-detector/) | Scan a collection of 866 statements, cluster them by structure, and generate a named-group regex per pattern | Flask web app |
-| **PNX Lookup** | [`pnx-lookup/`](pnx-lookup/) | Look up a record's full normalized PNX from an Ex Libris Primo catalog by MMS ID — no API key — with a table view and CSV/Excel export | Local web app (headless browser) |
-| **AI Regex Generator** | [`ai-regex/`](ai-regex/) | Use an LLM to generate a parsing regex from sample holdings (an exploratory approach) | CLI / experimental |
 
-The Workbench, Converter and Pattern Detector are deterministic — no network
-calls, no API key. The AI Regex Generator calls the OpenAI API and requires your
-own key (see [`ai-regex/README.md`](ai-regex/README.md)).
+All three are deterministic and run locally — no network calls, no API key, and
+nothing leaves the machine.
 
 The Workbench does not replace the other two, and does not copy them: it imports
 their engines, so a fix to the parser or the detector reaches all three. Use the
@@ -64,12 +60,6 @@ pip install -r requirements.txt
 python app.py
 ```
 
-**PNX Lookup** — see [`pnx-lookup/README.md`](pnx-lookup/README.md); it needs
-Playwright and a headless browser, and runs locally.
-
-**AI Regex Generator** — see [`ai-regex/README.md`](ai-regex/README.md); it needs
-an `OPENAI_API_KEY`.
-
 ## Repository layout
 
 ```
@@ -77,13 +67,11 @@ marc-serials-toolkit/
 ├── workbench/          detect → confirm → convert, in one app (Flask web app)
 ├── converter/          866 → 853/863 converter (Flask web app)
 ├── pattern-detector/   866 pattern detector + regex generator (Flask web app)
-├── pnx-lookup/         Primo PNX record lookup (local web app; needs Playwright)
-├── ai-regex/           LLM-based regex generation (CLI/experimental)
 ├── tests/              pytest suite covering all three apps
 ├── data/
 │   ├── example_holdings.mrc   Small SYNTHETIC sample for demos/tests
 │   ├── messy_holdings.mrc     SYNTHETIC awkward cases, for the test suite
-│   └── textual_holdings_corpus.txt  112 real 866 $a statements (text, not MARC)
+│   └── textual_holdings_corpus.txt  117 real 866 $a statements (text, not MARC)
 ├── scripts/
 │   ├── create_example_mrc.py  Regenerates the synthetic sample
 │   ├── create_messy_mrc.py    Regenerates the awkward-case fixture
@@ -107,7 +95,7 @@ python scripts/create_example_mrc.py
 python scripts/create_messy_mrc.py
 ```
 
-`data/textual_holdings_corpus.txt` is different in kind: 112 unique 866 `$a`
+`data/textual_holdings_corpus.txt` is different in kind: 117 unique 866 `$a`
 statements transcribed from real catalogue records, as plain text rather than
 MARC. It covers far more caption and chronology styles than the synthetic
 fixtures do, and it exists to find where the engines fall short. It carries no
@@ -121,11 +109,11 @@ python scripts/corpus_report.py --drift    # only outcomes that have changed
 ```
 
 [`CORPUS-FINDINGS.md`](CORPUS-FINDINGS.md) records what it revealed and what has
-been fixed since. Twelve findings are fixed so far, taking silent losses from
-32% of statements to one: 66% now convert cleanly, 19% convert while naming a
-value they could not place, and 14% are held for review rather than
-half-converted. On the detector side, no shape is split across clusters any
-more.
+been fixed since. Silent losses — a value dropped with nothing on screen to say
+so — are down from 32% of statements to **none**: 77% now convert cleanly, 19%
+convert while naming a value they could not place, and 4% are held for review
+rather than half-converted. On the detector side, no shape is split across
+clusters any more.
 
 ## Running the tests
 
