@@ -14,7 +14,7 @@ D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
 (0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7); D7 in part
 (0.8.9); the block grammar's invented captions (0.9.0); D23 (0.9.1);
 D24 (0.9.4); D25 (0.9.5); D26 (0.9.6, and its own
-regression in 0.9.7, 15 September 2026).
+regression in 0.9.7); D27 (0.9.8, 15 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -1080,6 +1080,58 @@ detector's CHRON token lists `summer` and not the abbreviation `sum`, which the
 parser's own table carries — and the set is asserted exactly, so a new one is a
 failure and a resolved one is a stale note.
 
+### D27 — a spaced slash is not read as a separator, and the refusal keeps half a range · **FIXED in 0.9.8**
+
+Carried as an `xfail` since the corpus was adopted, described as "the second
+range is silently dropped". It was worse than that.
+
+```
+v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)
+
+  -> 863 40 $8 1.1 $a 1 $i 1990
+  !  "Read 'v.3(1992)' but could not account for '/ v.5(1994)-v.8(1997)' —
+      nothing was converted from this statement rather than convert part of it."
+
+  needs_review: False    flagged: False
+```
+
+The statement names **eight volumes across seven years**. The record gets volume
+1, 1990. Three separate things are wrong:
+
+1. **A partial conversion on the default path** — the outcome 0.6.1 exists to
+   prevent. `_smart_split_range()` splits at the first hyphen; `_parse_unit()`
+   then refuses the end half, which it can read only as far as `v.3(1992)`.
+2. **The warning says the opposite of what happened.** It states that nothing was
+   converted. `$a 1 $i 1990` was converted. A cataloguer reading it would believe
+   the 866 had been left alone.
+3. **Neither held nor flagged**, so it never reaches the review queue. With
+   `remove_866` on — the Converter's default — the 866 goes and the record is
+   left claiming the library holds v. 1 (1990) and nothing else.
+
+**Two causes, fixed separately.**
+
+`_split_ranges()` never learned that a spaced slash separates two ranges.
+`split_multi_range()` in the detector has drawn the distinction since 0.5.1, with
+the reason in its docstring: a *bare* slash carries meaning inside a statement —
+combined issues (`v.1/2`), combined months (`Jul./Aug.`), split years (`1990/91`)
+— and splitting on those would corrupt it. Only whitespace on both sides makes it
+a separator. None of the conditions the comma test applies are needed: unlike a
+comma, a spaced slash is never part of a caption or a designation.
+
+And refusing the end unit only nulled the end, leaving the truncated start. The
+message has always promised the whole statement is refused; now it is.
+
+The second half is latent — with the slash read properly, no statement in either
+corpus reaches it — and it is fixed anyway, because a message that describes
+behaviour the code does not have is a defect whether or not anything triggers it
+today. It is tested against `v. 1 (1990)-v. 3 Suppl. (1992)`, where `Suppl.` is
+what stops the end unit, so the two changes are held apart.
+
+Exactly one statement in the 141 across both corpora changes, and it changes to
+the same correct output on both paths. The corpus report is unmoved: the
+statement lives in the synthetic `.mrc`, not the text corpus, which is the third
+time in this log that a defect has sat outside what the audit reads.
+
 ## Pattern detector
 
 The detector's *correctness* holds up well: every cluster that generates a regex
@@ -1621,6 +1673,12 @@ The first two are done; the rest are Workbench UI and are not started.
   "needs attention" showed 86 records where 8 matched. The counts now come from
   `/api/review-index`, which answers for every record, and paging walks what
   the filter shows rather than the file in order.
+- **A year-only statement does not normalise its split year.** Noticed
+  15 September 2026, not started. `parse_866("1996/97")` reaches the degenerate
+  path, which writes the raw text rather than the `1996/1997` that
+  `normalise_year()` produces everywhere else, so the year subfield refuses it
+  and the statement converts to an empty 863. Small, and the value is named
+  rather than lost.
 - **Flag a statement that belongs in another field.** Raised 15 September 2026,
   not started. An 866 saying `Suppl.` is describing supplementary material,
   which MARC 21 puts in **867** with its own **864** enumeration; one saying
