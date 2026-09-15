@@ -896,6 +896,51 @@ def test_a_closing_level_that_fits_nowhere_is_named_rather_than_placed():
 
 
 # ---------------------------------------------------------------------------
+# A level under a ranging one, with only one boundary to go on
+# ---------------------------------------------------------------------------
+
+def test_a_lone_level_under_a_ranging_one_is_named_not_written():
+    """
+    "v. 41-43 no. 1" states one boundary, not two, so there is no other end to
+    disagree with -- and the ambiguity is there all the same. A compressed 863
+    pairs its subfields position by position, so "$a 41-43 $b 1" describes issue
+    1 of each of volumes 41 to 43 just as well as a run ending at v. 43 no. 1.
+
+    _hierarchy_values() has said exactly that in its own docstring since 0.6.2,
+    about the two-boundary form. The single-boundary form took the "nothing to
+    disagree with" branch and wrote the value anyway -- the rule was there, and
+    it did not reach here.
+    """
+    result = convert_holdings(parse_866("v. 41-43 no. 1 (1990)"))
+    f863 = result.fields_863[0]
+    assert (sub(f863, "a"), sub(f863, "b")) == ("41-43", None)
+    assert any("41-43" in w and "left out" in w for w in result.warnings), \
+        result.warnings
+
+
+def test_a_range_under_a_ranging_level_still_pairs():
+    """
+    The complement. "v. 40-45 nos. 2-5" has both ends of both levels, so it
+    reads back as one run: v. 40 no. 2 through v. 45 no. 5. Nothing is dropped.
+    """
+    result = convert_holdings(parse_866("v. 40-45 nos. 2-5 (1974-1979)"))
+    f863 = result.fields_863[0]
+    assert (sub(f863, "a"), sub(f863, "b")) == ("40-45", "2-5")
+    assert result.warnings == []
+
+
+def test_a_lone_level_under_a_single_one_is_untouched():
+    """
+    The rule is about a level *above* being a range. "v. 5 no. 1-4" has a single
+    volume, so the issue range under it is unambiguous and is written.
+    """
+    result = convert_holdings(parse_866("v. 5 no. 1-4 (1990)"))
+    f863 = result.fields_863[0]
+    assert (sub(f863, "a"), sub(f863, "b")) == ("5", "1-4")
+    assert result.warnings == []
+
+
+# ---------------------------------------------------------------------------
 # A coded subfield holds codes
 # ---------------------------------------------------------------------------
 

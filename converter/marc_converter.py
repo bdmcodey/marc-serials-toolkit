@@ -884,6 +884,34 @@ def _unpairable_end_levels(hr: HoldingsRange,
     return blocked
 
 
+def _note_unpairable_under_range(warnings: Optional[List[str]], label: tuple,
+                                 value: str, above: str) -> None:
+    """
+    Record a lone value sitting under a level that is itself written as a range.
+
+    "v. 40-45 no. 4" states one boundary, not two, so there is no other end to
+    disagree with -- and the ambiguity is there all the same.  A compressed 863
+    pairs its subfields position by position, so "$a 40-45 $b 4" describes issue
+    4 of every volume from 40 to 45 just as well as it describes a run ending at
+    v. 45 no. 4.  _hierarchy_values() has said so in its own docstring since
+    0.6.2, about the two-boundary form; the single-boundary form reached the
+    "nothing to disagree with" branch and wrote the value anyway.
+    """
+    if warnings is None:
+        return
+    _, word = label
+    note = (
+        f"'{value}' was left out. The {word} sits under a level written as the "
+        f"range '{above}', and a compressed 863 pairs its subfields position by "
+        f"position: '{above}' beside a single '{value}' reads as {value} of each "
+        f"of them just as well as it reads as one run ending there, and nothing "
+        f"in the notation tells the two apart. Writing both ends of the run out "
+        f"in full is what records it."
+    )
+    if note not in warnings:
+        warnings.append(note)
+
+
 def _note_uncodeable(warnings: Optional[List[str]], label: tuple,
                      value: str) -> None:
     """Record chronology wording the coded subfield cannot hold."""
@@ -973,7 +1001,9 @@ def _hierarchy_values(
     }
 
     out: Dict[str, str] = {}
-    ranged_above = False
+    # The value of the nearest level above that was written as a range, or "".
+    # A bare flag would do for the branching; the note quotes it.
+    ranged_above = ""
 
     for key in level_keys:
         s_val = get(s, key)
@@ -981,9 +1011,16 @@ def _hierarchy_values(
         value: Optional[str] = None
 
         if e is None:
-            # Single unit: no other end to disagree with.
+            # Single unit: no other end to disagree with -- but a level *above*
+            # can still be written as a range inside this one boundary, and then
+            # the pairing is as ambiguous as it is with two.  A value that is
+            # itself a range pairs fine ("$a 40-45 $b 2-5"); a lone one does not.
             if s_val is not None:
-                value = f"{s_val}-" if oe else s_val
+                if ranged_above and "-" not in s_val.rstrip("-"):
+                    _note_unpairable_under_range(warnings, label_for(key),
+                                                 s_val, ranged_above)
+                else:
+                    value = f"{s_val}-" if oe else s_val
         elif s_val is not None and e_val is not None:
             if s_val != e_val:
                 value = f"{s_val}-{e_val}"
@@ -1016,7 +1053,7 @@ def _hierarchy_values(
             # output covers every branch above at once, including the one where
             # the range arrived pre-compressed from the parser ("1990-1991").
             if "-" in value.rstrip("-"):
-                ranged_above = True
+                ranged_above = value
 
     return out
 
