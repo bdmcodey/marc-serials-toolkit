@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "released": "2026-09-15",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,21 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.9.3",
+      "date": "2026-09-15",
+      "summary": "A confirmed pattern now gives way to the standard parser for any statement holding several runs of holdings, not just a comma list.",
+      "changes": [
+        {
+          "tool": "Holdings Workbench",
+          "text": "A pattern describes one run of holdings. Where a statement holds several, the pattern kept the first and last values and set the rest aside — and for year-first statements like \"N1984: (2 (1))M1985: 2 (2 [summer])\" it was worse than that: the pattern claimed the statement and produced no 863 at all, where the standard parser produces the two it holds. These now go to the parser, as comma lists already did."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "The test is no longer about commas. It asks the parser how many runs the statement holds, which is the thing that knows."
+        }
+      ]
+    },
     {
       "version": "0.9.2",
       "date": "2026-09-15",
