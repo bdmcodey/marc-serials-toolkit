@@ -12,8 +12,8 @@ anything was changed.
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
 D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
 (0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7); D7 in part
-(0.8.9); the block grammar's invented captions (0.9.0); D23 (0.9.1,
-15 September 2026).
+(0.8.9); the block grammar's invented captions (0.9.0); D23 (0.9.1);
+D24 (0.9.4, 15 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -787,9 +787,10 @@ were considered:
 
 The budget is five seconds, from measurement rather than taste. The largest
 payload any endpoint accepts — the longest expression the detector generates
-(2,384 characters) against 2,000 copies of a 500-character adversarial string —
-takes 26 ms of matching and 321 ms end to end, the difference being the child's
-startup and the JSON in both directions. Five seconds is about fifteen times
+(2,485 characters after 0.9.4) against 2,000 copies of a 500-character
+adversarial string — takes 24 ms of matching and 223 ms end to end, the
+difference being the child's startup and the JSON in both directions. Five
+seconds is about twenty times
 that, and the trade is asymmetric: three more seconds of waiting costs a
 cataloguer very little, and a good pattern wrongly refused for being slow costs
 them the pattern. `MARC_MATCH_BUDGET` overrides it.
@@ -874,6 +875,71 @@ the fallback path. It was invisible to every test in the suite and to the corpus
 audit, because both exercise conversion with a library that was just built. Only
 the passage of time exposes it — which is the one thing a test suite never has
 and a cataloguer always does.
+
+### D24 — a combined designation is captured twice, and the halves are transposed · 6 statements · **FIXED in 0.9.4**
+
+Found while measuring whether a run-index model was warranted. It was not; this
+was sitting next to it.
+
+```
+v. 34 no. 8/9-v. 35 no. 23/24 (Apr 18, 1996-Dec 1997)
+
+  start_vol = 34  level 0   ✓
+  start_iss = 8   level 1   ✓
+  end_iss   = 9   level 0   ← an issue, in the volume slot
+  end_vol   = 35  level 1   ← a volume, in the issue slot
+  end_iss_2 = 23  ignore
+  end_iss_3 = 24  ignore
+
+  parser  -> 863 $a 34-35 $b 8/9-23/24 $i 1996-1997 $j 04-12
+  pattern -> 863 $a 34    $b 8         $i 1996-1997 $j 04-12
+```
+
+The end volume is gone and the combined issue truncated to its first half. Note
+that `infer_roles()` was doing exactly what it documents — numbering levels by
+order of appearance, taking the second value at a level as the end — which is
+right for a value that really *is* two. The fault is upstream: `no. 8/9` is one
+issue, and the detector's NUMBER token matched a bare `\d+`, so the slash became
+free text and the halves became two captures.
+
+**The slash and the hyphen are different operators, and conflating them is the
+trap.** The first draft of this fix absorbed both, which broke the commoner
+shape — a cataloguer caught it:
+
+```
+v.1-5(1990-1994)                one unit   1-5 is a range *spanning the
+                                           statement*: two endpoints
+v. 23 no. 3-4-v. 29 no. 3-4     two units  3-4 is issues 3-4 *of v. 23*:
+                                           one value inside a unit
+```
+
+A slash is part of a designation and always binds. A hyphen means *through*, and
+whether it joins a value or spans the statement depends on whether some **other**
+hyphen divides the statement into units — a fact about the whole token stream,
+which no tokeniser regex can see. So:
+
+- the tokeniser binds `/` only, exactly as YEAR has absorbed `1996/97` since
+  0.8.1 and CHRON absorbs `Jul/Aug`;
+- `_merge_ranged_numbers()` runs afterwards and joins `NUMBER - NUMBER` **only**
+  in a statement that has a unit separator — a hyphen after a `)` or before a
+  caption, which is what every real divider looks like;
+- the emitted capture group is deliberately *wider* than the tokeniser and
+  accepts a hyphenated value. The tokeniser decides how many captures a
+  statement has; the group decides what one capture may hold. Leaving the hyphen
+  out of the group was caught by the corpus report: a cluster stopped matching
+  its own members, because a merged `3-4` had no group that could hold it.
+
+**Result.** Six corpus statements where the pattern path and the parser disagreed
+now agree, and **none** newly disagree. `v.1-5(1990-1994)` is untouched, and so is
+every other existing expectation: the whole suite passed unchanged, where the
+first draft had needed four tests rewritten. That contrast is the useful signal —
+a fix that has to rewrite tests protecting a deliberate design is usually
+arguing with the design rather than fixing a defect.
+
+Clusters fall from 45 to 44 and singletons from 31 to 30. The longest generated
+expression grows from 2,384 characters to 2,546 — a NUMBER group costs 54
+characters now rather than 25 — still well inside the 4,000 cap, and the figures
+quoted in `regex_budget.py` were re-measured rather than left to drift.
 
 ## Pattern detector
 

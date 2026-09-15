@@ -109,6 +109,22 @@ def test_a_compressed_range_names_both_of_its_boundaries():
     }
 
 
+def test_a_combined_designation_keeps_its_halves_together():
+    """
+    The roles for "v. 34 no. 8/9-v. 35 no. 23/24" used to be transposed: the
+    issue 9 at the volume level of the end boundary, the volume 35 at the issue
+    level. infer_roles() was doing exactly what it documents -- numbering levels
+    by order of appearance and taking the second value at a level as the end --
+    and that is right for a value that really is two. One capture per
+    designation puts each value where it belongs.
+    """
+    roles = roles_for("v. 34 no. 8/9-v. 35 no. 23/24 (1996-1997)")
+    assert roles["start_vol"] == (BOUNDARY_START, KIND_ENUM, 0, "v.")
+    assert roles["start_iss"] == (BOUNDARY_START, KIND_ENUM, 1, "no.")
+    assert roles["end_vol"]   == (BOUNDARY_END,   KIND_ENUM, 0, "v.")
+    assert roles["end_iss"]   == (BOUNDARY_END,   KIND_ENUM, 1, "no.")
+
+
 def test_chronology_only_at_the_end_still_spans_the_range():
     roles = roles_for("v.1:no.1-v.2:no.4(1990-1991)")
     assert roles["start_year"] == (BOUNDARY_START, KIND_YEAR)
