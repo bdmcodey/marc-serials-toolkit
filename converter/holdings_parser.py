@@ -799,6 +799,23 @@ def _split_ranges(text: str) -> List[str]:
             depth += 1
         elif ch == ")":
             depth -= 1
+        elif (ch == "/" and depth == 0
+              and i > 0 and chars[i - 1].isspace()
+              and i + 1 < len(chars) and chars[i + 1].isspace()):
+            # A slash separates only when whitespace surrounds it.  A bare
+            # slash carries meaning inside a statement -- combined issues
+            # ("v.1/2"), combined months ("Jul./Aug."), split years
+            # ("1990/91") -- and splitting on those would corrupt it.
+            #
+            # split_multi_range() in the detector has drawn this distinction
+            # since 0.5.1; _split_ranges() never did, so
+            # "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)" reached _parse_unit()
+            # as one unit and came out as "$a 1 $i 1990" -- one volume of the
+            # eight it states.  None of the conditions below apply: unlike a
+            # comma, a spaced slash is never part of a caption or a
+            # designation, so there is nothing to disambiguate.
+            candidates.append(i)
+            segment_start = i + 1
         elif ch in (",", ";") and depth == 0:
             # Look back: is the preceding non-space character ")" or a digit?
             before = text[:i].rstrip()
@@ -1078,6 +1095,15 @@ def _parse_one_range(raw: str,
     elif len(parts) >= 2:
         start = _parse_unit(parts[0], warnings)
         end = _parse_unit(parts[1], warnings)
+        if end is None:
+            # _parse_unit() refuses a unit it can only read part of, and says
+            # so: "nothing was converted from this statement rather than
+            # convert part of it".  Keeping the start made that untrue -- the
+            # statement above wrote "$a 1 $i 1990" under a warning saying
+            # nothing had been written, and was neither held nor flagged, so
+            # nobody would have looked.  Refusing the range is what the
+            # message has always claimed happens.
+            return hr
         hr.start = start or EnumChron()
         hr.end = end
 

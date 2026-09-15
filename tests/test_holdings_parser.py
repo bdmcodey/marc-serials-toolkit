@@ -527,19 +527,51 @@ def test_captionless_leading_volume_parses():
     assert (start.value_at(0), start.value_at(1), start.year, start.month) == ("39", "1", "1995", "21")
 
 
-@pytest.mark.xfail(reason="_split_ranges() does not treat a spaced slash as a "
-                          "separator, so the second range is silently dropped")
-def test_slash_separated_ranges_should_both_survive():
+def test_slash_separated_ranges_both_survive():
     """
-    The converter keeps only the first range of a slash-separated statement and
-    reports success with no warning, so holdings the library owns vanish from
-    the generated 863s. split_multi_range() in the detector was fixed for this
-    in 0.5.1; _split_ranges() here has the same gap with worse consequences.
+    A spaced slash separates two ranges. split_multi_range() in the detector has
+    drawn this distinction since 0.5.1; _split_ranges() never did, and the
+    consequences were worse than the xfail this replaces described.
+
+    The statement reached _parse_unit() as one unit, whose end half could only
+    be read as far as "v.3(1992)". That was refused -- correctly -- but the
+    refusal only nulled the end, so the truncated start survived and the record
+    got "$a 1 $i 1990": one volume out of the eight the statement names, with
+    neither review nor a flag, under a warning claiming nothing had been
+    written.
     """
     r = parse_866("v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)")
     assert len(r.ranges) == 2
-    assert r.ranges[1].start.value_at(0) == "5"
-    assert r.ranges[1].end.value_at(0) == "8"
+    assert (r.ranges[0].start.value_at(0), r.ranges[0].end.value_at(0)) == ("1", "3")
+    assert (r.ranges[1].start.value_at(0), r.ranges[1].end.value_at(0)) == ("5", "8")
+
+
+@pytest.mark.parametrize("text, values", [
+    # A bare slash is part of a value, and splitting on it would corrupt the
+    # statement: a combined issue, a combined month, a split year.
+    ("v.7/8(1996:Jul./Aug.)", ["7/8"]),
+    ("v. 92 no. 1/2-v. 95 no. 1/2 (1993-1996)", ["92", "95"]),
+])
+def test_a_bare_slash_is_not_a_separator(text, values):
+    r = parse_866(text)
+    got = [hr.start.value_at(0) for hr in r.ranges]
+    got += [hr.end.value_at(0) for hr in r.ranges if hr.end]
+    assert [v for v in got if v] == values
+
+
+def test_a_refused_end_unit_refuses_the_whole_range():
+    """
+    _parse_unit() refuses a unit it can only read part of, and its warning says
+    "nothing was converted from this statement rather than convert part of it".
+    Keeping the start made that untrue. The message is the promise; this is the
+    behaviour matching it.
+
+    Held against a statement the spaced-slash fix does not reach, so the two
+    changes are tested apart: "Suppl." is what stops the end unit here.
+    """
+    r = parse_866("v. 1 (1990)-v. 3 Suppl. (1992)")
+    assert r.ranges == []
+    assert any("could not account for" in w for w in r.warnings), r.warnings
 
 
 @pytest.mark.xfail(reason="a brace note defeats the block grammar entirely")
