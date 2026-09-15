@@ -1009,10 +1009,16 @@ def _parse_unit(text: str,
     if not text:
         return None
 
-    # Year-only shorthand
+    # Year-only shorthand.  Normalised like every other year: 0.8.1 taught the
+    # parser to read a year written across the turn of one ("1996/97" is the
+    # single publication year 1996/1997), and _parse_chron() does it at all four
+    # of its sites.  This one was missed, so a statement that is *only* a year
+    # kept the raw text -- and the year subfield holds four-digit years, so
+    # "1996/97" was then refused and named, from a statement with nothing else
+    # in it to convert.
     m = _YEAR_ONLY_RE.match(text)
     if m:
-        return EnumChron(year=m.group(1))
+        return EnumChron(year=normalise_year(m.group(1)))
 
     levels, pos = _parse_enum_levels(text)
 
