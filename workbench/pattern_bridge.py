@@ -35,6 +35,7 @@ from holdings_parser import (
     HoldingsRange,
     ParseResult,
     is_distributed_list,
+    chron_unit_code,
     normalise_year,
     parse_866,
     # Private only by convention, and deliberately reused: months, seasons and
@@ -372,10 +373,17 @@ def _value_for(kind: str, raw: str) -> str:
 
 
 # A word running straight into a captured chronology: the "Late" of "Late
-# Summer", the "Early" of "Early Spring". Letters, then optional spaces, then
-# the capture -- a separator or a bracket in between means the word belongs to
-# something else.
-_CHRON_QUALIFIER_RE = re.compile(r"([A-Za-z][A-Za-z.'\u2019-]*)\s*$")
+# Summer", the "Early" of "Early Spring", the "mid" of "mid-July". Letters, then
+# an optional hyphen, then optional spaces, then the capture -- a separator or a
+# bracket in between means the word belongs to something else.
+#
+# The hyphen is captured separately and never included in the word, because it
+# is the one character that can mean either half of this. "mid-July" is a
+# qualified month; the "Feb-" of "(Jan/Feb-July/Aug 1985)" is a month and a
+# *range separator*, and reading it as a qualifier made the value
+# "Feb- July/Aug" and refused a statement that had been converting correctly.
+# What tells them apart is whether the word is itself a month or a season.
+_CHRON_QUALIFIER_RE = re.compile(r"([A-Za-z][A-Za-z.'\u2019]*)(-?)\s*$")
 
 
 def _chron_qualifier(segment: str, match: "re.Match", group: str) -> str:
@@ -403,7 +411,14 @@ def _chron_qualifier(segment: str, match: "re.Match", group: str) -> str:
     if start <= 0:
         return ""
     found = _CHRON_QUALIFIER_RE.search(segment[:start])
-    return found.group(1) if found else ""
+    if not found:
+        return ""
+    word, hyphen = found.group(1), found.group(2)
+    if hyphen and chron_unit_code(word):
+        # "Jan/Feb-July/Aug": the hyphen separates two chronologies, and the
+        # word before it is the first of them, not a qualifier on the second.
+        return ""
+    return word + hyphen
 
 
 def _range_from_match(segment: str, match: "re.Match",

@@ -786,6 +786,55 @@ def test_a_qualified_season_is_not_quietly_narrowed():
         [f.display() for f in convert_holdings(parse_866(stmt)).fields_863]
 
 
+@pytest.mark.parametrize("statement, expected", [
+    # The hyphen between two chronologies is a range separator, and the word
+    # before it is the first of them. Reading "Feb-" as a qualifier on
+    # "July/Aug" made the value "Feb- July/Aug", refused the statement and
+    # flagged it -- on ten of the 136 statements in the two corpora.
+    ("v. 1 no. 1 (Jan/Feb-July/Aug 1985)", "01/02-07/08"),
+    ("v. 1 no. 1 (Spring-Summer 1990)", "21-22"),
+    ("v. 24 nos. 2-5 (Apr-Jul 1920)", "04-07"),
+])
+def test_a_range_separator_is_not_a_qualifier(statement, expected):
+    """
+    What tells the two apart is whether the word before the hyphen is itself a
+    month or a season. "Feb-" is; the "mid-" of "mid-July" is not.
+    """
+    from marc_converter import convert_holdings
+
+    group = detect_one(statement)
+    pattern = plib.ConfirmedPattern(
+        id="p1", label=group.human_label, regex=group.regex,
+        roles=infer_roles(group.named_groups), split=False,
+    )
+    parsed, _ = apply_patterns(statement, [pattern])
+    conversion = convert_holdings(parsed)
+
+    assert sub_of(conversion.fields_863[0], "j") == expected
+    assert conversion.flagged is False
+
+
+def test_a_hyphenated_qualifier_is_still_a_qualifier():
+    """
+    The other side of the same test. "mid" is not a month, so the hyphen is
+    joining a qualifier to July rather than separating two chronologies -- and
+    "mid-July" is no more codeable than "Late Summer".
+    """
+    from marc_converter import convert_holdings
+
+    statement = "v. 1 no. 1 (mid-July 1990)"
+    group = detect_one(statement)
+    pattern = plib.ConfirmedPattern(
+        id="p1", label=group.human_label, regex=group.regex,
+        roles=infer_roles(group.named_groups), split=False,
+    )
+    parsed, _ = apply_patterns(statement, [pattern])
+    conversion = convert_holdings(parsed)
+
+    assert sub_of(conversion.fields_863[0], "j") is None
+    assert conversion.flagged is True
+
+
 @pytest.mark.parametrize("statement", [
     "v. 1 no. 1 (Spring 1990)",                                  # after "("
     "v. 92 no. 1 - v. 93 no. 3 (Winter 1986 - Summer 1987)",     # after "- "

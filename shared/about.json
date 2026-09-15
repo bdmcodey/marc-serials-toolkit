@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "released": "2026-09-15",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,25 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.9.7",
+      "date": "2026-09-15",
+      "summary": "Fixes a mistake in 0.9.6: a date range like \"(Jan/Feb-July/Aug 1985)\" was being refused and marked for review.",
+      "changes": [
+        {
+          "tool": "Holdings Workbench",
+          "text": "0.9.6 taught patterns to notice a word attached to a season, so that \"Late Summer\" is not quietly recorded as Summer. It was reading the dash in a date range as part of that word: in \"(Jan/Feb-July/Aug 1985)\" it took \"Feb-\" to be a qualifier on \"July/Aug\". Statements that had been converting correctly lost their months and were marked as needing review. Ten statements in the test collection were affected — every \"Apr-Jul\", \"Jan-Jun\" and \"Jul/Aug-Sep/Oct\" in them."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "What separates the two cases is whether the word before the dash is itself a month or a season. \"Feb-\" is, so the dash is separating two dates; \"mid-\" is not, so \"mid-July\" is still a qualified month and is still named rather than coded."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "\"Late Summer\" is unaffected and still behaves as it did in 0.9.6: left out, named, and the record flagged for you to look at."
+        }
+      ]
+    },
     {
       "version": "0.9.6",
       "date": "2026-09-15",

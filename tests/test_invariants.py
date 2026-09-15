@@ -262,3 +262,77 @@ def test_every_corpus_regex_is_testable():
     for group in detect_patterns(statements):
         assert len(group.regex) <= MAX_REGEX_CHARS, \
             f"{group.human_label} -> {len(group.regex)}"
+
+
+# ---------------------------------------------------------------------------
+# The two conversion paths, held against each other
+# ---------------------------------------------------------------------------
+
+# Statements where the pattern path writes less chronology than the parser, with
+# the reason. The set is asserted exactly: one appearing is a regression, and one
+# disappearing means something was fixed and this note is stale.
+KNOWN_CHRON_GAPS = {
+    # The detector's CHRON token lists "summer" and not the abbreviation "sum",
+    # which the parser's own table does carry, so nothing is captured to encode.
+    "2018: ([Sum])": {"j"},
+}
+
+
+def test_the_pattern_path_never_drops_a_chronology_the_parser_keeps():
+    """
+    The invariant that was missing, and the reason it was missing is the point.
+
+    D26 was a value the pattern path dropped in silence -- "Late Summer" coded as
+    Summer. The corpus audit reported zero silent losses throughout, because that
+    audit runs against the *parser*. The fix for D26 then introduced a worse
+    regression through the same blind spot: reading the "Feb-" of
+    "(Jan/Feb-July/Aug 1985)" as a qualifier rather than a range separator took
+    the chronology off ten of the 136 statements in the two corpora, and the
+    corpus report still said "no drift", because it never looks at this path.
+
+    So the two paths are now compared directly, on the thing that went wrong
+    both times: a chronology one of them encodes and the other does not. Only
+    statements where both paths write something are compared -- where one writes
+    nothing the difference is a different question, and D3 and the Suppl.
+    statements are full of them.
+    """
+    from pattern_detector import detect_patterns
+    from pattern_bridge import infer_roles, assign_levels, apply_patterns
+    from marc_converter import convert_holdings
+    from holdings_parser import parse_866
+    import pattern_library as plib
+
+    def chron_of(fields):
+        if not fields:
+            return None
+        return {sf.code: sf.value for sf in fields[0].subfields
+                if sf.code in ("i", "j", "k")}
+
+    gaps = {}
+    for line in (Path(__file__).resolve().parents[1]
+                 / "data" / "textual_holdings_corpus.txt").read_text().splitlines():
+        text = line.split("#")[0].strip()
+        if not text or text.startswith("["):
+            continue
+
+        group = detect_patterns([text])[0]
+        if group.too_complex:
+            continue
+        pattern = plib.ConfirmedPattern(
+            id="p", label=group.human_label, regex=group.regex,
+            roles=assign_levels(infer_roles(group.named_groups)), split=False)
+        parsed, _ = apply_patterns(text, [pattern])
+
+        by_parser = chron_of(convert_holdings(parse_866(text)).fields_863)
+        by_pattern = chron_of(convert_holdings(parsed).fields_863)
+        if not by_parser or not by_pattern:
+            continue
+
+        missing = {c for c in by_parser if c not in by_pattern}
+        if missing:
+            gaps[text] = missing
+
+    unexpected = {k: v for k, v in gaps.items() if KNOWN_CHRON_GAPS.get(k) != v}
+    resolved = {k: v for k, v in KNOWN_CHRON_GAPS.items() if gaps.get(k) != v}
+    assert not unexpected, f"the pattern path now drops chronology here: {unexpected}"
+    assert not resolved, f"these no longer differ; update KNOWN_CHRON_GAPS: {resolved}"
