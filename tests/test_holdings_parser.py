@@ -883,3 +883,34 @@ def test_a_split_year_at_the_end_of_a_range():
 def test_a_bare_split_year_needs_no_season():
     r = parse_866("v.8(1996/1997)")
     assert r.ranges[0].start.year == "1996/1997"
+
+
+@pytest.mark.parametrize("text, years", [
+    ("1996/97", ["1996/1997"]),
+    ("1999/00", ["1999/2000"]),              # the turn of the century too
+    ("1990/91-1995/96", ["1990/1991", "1995/1996"]),
+])
+def test_a_statement_that_is_only_a_split_year_is_written_out_in_full(text, years):
+    """
+    0.8.1 taught the parser to read a year written across the turn of one, and
+    _parse_chron() normalises at all four of its sites. The year-only shorthand
+    was missed, so a statement with nothing in it *but* a year kept the raw
+    text -- and $i holds four-digit years, so "1996/97" was then refused and
+    named, from a statement that had nothing else to convert.
+
+    No statement in either corpus is a bare split year, which is why the audit
+    never saw it; it was found by reading the output of one that is.
+    """
+    r = parse_866(text)
+    got = [hr.start.year for hr in r.ranges]
+    got += [hr.end.year for hr in r.ranges if hr.end and hr.end.year]
+    assert got == years
+
+
+def test_a_bare_split_year_reaches_the_year_subfield():
+    """The point of normalising it: $i can hold the value afterwards."""
+    from marc_converter import convert_holdings
+
+    result = convert_holdings(parse_866("1996/97"))
+    assert result.fields_863[0].display() == "863 40 $8 1.1 $i 1996/1997"
+    assert result.warnings == []

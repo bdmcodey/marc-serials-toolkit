@@ -14,7 +14,7 @@ D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
 (0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7); D7 in part
 (0.8.9); the block grammar's invented captions (0.9.0); D23 (0.9.1);
 D24 (0.9.4); D25 (0.9.5); D26 (0.9.6, and its own
-regression in 0.9.7); D27 (0.9.8, 15 September 2026).
+regression in 0.9.7); D27 (0.9.8); D28 (0.9.9, 15 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -1132,6 +1132,48 @@ the same correct output on both paths. The corpus report is unmoved: the
 statement lives in the synthetic `.mrc`, not the text corpus, which is the third
 time in this log that a defect has sat outside what the audit reads.
 
+### D28 — the year-only shorthand keeps its split year raw · **FIXED in 0.9.9**
+
+Noticed while fixing D27, and smaller than it looked.
+
+```
+1996/97
+  -> 863 40 $8 1.1
+  ! '1996/97' is not something a year subfield can hold — it takes MARC codes,
+    not wording — so it was left out.
+```
+
+An empty 863 from a statement whose only content is a year.
+
+**Cause.** D19 (0.8.1) taught the parser that a year written across the turn of
+one is a single publication year — `1996/97` is `1996/1997` — and `_parse_chron()`
+normalises at all four of its sites. The *year-only shorthand* in `_parse_unit()`
+was missed and returned the raw match. `$i` holds four-digit years, so the value
+was then refused and named, from a statement that had nothing else to convert.
+
+The note written for it during D27 said it "reaches the degenerate path". It does
+not: `_parse_degenerate()` handles `2016?` and a bare number and would have
+refused this outright. The value comes from `_YEAR_ONLY_RE` in `_parse_unit()`.
+Checking that before changing anything is what turned a guess into a one-line
+fix in the right place.
+
+**Fixed** by calling `normalise_year()` there, which is the whole change. Three
+other sites set a year and none of them needed it: the block grammar's year
+pattern is `\d{4}|\?` so a split year cannot reach it, the degenerate path's is
+`\d{4}` before a `?`, and `_parse_chron()`'s pairing works on values that have
+already been through `normalise_year()`.
+
+```
+1996/97          -> $i 1996/1997
+1999/00          -> $i 1999/2000          the turn of the century too
+1990/91-1995/96  -> $i 1990/1991-1995/1996
+```
+
+No statement in either corpus is a bare split year, so nothing there changes and
+the report is unmoved — the fourth time in this log a defect has sat outside what
+the audit reads. It was found by reading the output of a statement that *is* in
+the corpus, which is the only reason it surfaced at all.
+
 ## Pattern detector
 
 The detector's *correctness* holds up well: every cluster that generates a regex
@@ -1673,12 +1715,6 @@ The first two are done; the rest are Workbench UI and are not started.
   "needs attention" showed 86 records where 8 matched. The counts now come from
   `/api/review-index`, which answers for every record, and paging walks what
   the filter shows rather than the file in order.
-- **A year-only statement does not normalise its split year.** Noticed
-  15 September 2026, not started. `parse_866("1996/97")` reaches the degenerate
-  path, which writes the raw text rather than the `1996/1997` that
-  `normalise_year()` produces everywhere else, so the year subfield refuses it
-  and the statement converts to an empty 863. Small, and the value is named
-  rather than lost.
 - **Flag a statement that belongs in another field.** Raised 15 September 2026,
   not started. An 866 saying `Suppl.` is describing supplementary material,
   which MARC 21 puts in **867** with its own **864** enumeration; one saying
