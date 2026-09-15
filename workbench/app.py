@@ -86,7 +86,24 @@ UPLOAD_DIR = os.environ.get(
 )
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# An uploaded MARC file is the cataloguer's data, and should not sit on a server
+# any longer than the work takes.
 UPLOAD_TTL_SECONDS = int(os.environ.get("MARC_UPLOAD_TTL", 6 * 3600))
+
+# The pattern library is not an upload.  It is work -- a cataloguer's decisions
+# about their own collection, a hundred of them on a large file -- and it was
+# stored in the same directory under the same sweep, so uploading a file six
+# hours after confirming a library *deleted the library*.  The page had already
+# read it and went on showing patterns the server no longer had; every record
+# then converted with the standard parser, with nothing to say why.
+#
+# Kept far longer, and measured from last use rather than from when it was
+# written: a library someone converts with every week is in use, whether or not
+# they have edited it.
+LIBRARY_TTL_SECONDS = int(os.environ.get("MARC_LIBRARY_TTL", 30 * 86400))
+
+# Which stored things are libraries rather than uploads.
+LIBRARY_EXT = ".json"
 
 # Bounds on user-supplied text, matching the pattern detector's: a regex the
 # cataloguer edited runs against statements the cataloguer uploaded, so both
@@ -117,19 +134,28 @@ CANDIDATE_PRIORITY = 10 ** 6
 # a single generated regex can run to a quarter of that.
 # ---------------------------------------------------------------------------
 
-def _purge_old_uploads() -> None:
-    """Delete stored files older than UPLOAD_TTL_SECONDS."""
+def _purge_old_stored_files() -> None:
+    """
+    Delete stored files past their age, each kind by its own limit.
+
+    One sweep used to apply the upload limit to everything in the directory,
+    which meant an upload could delete a pattern library that had taken an
+    afternoon to confirm.
+    """
     now = time.time()
     try:
-        for fname in os.listdir(UPLOAD_DIR):
-            fpath = os.path.join(UPLOAD_DIR, fname)
-            try:
-                if now - os.path.getmtime(fpath) > UPLOAD_TTL_SECONDS:
-                    os.remove(fpath)
-            except OSError:
-                pass
+        names = os.listdir(UPLOAD_DIR)
     except OSError:
-        pass
+        return
+    for fname in names:
+        fpath = os.path.join(UPLOAD_DIR, fname)
+        ttl = (LIBRARY_TTL_SECONDS if fname.endswith(LIBRARY_EXT)
+               else UPLOAD_TTL_SECONDS)
+        try:
+            if now - os.path.getmtime(fpath) > ttl:
+                os.remove(fpath)
+        except OSError:
+            pass
 
 
 def _file_path(file_id: str, ext: str = ".mrc") -> str:
@@ -137,7 +163,7 @@ def _file_path(file_id: str, ext: str = ".mrc") -> str:
 
 
 def _save_file(session_key: str, data: bytes, ext: str = ".mrc") -> None:
-    _purge_old_uploads()
+    _purge_old_stored_files()
     file_id = session.get(session_key)
     if not isinstance(file_id, str) or len(file_id) != 32:
         file_id = uuid.uuid4().hex
@@ -146,13 +172,27 @@ def _save_file(session_key: str, data: bytes, ext: str = ".mrc") -> None:
         fh.write(data)
 
 
-def _load_file(session_key: str, ext: str = ".mrc") -> Optional[bytes]:
+def _load_file(session_key: str, ext: str = ".mrc",
+               refresh: bool = False) -> Optional[bytes]:
+    """
+    Read a stored file, or None.
+
+    `refresh` marks it as still in use, so its age is measured from the last
+    time it was wanted rather than from the last time it was written.  Reading
+    is what a pattern library mostly gets: a cataloguer who converts with the
+    same hundred patterns every week never rewrites them.
+    """
     file_id = session.get(session_key)
     if not file_id:
         return None
     path = _file_path(file_id, ext)
     if not os.path.exists(path):
         return None
+    if refresh:
+        try:
+            os.utime(path, None)
+        except OSError:
+            pass                     # read-only store; the read still works
     with open(path, "rb") as fh:
         return fh.read()
 
@@ -163,7 +203,7 @@ def _load_file(session_key: str, ext: str = ".mrc") -> Optional[bytes]:
 
 def _load_library() -> list:
     """The confirmed patterns for this session, in the order they are tried."""
-    raw = _load_file("pattern_library", ".json")
+    raw = _load_file("pattern_library", LIBRARY_EXT, refresh=True)
     if not raw:
         return []
     try:
@@ -171,13 +211,19 @@ def _load_library() -> list:
     except (ValueError, UnicodeDecodeError):
         app.logger.warning("Stored pattern library was unreadable; ignoring it.")
         return []
-    patterns, _ = plib.from_export(document)
+    patterns, errors = plib.from_export(document)
+    if errors:
+        # Dropped silently before. A pattern that stops loading takes every
+        # record it used to read with it, and the screen looks the same.
+        app.logger.warning("Stored pattern library: %d entr%s could not be "
+                           "read and were ignored: %s", len(errors),
+                           "y" if len(errors) == 1 else "ies", "; ".join(errors))
     return patterns
 
 
 def _save_library(patterns) -> None:
     payload = json.dumps(plib.to_export(patterns), indent=2).encode("utf-8")
-    _save_file("pattern_library", payload, ".json")
+    _save_file("pattern_library", payload, LIBRARY_EXT)
 
 
 # ---------------------------------------------------------------------------
