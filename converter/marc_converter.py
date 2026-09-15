@@ -913,8 +913,19 @@ def _note_unpairable_under_range(warnings: Optional[List[str]], label: tuple,
 
 
 def _note_uncodeable(warnings: Optional[List[str]], label: tuple,
-                     value: str) -> None:
-    """Record chronology wording the coded subfield cannot hold."""
+                     value: str, flags: Optional[set] = None) -> None:
+    """
+    Record chronology wording the coded subfield cannot hold.
+
+    This flags the record as well as naming the value.  "Late Summer" is the
+    case that made it matter: it may be the Summer issue, or the serial may also
+    have an Early Summer and coding both 22 would merge two different issues
+    into one.  Nothing here can tell -- a cataloguer has to look at the piece --
+    so the record is put where they will see it rather than left to a warning
+    that only shows when the row is opened.
+    """
+    if flags is not None:
+        flags.add("uncodeable")
     if warnings is None:
         return
     _, word = label
@@ -933,6 +944,7 @@ def _hierarchy_values(
     get,
     label_for,
     warnings: Optional[List[str]] = None,
+    flags: Optional[set] = None,
 ) -> Dict[Any, str]:
     """
     The 863 value for every level of one hierarchy, as {key: value}.
@@ -1043,7 +1055,7 @@ def _hierarchy_values(
             # reach $j, which the 853 declares as "(month)" -- and
             # "11/12-Late Summer" put codes and prose in one subfield.  The
             # record cannot carry it, so it is left out and named.
-            _note_uncodeable(warnings, label_for(key), value)
+            _note_uncodeable(warnings, label_for(key), value, flags)
             value = None
 
         if value:
@@ -1066,6 +1078,7 @@ def _build_863_for_range(
     smap: Optional[Dict[str, str]] = None,
     chron_as_text: bool = False,
     warnings: Optional[List[str]] = None,
+    flags: Optional[set] = None,
 ) -> FieldData:
     """
     Build a single 863 field for one HoldingsRange.
@@ -1099,6 +1112,7 @@ def _build_863_for_range(
         _enum_at,
         lambda i: _enum_label(captions[i] if i < len(captions) else None, i),
         warnings,
+        flags,
     )
     stated = hr.enum_captions()
     for i in range(depth):
@@ -1122,6 +1136,7 @@ def _build_863_for_range(
         lambda ec, name: getattr(ec, name) if ec else None,
         lambda name: _LEVEL_WORDS[name],
         warnings,
+        flags,
     )
     for name in _CHRON_LEVELS:
         if not levels.get(name):
@@ -1214,6 +1229,10 @@ def convert_holdings(
     when the statement was withheld for review.
     """
     warnings = list(parse_result.warnings)
+    # Collected by the notes below: a record the tool wrote fields for without
+    # being able to vouch for all of them. Distinct from needs_review, which
+    # writes nothing. "Needs attention" on the review screen is held or flagged.
+    flags: set = set()
     levels = parse_result.caption_union()
 
     # A caller may pass a fully-resolved spec (from the UI) or just a preset
@@ -1254,7 +1273,8 @@ def convert_holdings(
         link = _existing_link(existing_853) or linking_number
         fields_863 = [
             _build_863_for_range(hr, link, seq, levels, smap=declared,
-                                 chron_as_text=chron_as_text, warnings=warnings)
+                                 chron_as_text=chron_as_text, warnings=warnings,
+                                 flags=flags)
             for seq, hr in enumerate(parse_result.ranges, start=1)
         ]
         return ConversionResult(
@@ -1263,7 +1283,7 @@ def convert_holdings(
             linking_number=link,
             warnings=warnings,
             conformed=True,
-            flagged=_check_enumeration_depth(levels, warnings),
+            flagged=_check_enumeration_depth(levels, warnings) or bool(flags),
         )
 
     if declared:
@@ -1296,7 +1316,8 @@ def convert_holdings(
     fields_863: List[FieldData] = []
     for seq, hr in enumerate(parse_result.ranges, start=1):
         f863 = _build_863_for_range(hr, linking_number, seq, levels, smap=smap,
-                                    chron_as_text=chron_as_text, warnings=warnings)
+                                    chron_as_text=chron_as_text, warnings=warnings,
+                                    flags=flags)
         fields_863.append(f863)
 
     return ConversionResult(
@@ -1304,7 +1325,7 @@ def convert_holdings(
         fields_863=fields_863,
         linking_number=linking_number,
         warnings=warnings,
-        flagged=_check_enumeration_depth(levels, warnings),
+        flagged=_check_enumeration_depth(levels, warnings) or bool(flags),
     )
 
 

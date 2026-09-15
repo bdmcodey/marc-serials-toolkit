@@ -371,6 +371,41 @@ def _value_for(kind: str, raw: str) -> str:
     return raw
 
 
+# A word running straight into a captured chronology: the "Late" of "Late
+# Summer", the "Early" of "Early Spring". Letters, then optional spaces, then
+# the capture -- a separator or a bracket in between means the word belongs to
+# something else.
+_CHRON_QUALIFIER_RE = re.compile(r"([A-Za-z][A-Za-z.'\u2019-]*)\s*$")
+
+
+def _chron_qualifier(segment: str, match: "re.Match", group: str) -> str:
+    """
+    The word qualifying a captured chronology unit, or "".
+
+    The detector's CHRON token matches a month or season name wherever it finds
+    one, so "Late Summer" captures "Summer" and leaves "Late" as literal text in
+    the pattern -- text the cataloguer never sees a decision about, and which
+    then disappears.  The 863 came out "$j 22" and said the run ended in Summer
+    2002.
+
+    Whether that is right is not something this tool can settle.  "Late Summer"
+    may be the Summer issue; the serial may equally have an Early Summer as
+    well, and coding both 22 would merge two issues into one.  A cataloguer has
+    to look at the piece.  So the qualifier is put back on the value, which
+    sends it through exactly the check the standard parser applies -- the
+    subfield holds MARC codes, "Late Summer" is not one, so it is named rather
+    than written, and the record is flagged for review.
+    """
+    try:
+        start = match.start(group)
+    except (IndexError, re.error):               # pragma: no cover - unnamed
+        return ""
+    if start <= 0:
+        return ""
+    found = _CHRON_QUALIFIER_RE.search(segment[:start])
+    return found.group(1) if found else ""
+
+
 def _range_from_match(segment: str, match: "re.Match",
                       roles: Sequence[GroupRole],
                       warnings: list[str],
@@ -409,6 +444,13 @@ def _range_from_match(segment: str, match: "re.Match",
                 enum_slots[role.boundary])
             enum_slots[role.boundary][index] = EnumLevel(
                 caption=role.caption, value=raw)
+        elif role.kind in (KIND_MONTH, KIND_DAY):
+            # A qualifier the pattern matched as literal text is part of what
+            # the piece says, and dropping it quietly is the one thing not to
+            # do. Put back, the converter treats it as the parser does.
+            qualifier = _chron_qualifier(segment, match, role.group)
+            value = f"{qualifier} {raw}" if qualifier else raw
+            setattr(target, role.kind, _value_for(role.kind, value))
         else:
             setattr(target, role.kind, _value_for(role.kind, raw))
 

@@ -961,6 +961,12 @@ def test_wording_never_reaches_a_coded_chronology_subfield(text, dropped):
     result = convert_holdings(parse_866(text))
     assert sub(result.fields_863[0], "j") is None
     assert any(dropped in w for w in result.warnings), result.warnings
+    # And the record is put where a cataloguer will see it. Naming the value in
+    # a warning is not enough on its own: the warning shows when the row is
+    # opened, and nobody opens a row that looks converted. "Late Summer" may be
+    # the Summer issue or may sit beside an Early Summer, and only a person
+    # looking at the piece can say.
+    assert result.flagged is True
 
 
 def test_an_abbreviated_season_is_coded_rather_than_dropped():

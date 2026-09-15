@@ -13,7 +13,7 @@ anything was changed.
 D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
 (0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7); D7 in part
 (0.8.9); the block grammar's invented captions (0.9.0); D23 (0.9.1);
-D24 (0.9.4); D25 (0.9.5, 15 September 2026).
+D24 (0.9.4); D25 (0.9.5); D26 (0.9.6, 15 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -986,6 +986,64 @@ The 853 still declares `$b no.`, because the serial does have an issue level eve
 though this 863 does not record it — so the "853s declaring a caption their own
 863 never fills" count rises from 18 to 19. That count is a watch-list, not an
 error, and this is a legitimate entry in it.
+
+### D26 — a qualified season is quietly narrowed to the season · **FIXED in 0.9.6**
+
+The last disagreement between the two paths that was a defect rather than a
+difference, and the pattern path's only silent loss.
+
+```
+v. 15 no. 6 - v. 23 nos. 2/3 (Nov/Dec 1994 - Late Summer 2002)
+
+  parser  -> 863 $a 15-23 $b 6-2/3 $i 1994-2002
+             ! '11/12-Late Summer' is not something a month or season subfield
+               can hold …
+  pattern -> 863 $a 15-23 $b 6-2/3 $i 1994-2002 $j 11/12-22
+             (no warning at all)
+```
+
+The record said the run ended in **Summer 2002**. The source says Late Summer.
+
+**Cause.** The detector's CHRON token matches a month or season wherever it
+finds one, so `Late Summer` captures `Summer` and `Late` becomes literal text in
+the generated expression — text the cataloguer is never asked a question about,
+and which then vanishes. Every corpus audit of silent loss has been run against
+the *parser*, which is why this sat at zero while the pattern path dropped a
+word.
+
+**Why it cannot simply be coded.** From the cataloguer who reported it:
+
+> at my library, the rule we followed was to put whatever enum/chron was printed
+> on the actual issue into the textual holdings statement, but in this "Late
+> Summer" example it's unclear whether this maps directly as a Summer issue or
+> if there is also an "Early Summer" issue then this wouldn't work, i.e.,
+> cataloger needs to investigate before making the call
+
+`Late Summer` may be the Summer issue. The serial may equally have an Early
+Summer, and coding both `22` would merge two different issues into one. Nothing
+in the statement settles it; somebody has to look at the piece.
+
+**Fixed** by putting the qualifier back on the value before it is encoded. That
+is all — no new rule: `_is_codeable()` then refuses `Late Summer` exactly as it
+refuses it on the parser path, `_note_uncodeable()` names it, and the two paths
+produce the same field again.
+
+**And the record is flagged.** `_note_uncodeable()` now sets the `flagged` state,
+which is what "Needs attention" on the review screen keys on. A warning alone was
+not enough: it shows when a row is opened, and nobody opens a row that looks
+converted. `flagged` has meant "fields produced, but not vouched for" since 0.7.4
+(D14) — a value the tool could read and could not encode is exactly that, and it
+had only ever been set by the enumeration-depth guard.
+
+Two corpus statements are now flagged: this one and `v. 15 (1998 Buyers Guide)`,
+where a named issue sits where a date should be. Both are cases where the tool
+has done what it can and a person has to finish.
+
+The qualifier test is deliberately narrow — letters running straight into the
+captured unit, with only spaces between. A separator or a bracket before it is
+not a qualifier, and treating one as though it were would refuse most of the
+corpus; `(Spring 1990)`, `(Winter 1986 - Summer 1987)` and
+`(November/December 2016 - January 2022)` are all pinned as untouched.
 
 ## Pattern detector
 

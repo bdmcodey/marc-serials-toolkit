@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "released": "2026-09-15",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,25 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.9.6",
+      "date": "2026-09-15",
+      "summary": "\"Late Summer\" is no longer recorded as Summer. Wording the tool cannot code is named, and the record is flagged for you to look at.",
+      "changes": [
+        {
+          "tool": "Holdings Workbench",
+          "text": "A pattern reading \"(Nov/Dec 1994 - Late Summer 2002)\" was writing the season as Summer and dropping the word \"Late\" without saying so. It may well be the Summer issue — or the serial may have an Early Summer too, in which case coding both as Summer merges two different issues. Nothing in the statement settles that, so the season is left out and named, and you are told, which is what the Converter has always done with it."
+        },
+        {
+          "tool": "Converter",
+          "text": "Wording that a coded subfield cannot hold now marks the record as needing attention, not just a warning on the row. A warning only shows once you open a row, and nobody opens a row that looks converted. Two statements in the test collection are affected: the \"Late Summer\" one and \"v. 15 (1998 Buyers Guide)\", where a named issue sits where a date should be."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "An ordinary season is untouched. A word only counts as a qualifier when it runs straight into the season or month; a dash or a bracket in front of it does not, so \"(Spring 1990)\" and \"(Winter 1986 - Summer 1987)\" convert exactly as before."
+        }
+      ]
+    },
     {
       "version": "0.9.5",
       "date": "2026-09-15",
