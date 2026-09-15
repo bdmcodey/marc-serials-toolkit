@@ -36,6 +36,14 @@ from pattern_bridge import (
 import pattern_library as plib
 
 
+def sub_of(field_data, code: str):
+    """First value for `code` on a FieldData, or None."""
+    for sf in field_data.subfields:
+        if sf.code == code:
+            return sf.value
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -742,6 +750,64 @@ def test_a_skipped_pattern_still_claims_a_discontinuous_list():
     parsed, source = apply_patterns(stmt, [pattern])
     assert source == "skipped"
     assert parsed.ranges == []
+
+
+def test_a_qualified_season_is_not_quietly_narrowed():
+    """
+    The detector's CHRON token matches a season wherever it finds one, so
+    "Late Summer" captures "Summer" and leaves "Late" as literal text in the
+    pattern -- text nobody is ever asked about, and which then disappeared. The
+    863 came out "$j 22" and said the run ended in Summer 2002.
+
+    Whether that is right is not something this tool can settle. "Late Summer"
+    may be the Summer issue; the serial may equally have an Early Summer too,
+    and coding both 22 would merge two issues into one. The qualifier goes back
+    onto the value, which sends it through the same check the standard parser
+    applies.
+    """
+    from marc_converter import convert_holdings
+
+    stmt = "v. 15 no. 6 - v. 23 nos. 2/3 (Nov/Dec 1994 - Late Summer 2002)"
+    group = detect_one(stmt)
+    pattern = plib.ConfirmedPattern(
+        id="p1", label=group.human_label, regex=group.regex,
+        roles=infer_roles(group.named_groups), split=False,
+    )
+
+    parsed, _ = apply_patterns(stmt, [pattern])
+    conversion = convert_holdings(parsed)
+
+    assert sub_of(conversion.fields_863[0], "j") is None
+    assert conversion.flagged is True
+    assert any("Late Summer" in w for w in conversion.warnings), conversion.warnings
+
+    # And the same fields the standard parser writes, which is the point.
+    assert [f.display() for f in conversion.fields_863] == \
+        [f.display() for f in convert_holdings(parse_866(stmt)).fields_863]
+
+
+@pytest.mark.parametrize("statement", [
+    "v. 1 no. 1 (Spring 1990)",                                  # after "("
+    "v. 92 no. 1 - v. 93 no. 3 (Winter 1986 - Summer 1987)",     # after "- "
+    "v. 37 no. 10 - v. 43 no. 1 (November/December 2016 - January 2022)",
+])
+def test_an_unqualified_season_is_left_alone(statement):
+    """
+    A separator or a bracket before the unit is not a qualifier, and treating
+    one as though it were would refuse most of the corpus.
+    """
+    from marc_converter import convert_holdings
+
+    group = detect_one(statement)
+    pattern = plib.ConfirmedPattern(
+        id="p1", label=group.human_label, regex=group.regex,
+        roles=infer_roles(group.named_groups), split=False,
+    )
+    parsed, _ = apply_patterns(statement, [pattern])
+    conversion = convert_holdings(parsed)
+
+    assert sub_of(conversion.fields_863[0], "j") is not None
+    assert conversion.flagged is False
 
 
 def test_a_value_nobody_has_decided_about_forces_review():
