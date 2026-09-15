@@ -1062,6 +1062,12 @@ async function uploadMarcFile(file) {
     skipRecords.clear();
     reviewOffset = 0;
     recordIndex.clear();
+    // Re-read the library from the server rather than trusting what this page
+    // read when it loaded. The two used to be able to disagree -- the sidebar
+    // showing a hundred confirmed patterns the server had already discarded,
+    // and every record then converting with the standard parser -- and a count
+    // on screen that conversion does not use is worse than no count at all.
+    await loadLibrary();
     reloadReview();
     dropZone.innerHTML = '<span class="icon">📁</span>Drop a MARC file here, or click to browse';
     showSourceSummary(

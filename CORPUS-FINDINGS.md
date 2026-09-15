@@ -12,7 +12,8 @@ anything was changed.
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
 D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
 (0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7); D7 in part
-(0.8.9); the block grammar's invented captions (0.9.0, 11 September 2026).
+(0.8.9); the block grammar's invented captions (0.9.0); D23 (0.9.1,
+15 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -827,6 +828,52 @@ One client-side bug fell out of it. `saveLibrary()` set `library = data.patterns
 || []` on every response, so a refusal — which returns no `patterns` — emptied
 the screen's copy of a library the server had in fact left untouched. The
 cataloguer would have seen every confirmation disappear.
+
+### D23 — uploading a file deletes the pattern library · **FIXED in 0.9.1**
+
+Reported from real use, on the wellformed file with a 120-pattern library
+confirmed in an earlier session: every record converted with the standard parser
+while the sidebar said 120 patterns were confirmed. Clearing the library and
+detecting again made the patterns apply.
+
+**Cause.** `_purge_old_uploads()` swept *everything* in the upload directory past
+`UPLOAD_TTL_SECONDS` (6 hours), and the pattern library is a `.json` file in that
+same directory. The sweep runs on `_save_file()` — which is what an upload calls.
+So:
+
+1. The page loads and reads the library: **120 patterns**, shown in the sidebar.
+2. The cataloguer uploads their `.mrc`. The upload's own sweep deletes the
+   library, because it was written yesterday. The `.mrc` survives: it is rewritten
+   immediately afterwards.
+3. Conversion loads a library that is now empty and falls through to the parser
+   for every statement.
+4. The sidebar still says 120, because nothing re-read it.
+
+Reproduced exactly through the HTTP API by backdating the stored files, which is
+also how the two regression tests work.
+
+**Fixed** by giving the two kinds of stored file their own lifetimes. An upload is
+the cataloguer's *data* and still goes after six hours — that limit is a
+deliberate choice about not keeping holdings on a server. A library is their
+*work*, and keeping it for thirty days is the least that makes sense when
+confirming one takes an afternoon. Its age is now measured from last **use**
+rather than last write, because reading is almost all a library gets: converting
+with the same hundred patterns every week never rewrites them.
+
+Two things alongside it. `_load_library()` discarded the errors from
+`from_export()` — a pattern that stops loading takes every record it used to read
+with it, and the screen looks identical — so they are logged now. And the client
+re-reads the library after an upload, so a count on screen can no longer be one
+conversion will not use.
+
+**What this says about the rest of the log.** Every other defect here is about
+what the tools write into a record. This one is about a file being deleted by a
+housekeeping routine that had no idea what it was deleting, and it cost more
+holdings than most of them: 120 confirmations, and then a whole file converted by
+the fallback path. It was invisible to every test in the suite and to the corpus
+audit, because both exercise conversion with a library that was just built. Only
+the passage of time exposes it — which is the one thing a test suite never has
+and a cataloguer always does.
 
 ## Pattern detector
 
