@@ -150,8 +150,23 @@ _TOK_RE = re.compile(
     r"|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\b)*)"
     # Issue caption   — no. | nr. | num. | number | iss. | issue
     r"|(?P<ISS_CAP>\b(?:no|nr|num(?:ber)?|iss(?:ue)?)\.?)"
-    # Generic number (possibly with trailing letter: "4a", "12b")
-    r"|(?P<NUMBER>\d+[a-zA-Z]?)"
+    # Generic number (possibly with trailing letter: "4a", "12b"), with any
+    # slash-joined continuation.  "no. 8/9" is *one* issue -- a single issue
+    # numbered 8/9, not issues 8 and 9 -- the same way "1996/97" is one YEAR and
+    # "Jul/Aug" one CHRON, and for the same reason those absorb their tails:
+    # tokenising the second half separately leaves it a stray number for the
+    # confirmation screen to ask about, and the roles inferred for the halves
+    # were then *transposed* -- "v. 34 no. 8/9-v. 35 no. 23/24" put the issue 9
+    # at the volume level and the volume 35 at the issue level, and converted to
+    # "$a 34 $b 8".
+    #
+    # A hyphen is deliberately *not* absorbed.  It is not part of a designation,
+    # it means "through": the "1-5" of "v.1-5(1990-1994)" is volume 1 through
+    # volume 5, two endpoints of one range, and they stay two captures so the
+    # cataloguer can see and confirm each.  Which of the two a hyphen is depends
+    # on whether the statement has a unit separator elsewhere, and that is not a
+    # question a tokeniser can answer -- see _merge_ranged_numbers().
+    r"|(?P<NUMBER>\d+[a-zA-Z]?(?:\s*/\s*\d+[a-zA-Z]?)*)"
     r"|(?P<PAREN_OPEN>\()"
     r"|(?P<PAREN_CLOSE>\))"
     r"|(?P<SEP_COLON>:)"
@@ -163,9 +178,84 @@ _TOK_RE = re.compile(
 )
 
 
+# The captions a unit separator is followed by.  A hyphen that divides one
+# statement into two units always leads into a new unit, and a new unit starts
+# with a caption ("...-v. 29") or has just closed a chronology ("(1990)-v.5").
+_UNIT_CAPS = (VOL_CAP, ISS_CAP, PT_CAP)
+
+
+def _has_unit_separator(tokens: list[Token]) -> bool:
+    """Whether a hyphen in this statement divides it into two units."""
+    kinds = [t.kind for t in tokens if t.kind != SPACE]
+    for i, kind in enumerate(kinds):
+        if kind != SEP_HYPHEN:
+            continue
+        if i and kinds[i - 1] == PAREN_CLOSE:
+            return True
+        if i + 1 < len(kinds) and kinds[i + 1] in _UNIT_CAPS:
+            return True
+    return False
+
+
+def _merge_ranged_numbers(tokens: list[Token]) -> list[Token]:
+    """
+    Join "3-4" into one NUMBER, but only where the statement has units to be
+    inside of.
+
+    A hyphen between two numbers is one of two entirely different things, and
+    which one depends on the statement around it:
+
+        v.1-5(1990-1994)                  one unit  -> volume 1 *through* 5,
+                                                       two endpoints of a range
+        v. 23 no. 3-4-v. 29 no. 3-4       two units -> issues 3-4 *of v. 23*,
+                                                       one value inside a unit
+
+    Only the second is merged.  The first is the commoner shape by far and its
+    two endpoints are two facts a cataloguer confirms separately -- collapsing
+    it would throw away the start/end structure the whole role model is built
+    on, and would say a range spanning the statement is a designation.
+
+    The test is whether some *other* hyphen divides the statement, which is a
+    question about the whole token stream and so cannot live in the tokeniser's
+    own regex.  Without the merge, "3-4-v. 29" made the 4 an end-boundary value
+    at the volume level and the 29 an issue -- the transposition D24 is about,
+    reached by the other road.
+    """
+    if not _has_unit_separator(tokens):
+        return tokens
+
+    out: list[Token] = []
+    i = 0
+    while i < len(tokens):
+        run = [tokens[i]]
+        j = i + 1
+        # NUMBER (space) HYPHEN (space) NUMBER, as many times as it repeats.
+        while tokens[i].kind == NUMBER:
+            k = j
+            while k < len(tokens) and tokens[k].kind == SPACE:
+                k += 1
+            if k >= len(tokens) or tokens[k].kind != SEP_HYPHEN:
+                break
+            k += 1
+            while k < len(tokens) and tokens[k].kind == SPACE:
+                k += 1
+            if k >= len(tokens) or tokens[k].kind != NUMBER:
+                break
+            run.extend(tokens[j:k + 1])
+            j = k + 1
+        if len(run) > 1:
+            out.append(Token(kind=NUMBER, raw="".join(t.raw for t in run)))
+            i = j
+        else:
+            out.append(tokens[i])
+            i += 1
+    return out
+
+
 def tokenize(text: str) -> list[Token]:
     """Tokenize a holdings statement into a list of Token objects."""
-    return [Token(kind=m.lastgroup, raw=m.group()) for m in _TOK_RE.finditer(text)]
+    raw = [Token(kind=m.lastgroup, raw=m.group()) for m in _TOK_RE.finditer(text)]
+    return _merge_ranged_numbers(raw)
 
 
 def _strip_spaces(tokens: list[Token]) -> list[Token]:
@@ -460,7 +550,17 @@ def _build_regex(
         if kind == NUMBER:
             name = boundary_name(prev_cap or "num")
             named_groups.append(name)
-            parts.append(rf"(?P<{name}>\d+[a-zA-Z]?)")
+            # Generous on purpose, and deliberately wider than the tokeniser.
+            # The tokeniser decides how many captures a statement has; this
+            # decides what one capture may *hold*, and a merged range like the
+            # "3-4" of "v. 23 no. 3-4-v. 29 no. 3-4" is one value containing a
+            # hyphen. Leaving the hyphen out here made the cluster stop matching
+            # its own members. The joined part is optional, so a pattern found
+            # from "no. 8/9" also reads "no. 8" -- the same generosity the YEAR
+            # group has. Where the statement really is "1-5", the tokeniser has
+            # emitted two groups with a literal "-" between them, and this group
+            # backtracks off the hyphen to let that separator match.
+            parts.append(rf"(?P<{name}>\d+[a-zA-Z]?(?:\s*[-/]\s*\d+[a-zA-Z]?)*)")
             parts.append(r"\s*")
             continue
 
@@ -710,10 +810,10 @@ def detect_patterns(statements: list[str]) -> list[PatternGroup]:
         # And again *after*, on the thing itself.  The token count is only a
         # proxy for how long the expression will be, and a poor one: a CHRON
         # token spends the month alternation twice, about 180 characters, where
-        # a NUMBER spends 25.  A statement with five of them reached 2,384
+        # a NUMBER spends 54.  A statement with five of them reached 2,384
         # characters at 25 tokens -- well inside the token ceiling and well
-        # past the 2,000 the Test button accepts, so the detector was handing
-        # the cataloguer an expression it would then refuse to test.
+        # past the 2,000 the Test button accepted then, so the detector was
+        # handing the cataloguer an expression it would refuse to test.
         #
         # Measuring the regex makes that impossible by construction rather than
         # by calibration: whatever is emitted can always be tested and stored.

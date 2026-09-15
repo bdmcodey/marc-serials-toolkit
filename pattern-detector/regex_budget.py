@@ -39,11 +39,11 @@ import sys
 from typing import Optional, Sequence
 
 # Measured on the 117-statement corpus, against the longest expression the
-# detector generates (2,384 characters) searching 2,000 copies of a 500-character
+# detector generates (2,546 characters) searching 2,000 copies of a 500-character
 # adversarial string -- the largest payload any endpoint here will accept:
 #
-#     matching alone                         26 ms
-#     the whole round trip, child included  321 ms
+#     matching alone                         23 ms
+#     the whole round trip, child included  229 ms
 #     an empty round trip (interpreter start, one statement)   37 ms
 #
 # So the budget has to cover the child's startup and the JSON in both

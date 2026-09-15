@@ -236,6 +236,51 @@ def test_a_compressed_range_reads_as_one_in_its_label():
     assert detect_patterns(["v.1-5(1990-1994)"])[0].human_label == "VOL-VOL(YEAR-YEAR)"
 
 
+def test_a_combined_designation_is_one_captured_value():
+    """
+    "no. 8/9" is one issue -- a single issue numbered 8/9, not issues 8 and 9.
+    Captured as two, the roles inferred for the halves were *transposed*: in
+    "v. 34 no. 8/9-v. 35 no. 23/24" the 9 became an end-boundary value at the
+    volume level and the 35 an issue, and the field came out "$a 34 $b 8".
+
+    YEAR has absorbed "1996/97" and CHRON "Jul/Aug" for the same reason.
+    """
+    group = detect_patterns(["v. 34 no. 8/9-v. 35 no. 23/24 (1996-1997)"])[0]
+    assert group.named_groups == ["start_vol", "start_iss", "end_vol", "end_iss",
+                                  "start_year", "end_year"]
+    assert group.human_label == "VOLISS — VOLISS(YEAR-YEAR)"
+
+
+def test_a_range_spanning_one_unit_keeps_both_its_endpoints():
+    """
+    The hyphen is not the slash, and this is the distinction to hold on to.
+
+    "v.1-5(1990-1994)" is one unit: the hyphen means *through*, and volume 1 and
+    volume 5 are two endpoints a cataloguer confirms separately. Absorbing them
+    into a single "1-5" would throw away the start/end structure the whole role
+    model rests on -- and this is much the commoner shape, so getting it wrong
+    would cost far more than the combined designation above ever did.
+    """
+    group = detect_patterns(["v.1-5(1990-1994)"])[0]
+    assert group.named_groups == ["start_vol", "end_vol", "start_year", "end_year"]
+    assert group.human_label == "VOL-VOL(YEAR-YEAR)"
+
+
+def test_a_range_inside_a_unit_is_one_value():
+    """
+    The same hyphen, the other meaning. "v. 23 no. 3-4-v. 29 no. 3-4" has two
+    units, so the "3-4" in each is issues 3-4 *of that volume*, not a range
+    spanning the statement -- and the hyphen between them is the divider.
+
+    Which it is depends on whether some other hyphen divides the statement,
+    which is a fact about the whole token stream rather than about any one
+    number, so _merge_ranged_numbers() decides it after tokenising.
+    """
+    group = detect_patterns(["v. 23 no. 3-4-v. 29 no. 3-4 (1985-1991)"])[0]
+    assert group.named_groups == ["start_vol", "start_iss", "end_vol", "end_iss",
+                                  "start_year", "end_year"]
+
+
 def test_caption_variants_are_recorded_and_matched():
     """A group spanning "v." and "Vol." must match both, not just the first."""
     groups = detect_patterns(["v.1(1990)", "Vol. 2 (1991)"])
