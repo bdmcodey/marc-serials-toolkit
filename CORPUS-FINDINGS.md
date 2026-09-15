@@ -13,7 +13,7 @@ anything was changed.
 D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
 (0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7); D7 in part
 (0.8.9); the block grammar's invented captions (0.9.0); D23 (0.9.1);
-D24 (0.9.4, 15 September 2026).
+D24 (0.9.4); D25 (0.9.5, 15 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -941,6 +941,52 @@ expression grows from 2,384 characters to 2,546 — a NUMBER group costs 54
 characters now rather than 25 — still well inside the 4,000 cap, and the figures
 quoted in `regex_budget.py` were re-measured rather than left to drift.
 
+### D25 — a level under a ranging one is written when there is only one boundary · 1 statement · **FIXED in 0.9.5**
+
+Found by chasing the last enumeration-level disagreement between the parser and
+the pattern path.
+
+```
+v. 40-45 no. 4 (1974-Apr 1979)
+  parser  -> 863 $a 40-45 $b 4 $i 1974-1979
+  pattern -> 863 $a 40-45       $i 1974-1979   + the 4 named as dropped
+```
+
+The pattern path was right and the parser was wrong, which is the unusual
+direction.
+
+**Cause.** `_hierarchy_values()` has had the rule since 0.6.2 and states it in its
+own docstring:
+
+> `"$a 41-43 $b 1"` cannot be read back as v.41:no.1 - v.43:no.1 — it describes
+> issue 1 of each of volumes 41 to 43 just as well.
+
+But the rule lived in the branch for a range with *two* boundaries. `v. 40-45
+no. 4` states **one**: the parser reads it as a single boundary whose volume
+value is itself the range `40-45`. That took the "Single unit: no other end to
+disagree with" branch, which is true about disagreement and misses that a level
+above can range *within* one boundary — so the value was written.
+
+The pattern path avoided it by accident: the detector captures `40-45` as
+`start_vol` and `end_vol`, giving two boundaries, so the existing rule fired.
+
+**Fixed** by applying the same test in the single-boundary branch:
+`ranged_above` now carries the ranging *value* rather than a flag, so the note
+can quote it, and a lone value under it is dropped and named. A value that is
+itself a range still pairs and is untouched — `v. 40-45 nos. 2-5` reads back as
+one run, v. 40 no. 2 through v. 45 no. 5.
+
+No inference is involved, and none should be. "v. 40-45 no. 4" might mean a run
+ending at v. 45 no. 4, or no. 4 of each volume from 40 to 45; supposing the run
+starts at v. 40 no. 1 would be inventing a value the statement never gives. The
+two readings are what the notation cannot tell apart, which is exactly why the
+value is named rather than placed.
+
+The 853 still declares `$b no.`, because the serial does have an issue level even
+though this 863 does not record it — so the "853s declaring a caption their own
+863 never fills" count rises from 18 to 19. That count is a watch-list, not an
+error, and this is a legitimate entry in it.
+
 ## Pattern detector
 
 The detector's *correctness* holds up well: every cluster that generates a regex
@@ -1482,6 +1528,19 @@ The first two are done; the rest are Workbench UI and are not started.
   "needs attention" showed 86 records where 8 matched. The counts now come from
   `/api/review-index`, which answers for every record, and paging walks what
   the filter shows rather than the file in order.
+- **Flag a statement that belongs in another field.** Raised 15 September 2026,
+  not started. An 866 saying `Suppl.` is describing supplementary material,
+  which MARC 21 puts in **867** with its own **864** enumeration; one saying
+  `Index` belongs in **868** over **865**. The toolkit has no notion of this: it
+  reads every 866 as basic bibliographic holdings, and the three `Suppl.`
+  statements in the corpus are the only reason D3 still has anything in it.
+
+  Converting them into 867/868 is a bigger question — it changes which field the
+  output goes to, and the cataloguer may want to move the *source* statement
+  too. Flagging is the cheap, useful half: say that this statement looks like
+  supplementary material or an index and does not belong in an 866, and leave
+  the move to a person. Worth noting that the pattern path already *converts*
+  these, into an 863, which is the wrong field — so the flag is also a guard.
 
 ## A note on this corpus
 
