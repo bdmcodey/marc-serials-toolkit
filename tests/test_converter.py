@@ -19,9 +19,9 @@ from __future__ import annotations
 import pytest
 from pymarc import Field, Subfield
 
-from holdings_parser import (parse_866, ParseResult, HoldingsRange,
+from marc_serials.parser import (parse_866, ParseResult, HoldingsRange,
                              EnumChron, EnumLevel)
-from marc_converter import (convention_presets, resolve_convention,
+from marc_serials.converter import (convention_presets, resolve_convention,
                             convert_holdings, convert_record,
                             caption_slot, read_853_slots,
                             CONVENTION_LEVELS, NO_CAPTION, _enum_label)
@@ -219,7 +219,7 @@ def test_read_853_captions_keeps_the_words_the_field_uses():
     Conforming to an existing 853 means reusing its captions, whatever words
     it chose -- "Report no." is as valid a caption as "no.".
     """
-    from marc_converter import read_853_captions
+    from marc_serials.converter import read_853_captions
     captions = read_853_captions(_existing_853(("8", "3"), ("a", "Bd."),
                                                ("b", "Heft"), ("i", "(year)"),
                                                ("w", "m")))
@@ -1065,7 +1065,7 @@ def test_implausible_enumeration_depth_is_flagged_not_refused():
     produce it in silence: an error a cataloguer can catch is worth far more
     than one they cannot.
     """
-    from marc_converter import _check_enumeration_depth
+    from marc_serials.converter import _check_enumeration_depth
 
     warnings = []
     levels = {"enum_captions": ["v.", "no.", "pt.", "ser.", None, None]}
@@ -1084,7 +1084,7 @@ def test_ordinary_enumeration_depth_is_not_flagged(captions):
     89 of the corpus's ranges use two levels and one uses three. A guard that
     fired on those would be noise, and noise is how a real warning gets missed.
     """
-    from marc_converter import _check_enumeration_depth
+    from marc_serials.converter import _check_enumeration_depth
 
     warnings = []
     assert _check_enumeration_depth({"enum_captions": captions}, warnings) is False
@@ -1103,7 +1103,7 @@ def test_a_flagged_record_still_carries_its_fields():
     Flagged is not held. The cataloguer needs to see what the tool would write
     in order to judge it -- withholding the fields would hide the evidence.
     """
-    from marc_converter import _check_enumeration_depth
+    from marc_serials.converter import _check_enumeration_depth
     warnings = []
     assert _check_enumeration_depth(
         {"enum_captions": ["v.", "no.", "pt.", "ser."]}, warnings) is True
@@ -1196,6 +1196,6 @@ def test_a_range_ending_in_a_split_year_keeps_both_ends():
 
 def test_a_split_year_is_a_value_the_year_subfield_accepts():
     """The coded-value guard has to let it through, or it is dropped as wording."""
-    from marc_converter import _is_codeable
+    from marc_serials.converter import _is_codeable
     assert _is_codeable("year", "1996/1997") is True
     assert _is_codeable("year", "1996-1996/1997") is True

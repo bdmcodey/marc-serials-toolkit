@@ -10,7 +10,7 @@ The generated regex uses alternation to match all observed forms.
 
 Public API
 ----------
-    from pattern_detector import detect_patterns, split_multi_range, PatternGroup
+    from marc_serials.detector import detect_patterns, split_multi_range, PatternGroup
 
     groups = detect_patterns([
         "v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)",

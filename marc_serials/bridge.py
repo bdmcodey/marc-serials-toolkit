@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Iterable, Optional, Sequence
 
-from holdings_parser import (
+from marc_serials.parser import (
     EnumChron,
     EnumLevel,
     HoldingsRange,
@@ -43,7 +43,7 @@ from holdings_parser import (
     # the parser path.  A second copy of those tables would drift.
     _chron_unit_value,
 )
-from pattern_detector import split_multi_range
+from marc_serials.detector import split_multi_range
 
 
 @lru_cache(maxsize=4096)

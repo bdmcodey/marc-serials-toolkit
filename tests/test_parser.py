@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from holdings_parser import (parse_866, _looks_like_block, chron_unit_code,
+from marc_serials.parser import (parse_866, _looks_like_block, chron_unit_code,
                              normalise_chron_unit, normalise_year,
                              HoldingsRange, EnumChron, EnumLevel)
 
@@ -909,7 +909,7 @@ def test_a_statement_that_is_only_a_split_year_is_written_out_in_full(text, year
 
 def test_a_bare_split_year_reaches_the_year_subfield():
     """The point of normalising it: $i can hold the value afterwards."""
-    from marc_converter import convert_holdings
+    from marc_serials.converter import convert_holdings
 
     result = convert_holdings(parse_866("1996/97"))
     assert result.fields_863[0].display() == "863 40 $8 1.1 $i 1996/1997"

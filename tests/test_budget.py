@@ -18,7 +18,7 @@ import time
 
 import pytest
 
-from regex_budget import (BACKTRACKING_PROBES, MatchFailed, MatchTimeout,
+from marc_serials.budget import (BACKTRACKING_PROBES, MatchFailed, MatchTimeout,
                           completes_within_budget, match_statements,
                           too_slow_message)
 

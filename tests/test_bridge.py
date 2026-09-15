@@ -15,9 +15,9 @@ import re
 
 import pytest
 
-from holdings_parser import parse_866
-from pattern_detector import detect_patterns
-from pattern_bridge import (
+from marc_serials.parser import parse_866
+from marc_serials.detector import detect_patterns
+from marc_serials.bridge import (
     BOUNDARY_END,
     GroupRole,
     BOUNDARY_START,
@@ -33,7 +33,7 @@ from pattern_bridge import (
     roles_from_regex,
     split_statement,
 )
-import pattern_library as plib
+import marc_serials.library as plib
 
 
 def sub_of(field_data, code: str):
@@ -704,7 +704,7 @@ def test_a_pattern_stands_aside_for_any_statement_with_several_runs():
     every value fell to a role that encodes nothing. The parser writes the two
     the statement holds.
     """
-    from marc_converter import convert_holdings
+    from marc_serials.converter import convert_holdings
 
     stmt = "N1984: (2 (1))M1985: 2 (2 [summer])"
     group = detect_one(stmt)
@@ -765,7 +765,7 @@ def test_a_qualified_season_is_not_quietly_narrowed():
     onto the value, which sends it through the same check the standard parser
     applies.
     """
-    from marc_converter import convert_holdings
+    from marc_serials.converter import convert_holdings
 
     stmt = "v. 15 no. 6 - v. 23 nos. 2/3 (Nov/Dec 1994 - Late Summer 2002)"
     group = detect_one(stmt)
@@ -800,7 +800,7 @@ def test_a_range_separator_is_not_a_qualifier(statement, expected):
     What tells the two apart is whether the word before the hyphen is itself a
     month or a season. "Feb-" is; the "mid-" of "mid-July" is not.
     """
-    from marc_converter import convert_holdings
+    from marc_serials.converter import convert_holdings
 
     group = detect_one(statement)
     pattern = plib.ConfirmedPattern(
@@ -820,7 +820,7 @@ def test_a_hyphenated_qualifier_is_still_a_qualifier():
     joining a qualifier to July rather than separating two chronologies -- and
     "mid-July" is no more codeable than "Late Summer".
     """
-    from marc_converter import convert_holdings
+    from marc_serials.converter import convert_holdings
 
     statement = "v. 1 no. 1 (mid-July 1990)"
     group = detect_one(statement)
@@ -845,7 +845,7 @@ def test_an_unqualified_season_is_left_alone(statement):
     A separator or a bracket before the unit is not a qualifier, and treating
     one as though it were would refuse most of the corpus.
     """
-    from marc_converter import convert_holdings
+    from marc_serials.converter import convert_holdings
 
     group = detect_one(statement)
     pattern = plib.ConfirmedPattern(
@@ -989,7 +989,7 @@ def test_a_list_is_now_read_as_a_list_rather_than_confirmed_as_a_hierarchy():
     and the six-deep hierarchy is never written at all. The depth guard below
     still stands behind every other statement.
     """
-    from marc_converter import convert_holdings
+    from marc_serials.converter import convert_holdings
 
     statement = "8,13,15,17,19,20-(1982-1994)"
     group = detect_one(statement)
@@ -1023,8 +1023,8 @@ def test_the_depth_guard_still_flags_a_hierarchy_nothing_else_catches():
     enumeration levels is not a serial; it is a list of separate holdings, and
     separate holdings cannot share one 863.
     """
-    from marc_converter import convert_holdings
-    from holdings_parser import (EnumChron, EnumLevel, HoldingsRange,
+    from marc_serials.converter import convert_holdings
+    from marc_serials.parser import (EnumChron, EnumLevel, HoldingsRange,
                                  ParseResult)
 
     start = EnumChron(enum=[EnumLevel(f"lvl{i}.", str(i)) for i in range(6)])

@@ -28,8 +28,8 @@ import pytest
 from pymarc import MARCReader
 
 from conftest import upload_marc, private_marc, WELLFORMED_NAME, UNKEMPT_NAME
-from holdings_parser import parse_866
-from pattern_detector import detect_patterns, MAX_REGEX_CHARS
+from marc_serials.parser import parse_866
+from marc_serials.detector import detect_patterns, MAX_REGEX_CHARS
 
 pytestmark = pytest.mark.calibration
 

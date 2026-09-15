@@ -1,26 +1,14 @@
 """
 Shared fixtures for the MARC Serials Toolkit test suite.
 
-The repository holds three independent Flask applications that were never meant
-to be imported into one interpreter:
+Every engine lives in the ``marc_serials`` package and is reached by ordinary
+import, here and in the applications alike. Nothing in this file puts an
+application directory on ``sys.path``, and no test needs it to.
 
-  * both define a module called ``app``, so a plain ``import app`` caches the
-    first one in ``sys.modules`` and silently hands it to whoever asks second;
-  * ``pattern-detector`` contains a hyphen, so it is not a legal Python package
-    name and cannot be reached with dotted import syntax at all;
-  * each app imports its own siblings by bare name --
-    ``from holdings_parser import parse_866`` -- so its directory has to be on
-    ``sys.path`` before it will import at all.
-
-Nothing here changes production code. The three ``app.py`` files are loaded from
-their paths under distinct aliases; their sibling modules are reached by
-ordinary import, because no two files across the three directories share a name
-(holdings_parser, marc_converter, pattern_detector, pattern_bridge and
-pattern_library are all distinct).
-
-The workbench imports the other two apps' engine modules by bare name, exactly
-as this file does and for the same reason, so it needs no special handling here
-beyond having its own directory on the path.
+One wrinkle remains. The three Flask applications each define a module called
+``app``, so a plain ``import app`` would cache the first one in ``sys.modules``
+and silently hand it to whoever asked second. They are therefore loaded from
+their paths under distinct aliases by ``_load_app_module``.
 
 Do NOT write ``import app`` in a test module -- it would bind whichever app
 happened to load first. Use the ``converter_app`` / ``detector_app`` /
@@ -52,16 +40,16 @@ DATA_DIR = REPO_ROOT / "data"
 EXAMPLE_MRC = DATA_DIR / "example_holdings.mrc"
 MESSY_MRC = DATA_DIR / "messy_holdings.mrc"
 
-# Both app directories go on sys.path at collection time so test modules can say
-# `import holdings_parser` at the top of the file. Prepended rather than
-# appended so a same-named module elsewhere on the path cannot shadow ours.
-for _app_dir in (CONVERTER_DIR, DETECTOR_DIR, WORKBENCH_DIR):
-    if str(_app_dir) not in sys.path:
-        sys.path.insert(0, str(_app_dir))
+# The repository root, so `import marc_serials` resolves when the suite is run
+# against a clone that has not been pip-installed. Stated rather than relied on:
+# pytest's own rootdir insertion would cover it today, but that is a property of
+# how the suite happens to be invoked, not something the tests should assume.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-# Imported after the path is set up, and by the same bare name the apps use, so
-# the fixture below patches the one module object every caller resolves against.
-import regex_budget                                    # noqa: E402
+# Imported under its old bare name because the fixture below patches this one
+# module object, and every caller resolves the budget from it at call time.
+import marc_serials.budget as regex_budget                                    # noqa: E402
 
 
 # ---------------------------------------------------------------------------

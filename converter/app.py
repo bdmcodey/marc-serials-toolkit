@@ -15,9 +15,18 @@ Requirements:
 
 from __future__ import annotations
 
+import os
+import sys
+
+# Run from a clone without installing: put the repository root on the path so
+# `import marc_serials` resolves. A pip-installed copy already has it and this
+# is a no-op.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import io
 import json
-import os
 import tempfile
 import time
 import uuid
@@ -40,8 +49,8 @@ try:
 except ImportError:
     HAS_PYMARC = False
 
-from holdings_parser import parse_866
-from marc_converter import (convert_holdings, convert_record, ConversionResult,
+from marc_serials.parser import parse_866
+from marc_serials.converter import (convert_holdings, convert_record, ConversionResult,
                             FREQUENCY_CODES, CONVENTION_STANDARD, CONVENTION_HOUSE,
                             CONVENTION_LEVELS, convention_presets,
                             enum_level_fields,

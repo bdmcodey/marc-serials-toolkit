@@ -15,7 +15,7 @@ import re
 
 import pytest
 
-from pattern_detector import (detect_patterns, split_multi_range, get_signature,
+from marc_serials.detector import (detect_patterns, split_multi_range, get_signature,
                               tokenize, MAX_PATTERN_TOKENS)
 
 

@@ -58,18 +58,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CORPUS = REPO_ROOT / "data" / "textual_holdings_corpus.txt"
 
-# The engines import their siblings by bare name, exactly as tests/conftest.py
-# explains, so their directories have to be on the path before importing.
-for _d in (REPO_ROOT / "converter", REPO_ROOT / "pattern-detector",
-           REPO_ROOT / "workbench"):
-    if str(_d) not in sys.path:
-        sys.path.insert(0, str(_d))
+# Run from a clone without installing: the repository root goes on the path so
+# `import marc_serials` resolves. A pip-installed copy makes this a no-op.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from holdings_parser import (parse_866, MARC_CHRON_CODES,  # noqa: E402
+from marc_serials.parser import (parse_866, MARC_CHRON_CODES,  # noqa: E402
                              normalise_year)
-from marc_converter import (convert_holdings, read_853_slots,  # noqa: E402
+from marc_serials.converter import (convert_holdings, read_853_slots,  # noqa: E402
                             enum_subfield)
-from pattern_detector import detect_patterns, get_signature  # noqa: E402
+from marc_serials.detector import detect_patterns, get_signature  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -472,7 +470,7 @@ def _converts_on_partial_match(statement: str, compiled: "re.Pattern") -> bool:
     the standard parser switched off, anything returned came from the pattern
     alone.
     """
-    from pattern_bridge import build_parse_result, roles_from_regex   # noqa: PLC0415
+    from marc_serials.bridge import build_parse_result, roles_from_regex   # noqa: PLC0415
 
     result = build_parse_result(statement, compiled,
                                 roles_from_regex(compiled.pattern),

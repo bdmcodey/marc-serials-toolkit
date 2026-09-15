@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "marc-serials-toolkit"
+version = "0.9.9"
+description = "Convert free-text MARC 866 serials holdings into structured 853/863 fields"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Matthew Codey", email = "codey@usc.edu" }]
+
+# No license declared: see NOTICE.md. The project is published for reference
+# only while institutional intellectual property rights are under review.
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Markup",
+]
+
+dependencies = [
+    "flask>=3.0,<4.0",
+    # The pymarc upper bound is deliberate. This code depends on 5.x behaviour
+    # that is not guaranteed across a major bump: MARCWriter.close(close_fh=False)
+    # to keep the BytesIO open, and MARCReader being iterated directly rather
+    # than used as a context manager. Verified against 5.2.3.
+    "pymarc>=5.2.3,<6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0,<9.0"]
+
+[tool.setuptools]
+packages = ["marc_serials"]

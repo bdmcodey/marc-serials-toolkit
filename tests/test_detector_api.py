@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from pattern_detector import MAX_REGEX_CHARS
+from marc_serials.detector import MAX_REGEX_CHARS
 
 from conftest import upload_marc
 

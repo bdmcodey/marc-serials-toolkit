@@ -8,6 +8,23 @@ This is a log of what the corpus exposes, so that fixing any of it is a
 deliberate, separately reviewable decision. Everything here was found before
 anything was changed.
 
+> **A note on file names.** The sections below name modules as they were called
+> when each finding was written. The engines have since moved into one package
+> and been renamed, and the entries are left as they stand rather than edited,
+> because the reasoning is the record. The mapping is:
+>
+> | Then | Now |
+> |---|---|
+> | `converter/holdings_parser.py` | `marc_serials/parser.py` |
+> | `converter/marc_converter.py` | `marc_serials/converter.py` |
+> | `pattern-detector/pattern_detector.py` | `marc_serials/detector.py` |
+> | `pattern-detector/regex_budget.py` | `marc_serials/budget.py` |
+> | `workbench/pattern_bridge.py` | `marc_serials/bridge.py` |
+> | `workbench/pattern_library.py` | `marc_serials/library.py` |
+>
+> Their test modules moved with them: `tests/test_holdings_parser.py` is now
+> `tests/test_parser.py`, and so on.
+
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);
 D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full

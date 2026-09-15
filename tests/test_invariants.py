@@ -20,7 +20,7 @@ import pytest
 from pymarc import MARCReader
 
 from conftest import upload_marc
-from pattern_detector import (detect_patterns, MAX_PATTERN_TOKENS,
+from marc_serials.detector import (detect_patterns, MAX_PATTERN_TOKENS,
                               MAX_REGEX_CHARS)
 
 
@@ -250,7 +250,7 @@ def test_every_corpus_regex_is_testable():
     The guard is measured on the generated expression now rather than estimated
     from the token count, so this holds by construction.
     """
-    from pattern_detector import detect_patterns
+    from marc_serials.detector import detect_patterns
 
     statements = []
     for line in (Path(__file__).resolve().parents[1]
@@ -296,11 +296,11 @@ def test_the_pattern_path_never_drops_a_chronology_the_parser_keeps():
     nothing the difference is a different question, and D3 and the Suppl.
     statements are full of them.
     """
-    from pattern_detector import detect_patterns
-    from pattern_bridge import infer_roles, assign_levels, apply_patterns
-    from marc_converter import convert_holdings
-    from holdings_parser import parse_866
-    import pattern_library as plib
+    from marc_serials.detector import detect_patterns
+    from marc_serials.bridge import infer_roles, assign_levels, apply_patterns
+    from marc_serials.converter import convert_holdings
+    from marc_serials.parser import parse_866
+    import marc_serials.library as plib
 
     def chron_of(fields):
         if not fields:

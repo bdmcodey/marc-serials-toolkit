@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional, Sequence
 
-from pattern_bridge import (
+from marc_serials.bridge import (
     BOUNDARY_START,
     GroupRole,
     KIND_ENUM,
@@ -39,7 +39,7 @@ SCHEMA_VERSION = 1
 # over this length could never be checked against real statements before being
 # trusted.  Matching the cap keeps "testable" and "usable" the same set --
 # imported rather than repeated, because two copies of a safety limit drift.
-from pattern_detector import MAX_REGEX_CHARS  # noqa: E402,F401
+from marc_serials.detector import MAX_REGEX_CHARS  # noqa: E402,F401
 
 MAX_PATTERNS = 200
 

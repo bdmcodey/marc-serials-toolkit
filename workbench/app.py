@@ -35,10 +35,11 @@ from typing import Optional
 # elsewhere on the path cannot shadow ours.
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_BASE_DIR)
-for _engine_dir in ("converter", "pattern-detector"):
-    _path = os.path.join(_REPO_ROOT, _engine_dir)
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
+# Run from a clone without installing: put the repository root on the path so
+# `import marc_serials` resolves. A pip-installed copy already has it and this
+# is a no-op.
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from flask import (Flask, jsonify, render_template, request, send_file,
                    send_from_directory, session)
@@ -49,18 +50,18 @@ try:
 except ImportError:
     HAS_PYMARC = False
 
-from holdings_parser import parse_866
-from marc_converter import (CONVENTION_LEVELS, CONVENTION_STANDARD,
+from marc_serials.parser import parse_866
+from marc_serials.converter import (CONVENTION_LEVELS, CONVENTION_STANDARD,
                             enum_level_fields,
                             FREQUENCY_CODES, convention_presets,
                             convert_holdings, convert_record, resolve_convention)
-from pattern_detector import detect_patterns
-from regex_budget import (BACKTRACKING_PROBES, MatchFailed, MatchTimeout,
+from marc_serials.detector import detect_patterns
+from marc_serials.budget import (BACKTRACKING_PROBES, MatchFailed, MatchTimeout,
                           completes_within_budget, match_statements,
                           too_slow_message)
 
-import pattern_library as plib
-from pattern_bridge import (CAPTION_CHOICES, ENCODABLE_KINDS, KIND_IGNORE,
+import marc_serials.library as plib
+from marc_serials.bridge import (CAPTION_CHOICES, ENCODABLE_KINDS, KIND_IGNORE,
                             KIND_LABELS, KIND_UNRESOLVED,
                             PARSER_SOURCE, SKIPPED_SOURCE, UNMATCHED_SOURCE,
                             apply_patterns, build_parse_result, infer_roles,

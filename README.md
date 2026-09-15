@@ -9,9 +9,9 @@ conference presentation on applying AI to serials-holdings enhancement.
 
 ## The tools
 
-Each tool can be installed and run on its own. All but the Workbench are
-self-contained; the Workbench is the other two joined up, and imports their
-engines rather than copying them, so it needs the whole repository present.
+Every engine lives in one installable package, `marc_serials`. The three
+applications are adapters over it — routes, templates and session handling, and
+no holdings logic of their own — so a fix to the parser reaches all three.
 
 | Tool | Folder | What it does | Type |
 |---|---|---|---|
@@ -22,51 +22,41 @@ engines rather than copying them, so it needs the whole repository present.
 All three are deterministic and run locally — no network calls, no API key, and
 nothing leaves the machine.
 
-The Workbench does not replace the other two, and does not copy them: it imports
-their engines, so a fix to the parser or the detector reaches all three. Use the
-Converter or the Pattern Detector on its own when that is all you need; use the
-Workbench when the detector has found a pattern the converter should be using.
+The Workbench does not replace the other two. Use the Converter or the Pattern
+Detector on its own when that is all you need; use the Workbench when the
+detector has found a pattern the converter should be using.
 
 ## Quick start
 
-Pick a tool, install just its requirements in a virtual environment, and run it.
-
-**Holdings Workbench** (opens at http://localhost:5003). Unlike the other two it
-is not self-contained: it imports the Converter's and the Pattern Detector's
-engine modules, so it needs the whole repository present. It finds them relative
-to its own file, so it can be started from any directory.
+Install once, then run whichever application you want. Everything runs locally.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r workbench/requirements.txt
-python workbench/app.py
+pip install -e .
+
+python workbench/app.py           # Holdings Workbench  http://localhost:5003
+python converter/app.py           # Converter           http://localhost:5000
+python pattern-detector/app.py    # Pattern Detector    http://localhost:5001
 ```
 
-**Converter** (opens at http://localhost:5000):
-
-```bash
-cd converter
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
-```
-
-**Pattern Detector** (opens at http://localhost:5001):
-
-```bash
-cd pattern-detector
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
-```
+Each application can also be started from any directory: it puts the repository
+root on `sys.path` itself, so a clone works without installing.
 
 ## Repository layout
 
 ```
 marc-serials-toolkit/
+├── marc_serials/       the engines, as one installable package
+│   ├── parser.py           866 text            → ParseResult
+│   ├── converter.py        ParseResult         → MARC 853 / 863 fields
+│   ├── detector.py         many 866 statements → clusters, each with a regex
+│   ├── bridge.py           a confirmed pattern → the parser's ParseResult
+│   ├── library.py          the patterns a cataloguer has confirmed
+│   └── budget.py           runs a regex in a child process, under a time limit
 ├── workbench/          detect → confirm → convert, in one app (Flask web app)
 ├── converter/          866 → 853/863 converter (Flask web app)
 ├── pattern-detector/   866 pattern detector + regex generator (Flask web app)
+├── pyproject.toml      package metadata and the runtime pins
 ├── tests/              pytest suite covering all three apps
 ├── data/
 │   ├── example_holdings.mrc   Small SYNTHETIC sample for demos/tests
@@ -160,7 +150,7 @@ nothing about which words go in them, so a title numbered by issue alone quite
 properly gets `$a no.`
 
 Statements no confirmed pattern matches are parsed by
-`holdings_parser.parse_866()` exactly as the Converter parses them, so an empty
+`marc_serials.parser.parse_866()` exactly as the Converter parses them, so an empty
 pattern library produces output identical to the Converter's — asserted byte for
 byte in `tests/test_workbench_api.py`.
 
@@ -171,7 +161,8 @@ The **866** field holds a human-readable "textual holdings" summary such as
 **863** (enumeration & chronology) fields encode the same information in a
 structured, parseable form. Converting 866 → 853/863 across messy real-world
 data — with dozens of caption styles — is what these tools are for. See
-[`converter/`](converter/) for the full field-by-field breakdown.
+[`marc_serials/converter.py`](marc_serials/converter.py) for the full
+field-by-field breakdown.
 
 ## License
 

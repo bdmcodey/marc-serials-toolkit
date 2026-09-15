@@ -14,17 +14,26 @@ Then open http://localhost:5001
 
 from __future__ import annotations
 
+import os
+import sys
+
+# Run from a clone without installing: put the repository root on the path so
+# `import marc_serials` resolves. A pip-installed copy already has it and this
+# is a no-op.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import io
 import json
-import os
 import re
 
 from flask import (Flask, render_template, request, jsonify,
                    send_from_directory)
 
-from pattern_detector import (detect_patterns, split_multi_range,
+from marc_serials.detector import (detect_patterns, split_multi_range,
                               MAX_REGEX_CHARS)
-from regex_budget import (MatchFailed, MatchTimeout, match_statements,
+from marc_serials.budget import (MatchFailed, MatchTimeout, match_statements,
                           too_slow_message)
 
 try:

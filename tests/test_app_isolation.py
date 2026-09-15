@@ -173,7 +173,7 @@ def test_the_summary_knows_which_sources_are_not_patterns():
     of source ids in the template, and the ids live in pattern_bridge -- two
     copies of one list, so this pins them together.
     """
-    from pattern_bridge import PARSER_SOURCE, SKIPPED_SOURCE, UNMATCHED_SOURCE
+    from marc_serials.bridge import PARSER_SOURCE, SKIPPED_SOURCE, UNMATCHED_SOURCE
 
     script = (REPO_ROOT / "workbench" / "templates" / "tool.html").read_text(
         encoding="utf-8")

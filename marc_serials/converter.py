@@ -23,7 +23,7 @@ try:
 except ImportError:
     HAS_PYMARC = False
 
-from holdings_parser import (ParseResult, HoldingsRange, EnumChron,
+from marc_serials.parser import (ParseResult, HoldingsRange, EnumChron,
                              SEASON_CODES, MARC_CHRON_CODES)
 
 

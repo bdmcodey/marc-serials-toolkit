@@ -14,7 +14,7 @@ notices are reproduced below.
 Portions of this project derive from `extract.py` in the above repository.
 The derivation appears in:
 
-- `converter/holdings_parser.py` — the `MARC_CHRON_CODES` table is a port of
+- `marc_serials/parser.py` — the `MARC_CHRON_CODES` table is a port of
   the original's `marc_853_encoding` mapping.
 
 An earlier file, `ai-regex/test_enum_update.py`, retained more of the original
