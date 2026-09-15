@@ -13,7 +13,8 @@ anything was changed.
 D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
 (0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7); D7 in part
 (0.8.9); the block grammar's invented captions (0.9.0); D23 (0.9.1);
-D24 (0.9.4); D25 (0.9.5); D26 (0.9.6, 15 September 2026).
+D24 (0.9.4); D25 (0.9.5); D26 (0.9.6, and its own
+regression in 0.9.7, 15 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -1044,6 +1045,40 @@ captured unit, with only spaces between. A separator or a bracket before it is
 not a qualifier, and treating one as though it were would refuse most of the
 corpus; `(Spring 1990)`, `(Winter 1986 - Summer 1987)` and
 `(November/December 2016 - January 2022)` are all pinned as untouched.
+
+**And it was not narrow enough. Reported from real use, fixed in 0.9.7.**
+
+```
+(Jan/Feb-July/Aug 1985)
+  0.9.6  -> '01/02-Feb- July/Aug' is not something a month or season subfield
+            can hold … so it was left out
+  0.9.7  -> 863 … $j 01/02-07/08
+```
+
+The character class for a qualifier word was written `[A-Za-z.'\u2019-]`, and the
+trailing `-` in it is a literal hyphen. So the text before `July/Aug` — which is
+`(Jan/Feb-` — matched `Feb-`, and a **range separator** was read as a qualifier.
+Ten of the 136 statements across the two corpora lost their chronology and were
+flagged for review: every `Apr-Jul`, `Jan-Jun`, `Jul/Aug-Sep/Oct` there is.
+
+The hyphen is the one character that can be either half of this. `mid-July` is a
+qualified month; the `Feb-` of `(Jan/Feb-July/Aug)` is a month and a separator.
+What tells them apart is whether the word is *itself* a month or a season, so the
+hyphen is captured separately now and `chron_unit_code()` decides.
+
+**The verification gap is the part worth keeping.** `scripts/corpus_report.py
+--drift` said "no drift" for both the original defect and the regression, because
+the corpus report only ever runs the **parser**. The silent-loss column has read
+zero since 0.8.0 and was quoted repeatedly while the pattern path dropped a word;
+then the fix broke ten statements through the same blind spot and the same report
+said nothing.
+
+`test_the_pattern_path_never_drops_a_chronology_the_parser_keeps` now compares
+the two paths directly, on exactly what went wrong both times. It fails on 0.9.6
+naming all ten statements. The one standing exception is `2018: ([Sum])` — the
+detector's CHRON token lists `summer` and not the abbreviation `sum`, which the
+parser's own table carries — and the set is asserted exactly, so a new one is a
+failure and a resolved one is a stale note.
 
 ## Pattern detector
 
