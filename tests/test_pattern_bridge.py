@@ -666,7 +666,48 @@ def test_a_pattern_stands_aside_for_a_discontinuous_list():
     parsed, source = apply_patterns(stmt, [pattern])
     assert source == "parser"
     assert len(parsed.ranges) == 4
-    assert any("lists several runs" in w for w in parsed.warnings), parsed.warnings
+    assert any("holds several runs" in w for w in parsed.warnings), parsed.warnings
+
+
+def test_a_pattern_stands_aside_for_any_statement_with_several_runs():
+    """
+    The rule is about how many runs a statement holds, not about commas.
+
+    0.8.6 asked the question of comma lists only, because that is the shape that
+    prompted it. The chronology-first format has it too, and there a confirmed
+    pattern was worse than lossy: it claimed
+    "N1984: (2 (1))M1985: 2 (2 [summer])" and wrote *no 863 at all*, because
+    every value fell to a role that encodes nothing. The parser writes the two
+    the statement holds.
+    """
+    from marc_converter import convert_holdings
+
+    stmt = "N1984: (2 (1))M1985: 2 (2 [summer])"
+    group = detect_one(stmt)
+    pattern = plib.ConfirmedPattern(
+        id="p1", label=group.human_label, regex=group.regex,
+        roles=infer_roles(group.named_groups), split=False,
+    )
+
+    parsed, source = apply_patterns(stmt, [pattern])
+    assert source == "parser"
+    assert len(convert_holdings(parsed).fields_863) == 2
+
+
+def test_one_run_is_still_a_pattern_s_to_read():
+    """
+    The complement, and the thing the rule must not break: a statement with a
+    single run stays with the pattern the cataloguer confirmed for it.
+    """
+    stmt = "v.1(1990)-v.5(1994)"
+    group = detect_one(stmt)
+    pattern = plib.ConfirmedPattern(
+        id="p1", label=group.human_label, regex=group.regex,
+        roles=infer_roles(group.named_groups),
+    )
+
+    _, source = apply_patterns(stmt, [pattern])
+    assert source == "p1"
 
 
 def test_a_skipped_pattern_still_claims_a_discontinuous_list():

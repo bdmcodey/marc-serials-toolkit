@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Iterable, Optional, Sequence
 
 from holdings_parser import (
@@ -42,6 +43,34 @@ from holdings_parser import (
     _chron_unit_value,
 )
 from pattern_detector import split_multi_range
+
+
+@lru_cache(maxsize=4096)
+def is_more_than_one_run(segment: str) -> bool:
+    """
+    Whether this segment holds more runs of holdings than a pattern can describe.
+
+    A confirmed pattern describes exactly one: its roles carry a boundary and a
+    level, but nothing says *which run* a capture opens, so where a statement
+    has several the pattern pairs the first value with the last and sends
+    everything between to "not encoded".
+
+    0.8.6 asked this question of comma lists only -- `is_distributed_list()` --
+    which is the shape that prompted it, and not the only one that has it.  The
+    chronology-first format is another: a pattern confirmed for
+    "N1984: (2 (1))M1985: 2 (2 [summer])" claims it and writes *no 863 at all*,
+    where the parser writes the two it holds.  The general question is the one
+    worth asking, and the parser already answers it -- it is the thing that
+    knows how many runs a statement has.
+
+    Cached because it is asked once per pattern per statement while the library
+    is tried in order, and the answer depends on the text alone: a hundred
+    patterns over a hundred statements is ten thousand identical parses, which
+    measured at 0.6 seconds added to a conversion before the cache.
+    """
+    if is_distributed_list(segment):
+        return True                      # cheap, and true by construction
+    return len(parse_866(segment).ranges) > 1
 
 
 def split_statement(text: str) -> list[str]:
@@ -457,8 +486,9 @@ def build_parse_result(
         # with the last and the runs between them go to "not encoded" -- "v. 19
         # nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" came out as one
         # compressed 863 holding two of its twelve assertions. The parser reads
-        # it as four 863s, so the pattern stands aside.
-        m = None if (defer_lists and is_distributed_list(seg)) \
+        # it as four 863s, so the pattern stands aside -- see
+        # is_more_than_one_run() for why the test is not about lists.
+        m = None if (defer_lists and is_more_than_one_run(seg)) \
             else compiled.fullmatch(seg)
         if m is None:
             if not fallback:
@@ -556,7 +586,7 @@ def apply_patterns(text: str, patterns: Sequence,
                     "was left exactly as it is."
                 ), SKIPPED_SOURCE
             continue
-        if not passed_over and is_distributed_list(text) \
+        if not passed_over and is_more_than_one_run(text.strip()) \
                 and compiled.fullmatch(text.strip()):
             passed_over = pattern.label
 
@@ -570,9 +600,9 @@ def apply_patterns(text: str, patterns: Sequence,
         if passed_over:
             result.warnings.append(
                 f"'{passed_over}' matches this statement, but the statement "
-                "lists several runs of holdings with gaps between them and a "
-                "pattern describes one run. It was read by the standard parser "
-                "instead, which records each run as its own 863."
+                "holds several runs of holdings and a pattern describes one "
+                "run. It was read by the standard parser instead, which "
+                "records each run as its own 863."
             )
         return result, PARSER_SOURCE
 
