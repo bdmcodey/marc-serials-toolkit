@@ -431,6 +431,64 @@
       margin-bottom: var(--sp-2);
     }
 
+    /* The batch result. It used to be one sentence with every source joined by
+       commas -- 432 characters on a 10-source file, and the pattern labels
+       contain em-dashes of their own, so the separators were unreadable. The
+       figures a cataloguer actually wants are how much their own patterns did
+       and how much fell through, so those lead and the rest is a table. */
+    .sum-figures {
+      display: flex; flex-wrap: wrap; gap: var(--sp-3);
+      margin-top: var(--sp-2);
+    }
+    .sum-figure {
+      min-width: 7rem;
+      padding: var(--sp-2) var(--sp-3);
+      border: 2px solid var(--border-soft); border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .sum-figure .n {
+      display: block;
+      font-size: var(--fs-lg); font-weight: 700; color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .sum-figure .what { font-size: var(--fs-xs); color: var(--text-muted); }
+    .sum-figure.is-patterns { border-color: var(--accent); background: var(--accent-soft); }
+    .sum-figure.is-review   { border-color: var(--warn);   background: var(--warn-soft); }
+    .sum-figure.is-zero .n  { color: var(--text-muted); }
+
+    .sum-table { width: 100%; border-collapse: collapse; margin-top: var(--sp-2); }
+    .sum-table th {
+      text-align: left;
+      font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted);
+      padding: var(--sp-1) var(--sp-2);
+      border-bottom: 2px solid var(--border-soft);
+    }
+    .sum-table td {
+      padding: var(--sp-1) var(--sp-2);
+      border-bottom: 2px solid var(--border-soft);
+      vertical-align: middle;
+    }
+    .sum-table tr:last-child td { border-bottom: none; }
+    .sum-table .sum-label {
+      font-family: var(--font-mono); font-size: var(--fs-xs);
+      word-break: break-word;
+    }
+    /* The three sources that are not a pattern read as prose, not as a label. */
+    .sum-table tr.not-a-pattern .sum-label { font-family: var(--font-sans); }
+    .sum-table .sum-count {
+      width: 4rem; text-align: right;
+      font-variant-numeric: tabular-nums; font-weight: 700;
+    }
+    .sum-bar-cell { width: 40%; }
+    .sum-bar {
+      height: 0.6rem; border-radius: var(--radius);
+      background: var(--accent); min-width: 2px;
+    }
+    .sum-table tr.not-a-pattern .sum-bar { background: var(--text-muted); }
+    /* Long libraries: the table scrolls rather than pushing the download button
+       off the screen. */
+    .sum-scroll { max-height: 22rem; overflow-y: auto; }
+
     /* The library list in the sidebar */
     .lib-item {
       display: flex; align-items: center; gap: var(--sp-2);
@@ -2553,6 +2611,99 @@ async function applyAllInRecord(recIdx) {
   }
 }
 
+// Sources that are not one of the cataloguer's patterns. Kept in step with
+// PARSER_SOURCE, UNMATCHED_SOURCE and SKIPPED_SOURCE in pattern_bridge.py.
+const NOT_A_PATTERN = new Set(['parser', 'unmatched', 'skipped']);
+
+/**
+ * What a whole-file conversion did, as figures and a table.
+ *
+ * This used to be one sentence: "10 records converted — 6 by VOL(YEAR) —
+ * VOL(YEAR), 3 by Standard parser, 1 by YEAR:(#‹text›CHRON‹text›), …", every
+ * source joined by commas. That is 432 characters on a ten-source file and runs
+ * into the thousands on a real library, and the pattern labels contain
+ * em-dashes themselves, so there was no telling where one entry ended.
+ *
+ * The lead figures are the question a cataloguer is actually asking: how much
+ * did my own patterns read, and how much fell through to the standard parser?
+ * That pairing is also what makes a library the server has quietly lost show up
+ * immediately, rather than as a wall of prose nobody reads to the end.
+ */
+function renderBatchSummary(data) {
+  const rows = data.by_source || [];
+  const total = rows.reduce((n, s) => n + s.count, 0);
+  const byPattern = rows.filter(s => !NOT_A_PATTERN.has(s.source))
+                        .reduce((n, s) => n + s.count, 0);
+  const bySource = id => (rows.find(s => s.source === id) || {}).count || 0;
+  const biggest = rows.reduce((n, s) => Math.max(n, s.count), 0) || 1;
+
+  // The headline counts records; every figure counts statements, so the two
+  // never show the same number twice under different words.
+  const figure = (n, what, cls = '') => `
+    <div class="sum-figure ${cls} ${n ? '' : 'is-zero'}">
+      <span class="n">${n}</span><span class="what">${what}</span>
+    </div>`;
+  const plural = (n, one, many) => `${n === 1 ? one : many}`;
+
+  const figures = [
+    figure(total, plural(total, 'statement read', 'statements read')),
+    figure(byPattern, 'by your patterns', 'is-patterns'),
+    figure(bySource('parser'), 'by the standard parser'),
+    data.needs_review ? figure(data.needs_review, 'left for review', 'is-review') : '',
+    data.skipped_records
+      ? figure(data.skipped_records,
+               plural(data.skipped_records, 'record skipped', 'records skipped')) : '',
+    bySource('unmatched') ? figure(bySource('unmatched'), 'left as they are') : '',
+    bySource('skipped') ? figure(bySource('skipped'), 'skipped by a pattern') : '',
+  ].join('');
+
+  const table = rows.map(s => `
+    <tr class="${NOT_A_PATTERN.has(s.source) ? 'not-a-pattern' : ''}">
+      <td class="sum-label">${escHtml(s.label)}</td>
+      <td class="sum-count">${s.count}</td>
+      <td class="sum-bar-cell">
+        <div class="sum-bar" style="width:${Math.round(100 * s.count / biggest)}%"
+             role="img" aria-label="${s.count} of ${total}"></div>
+      </td>
+    </tr>`).join('');
+
+  // Open when it is short enough to take in at a glance; folded when a long
+  // library would otherwise bury the download button.
+  const open = rows.length <= 8 ? ' open' : '';
+  const breakdown = rows.length ? `
+    <details class="mt-2"${open}>
+      <summary class="small">Which pattern read what
+        — ${rows.length} source${rows.length !== 1 ? 's' : ''}</summary>
+      <div class="sum-scroll">
+        <table class="sum-table">
+          <thead><tr><th>Read by</th><th class="sum-count">Statements</th><th></th></tr></thead>
+          <tbody>${table}</tbody>
+        </table>
+      </div>
+    </details>` : '';
+
+  const warnings = [];
+  if (!rows.length) {
+    warnings.push('Nothing was converted.');
+  } else if (!byPattern && library.length) {
+    // The shape of the bug that lost a library to an upload: the screen says
+    // patterns are confirmed and not one of them read anything.
+    warnings.push(`None of your ${library.length} confirmed patterns were used. ` +
+      'Check that the library still holds the shapes in this file.');
+  }
+  (data.rejections || []).forEach(r => warnings.push(r));
+
+  return `
+    <div class="alert alert-${warnings.length ? 'warn' : 'ok'}">
+      <div>
+        <strong>${data.records_processed} record${data.records_processed !== 1 ? 's' : ''} converted.</strong>
+        ${warnings.map(escHtml).join(' ')}
+      </div>
+    </div>
+    <div class="sum-figures">${figures}</div>
+    ${breakdown}`;
+}
+
 document.getElementById('btn-batch-all').addEventListener('click', async () => {
   const status = document.getElementById('batch-status');
   status.innerHTML = '<span class="spinner"></span> Converting every record…';
@@ -2562,12 +2713,7 @@ document.getElementById('btn-batch-all').addEventListener('click', async () => {
       clear_existing_853_863: document.getElementById('batch-clear853863').checked,
       ...conventionPayload(),
     });
-    const breakdown = (data.by_source || [])
-      .map(s => `${s.count} by ${escHtml(s.label)}`).join(', ');
-    status.innerHTML = `<div class="alert alert-ok">
-      ${data.records_processed} records converted${breakdown ? ' — ' + breakdown : ''}.
-      ${data.needs_review ? data.needs_review + ' statements left for review.' : ''}
-    </div>`;
+    status.innerHTML = renderBatchSummary(data);
     document.getElementById('btn-download').style.display = 'inline-flex';
   } catch (err) {
     showAlert(status, err.message, 'err');

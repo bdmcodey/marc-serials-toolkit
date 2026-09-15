@@ -165,6 +165,25 @@ def test_every_named_map_callback_in_the_template_exists(template):
     assert not missing, f"{template.name} maps over undefined: {missing}"
 
 
+def test_the_summary_knows_which_sources_are_not_patterns():
+    """
+    The batch summary splits statements into "read by your patterns" and
+    everything else, which is the figure a cataloguer checks and the one that
+    makes a library the server has lost obvious. The split is a hard-coded set
+    of source ids in the template, and the ids live in pattern_bridge -- two
+    copies of one list, so this pins them together.
+    """
+    from pattern_bridge import PARSER_SOURCE, SKIPPED_SOURCE, UNMATCHED_SOURCE
+
+    script = (REPO_ROOT / "workbench" / "templates" / "tool.html").read_text(
+        encoding="utf-8")
+    match = re.search(r"const NOT_A_PATTERN = new Set\(\[([^\]]*)\]\)", script)
+    assert match, "the summary no longer names the non-pattern sources"
+
+    in_template = set(re.findall(r"'([^']+)'", match.group(1)))
+    assert in_template == {PARSER_SOURCE, UNMATCHED_SOURCE, SKIPPED_SOURCE}
+
+
 def test_index_pages_render(converter_client, detector_client, workbench_client):
     assert converter_client.get("/").status_code == 200
     assert detector_client.get("/").status_code == 200

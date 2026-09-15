@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "released": "2026-09-15",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
@@ -11,6 +11,29 @@
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
 
   "changelog": [
+    {
+      "version": "0.9.2",
+      "date": "2026-09-15",
+      "summary": "The summary after converting a whole file is now readable: figures first, then a table of which pattern read what.",
+      "changes": [
+        {
+          "tool": "Holdings Workbench",
+          "text": "The result of \"Convert all records\" was one long sentence with every pattern joined by commas — hundreds of characters on a small file and thousands on a real one. Worse, pattern names contain dashes of their own, so there was no telling where one entry ended and the next began. It is now a short line saying how many records were converted, a row of figures, and a table."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "The figures lead with the question worth asking: of the statements read, how many did your own confirmed patterns handle, and how many fell through to the standard parser? Statements left for review, records you skipped, and statements a pattern deliberately left alone each get their own figure when there are any."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "The per-pattern breakdown is a table — pattern, count, and a bar showing its share — sorted with the busiest first. It folds itself away when there are more than eight, so a large library no longer pushes the download button off the screen, and it scrolls rather than running down the page."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "If none of your confirmed patterns were used, the summary says so outright instead of leaving you to count. That is exactly what a lost library looks like, and it was previously buried in the middle of a paragraph."
+        }
+      ]
+    },
     {
       "version": "0.9.1",
       "date": "2026-09-15",
