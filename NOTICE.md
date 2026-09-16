@@ -16,13 +16,6 @@ modified, redistributed, or used to create derivative works.
 Licensing is under review pending a determination of institutional intellectual
 property rights. This notice will be replaced when that review concludes.
 
-## Intended license
-
-The intent is to release this project under the GNU Affero General Public
-License, version 3.0 or later (`AGPL-3.0-or-later`). This is a statement of
-intent only. It grants no rights, and no rights are granted until a `LICENSE`
-file is in place.
-
 ## Prior work and attribution
 
 This project originated from `extract.py` by Phani Chaitanya Pendyala,

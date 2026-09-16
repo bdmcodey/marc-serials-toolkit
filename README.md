@@ -180,9 +180,8 @@ field-by-field breakdown.
 
 **No license is granted at this time.** This repository is published for
 reference only while institutional intellectual property rights are under
-review; default copyright applies. The intent is to release under
-`AGPL-3.0-or-later` once that review concludes. See [NOTICE.md](NOTICE.md) for
-the full statement.
+review; default copyright applies. See [NOTICE.md](NOTICE.md) for the full
+statement.
 
 Portions of this project derive from third-party code — see
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
