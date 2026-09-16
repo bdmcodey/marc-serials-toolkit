@@ -491,6 +491,40 @@ def _range_from_match(segment: str, match: "re.Match",
     )
 
 
+def _apply_confirmed_captions(result: ParseResult,
+                              roles: Sequence[GroupRole]) -> None:
+    """
+    Put the cataloguer's captions onto ranges the parser produced.
+
+    The parser reads a caption off the statement, which is right whenever the
+    statement carries one. Where it does not -- a level written as a bare
+    number -- the parser writes NO_CAPTION and the 853 declares "(*)". A
+    confirmed pattern is exactly where the missing word lives, because a
+    cataloguer supplied it, so it is filled in here.
+
+    Only empty captions are filled. A caption the statement states is what the
+    piece in hand actually says, and a pattern's generic "v." must not overwrite
+    a "vol." that is printed on the volume.
+    """
+    by_slot: dict = {}
+    for role in roles:
+        if role.kind == KIND_ENUM and role.caption and role.level is not None:
+            by_slot.setdefault((role.boundary, role.level), role.caption)
+    if not by_slot:
+        return
+
+    for hr in result.ranges:
+        for boundary, ec in ((BOUNDARY_START, hr.start), (BOUNDARY_END, hr.end)):
+            if ec is None:
+                continue
+            for index, level in enumerate(ec.enum):
+                if level.caption:
+                    continue
+                caption = by_slot.get((boundary, index))
+                if caption:
+                    level.caption = caption
+
+
 def build_parse_result(
     text: str,
     compiled: "re.Pattern",
@@ -500,7 +534,84 @@ def build_parse_result(
     defer_lists: bool = True,
 ) -> Optional[ParseResult]:
     """
-    Parse `text` with a confirmed pattern, or return None if it does not apply.
+    Parse `text`, using a confirmed pattern for what the parser cannot settle.
+
+    There is one reader of holdings structure, parse_866(). Where it produces
+    ranges they are what this returns, with the cataloguer's captions laid over
+    any level the statement left unnamed.
+
+    A pattern earns its keep on the statements the parser refuses. "?: 16"
+    carries a number and nothing whatever to say whether it is a volume or an
+    issue; no amount of parsing can settle that, because the information is not
+    in the statement. A cataloguer has already said which it is, and
+    _build_from_pattern() below writes it out.
+
+    This ordering was measured rather than assumed. Across the 141 statements
+    in the corpus and the two .mrc fixtures, the two readings agreed on 90 and
+    disagreed on 10 -- and on 9 of those 10 the pattern was the wrong one, eight
+    of them declaring a $j caption in the 853 that their own 863 never filled.
+    Of the 5 statements only the pattern converted, 3 were supplements belonging
+    in an 867 and one produced no fields at all.
+
+    Whether the pattern *applies* is still the regex's question, and it is asked
+    first. Every caller depends on that: `fallback=False` must write nothing for
+    a statement no pattern matches, or the converter removes an 866 the
+    cataloguer asked to keep, and a skip pattern must claim only statements it
+    actually matches rather than everything the parser happens to read.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+    if not _pattern_applies(text, compiled, split, fallback, defer_lists):
+        return None
+
+    parsed = parse_866(text)
+    if parsed.ranges:
+        _apply_confirmed_captions(parsed, roles)
+        return parsed
+    return _build_from_pattern(text, compiled, roles, split, fallback,
+                               defer_lists)
+
+
+def _pattern_applies(text: str, compiled: "re.Pattern", split: bool,
+                     fallback: bool, defer_lists: bool) -> bool:
+    """
+    Whether this pattern describes `text`, on the same terms it always has.
+
+    A segment matches only when the pattern spans the whole of it: a partial
+    match means the pattern does not describe this statement. With `fallback`,
+    one matching segment is enough, because the parser reads the others; without
+    it every segment must match, since half a statement is worse than none.
+    """
+    segments = [s.strip() for s in
+                (split_statement(text) if split else [text]) if s.strip()]
+    if not segments:
+        return False
+
+    matched = 0
+    for seg in segments:
+        applies = not (defer_lists and is_more_than_one_run(seg)) \
+            and compiled.fullmatch(seg) is not None
+        if applies:
+            matched += 1
+        elif not fallback:
+            return False
+    return matched > 0
+
+
+def _build_from_pattern(
+    text: str,
+    compiled: "re.Pattern",
+    roles: Sequence[GroupRole],
+    split: bool = True,
+    fallback: bool = True,
+    defer_lists: bool = True,
+) -> Optional[ParseResult]:
+    """
+    Assemble a ParseResult from the pattern's captures alone.
+
+    Reached only for a statement parse_866() would write nothing for, so there
+    is no reading to defer to and the cataloguer's confirmation is all there is.
 
     Multi-range statements are split first, so "v.1(1990)-v.3(1992), v.5(1994)-"
     produces two HoldingsRanges under one ParseResult -- the same shape the

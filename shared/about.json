@@ -1,16 +1,41 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.9.9",
-  "released": "2026-09-15",
+  "version": "0.10.0",
+  "released": "2026-09-16",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "Three tools for MARC serials holdings. The Holdings Workbench finds the patterns in your 866 statements, asks you to confirm what each part of a pattern means, and converts using them. The Converter turns textual 866 holdings statements into structured 853 caption/pattern and 863 enumeration/chronology fields. The Pattern Detector groups free-text holdings by their structure and generates a matching regular expression for each group.",
   "licensing": "No license is granted at this time; the repository is published for reference only while institutional intellectual property rights are reviewed. See NOTICE.md.",
   "attribution": "Portions derive from extract.py by Phani Chaitanya Pendyala (MIT). See THIRD-PARTY-NOTICES.md.",
   "contact": "Matthew Codey, codey@usc.edu",
-
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
-
   "changelog": [
+    {
+      "version": "0.10.0",
+      "date": "2026-09-16",
+      "summary": "A confirmed pattern and the standard parser can no longer read the same statement two different ways. Five statements that produced nothing now convert, and eight stop declaring a month caption they never fill.",
+      "changes": [
+        {
+          "tool": "Holdings Workbench",
+          "text": "Until now a confirmed pattern read a statement by itself, from what its capture groups caught, and the standard parser read it a second way. Where they disagreed you got whichever one happened to run. Held against each other across all 141 statements in the test collection, the two agreed on 90 and disagreed on 10 — and on nine of those ten the pattern was the one that was wrong. The parser now reads every statement, and a confirmed pattern supplies what the parser cannot work out on its own."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "What a pattern still decides is the part no parsing can settle. \"v.1(1990)-5(1994)\" carries a 5 that no caption reaches, so nothing in the statement says whether it is a volume or an issue; a cataloguer knows, and that is what confirming a pattern records. Captions work the same way: where a level is written as a bare number the 853 said \"(*)\", and the word you confirmed is now used instead. A caption the statement itself states is left alone — a pattern's \"v.\" will not overwrite a \"vol.\" printed on the piece."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "Five statements that a pattern converted into nothing at all now convert in full: \"1949: 1 (1-6 [Apr-Sep])\", \"1979: 1 (6-8 [Sep-Dec])\" and \"N 1994: (2 [Mar])\" among them. \"2018: ([Sum])\" keeps its season, and \"v.7/8(1996:Jul./Aug.)\" keeps both its months; each was previously losing them on the pattern path only."
+        },
+        {
+          "tool": "Holdings Workbench",
+          "text": "Eight statements were declaring a month or season caption in the 853 that their own 863 never filled — \"v. 78 - v. 93 no. 3 (1981 - Sep 1996)\" among them. A compressed 863 records the first and last part held, so a month at only one end of a range cannot be paired and is not written; the 853 now stops promising it."
+        },
+        {
+          "tool": "Converter",
+          "text": "Nothing about the Converter's own output changes. It was already using the parser, and every one of the 141 statements converts exactly as it did before."
+        }
+      ]
+    },
     {
       "version": "0.9.9",
       "date": "2026-09-15",
@@ -350,7 +375,7 @@
       "changes": [
         {
           "tool": "Pattern Detector",
-          "text": "The limit on how long a generated expression may be is raised from 2,000 characters to 4,000. Statements carrying several months are expensive to describe \u2014 \"v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)\" needs 2,384 characters and is an ordinary discontinuous list, not anything exotic \u2014 so the old limit was setting aside patterns that were perfectly good. That statement now gets a pattern again, which is its only route to conversion: the standard parser declines it."
+          "text": "The limit on how long a generated expression may be is raised from 2,000 characters to 4,000. Statements carrying several months are expensive to describe — \"v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)\" needs 2,384 characters and is an ordinary discontinuous list, not anything exotic — so the old limit was setting aside patterns that were perfectly good. That statement now gets a pattern again, which is its only route to conversion: the standard parser declines it."
         },
         {
           "tool": "Pattern Detector",
@@ -365,7 +390,7 @@
       "changes": [
         {
           "tool": "Pattern Detector",
-          "text": "A pattern whose expression comes out longer than the Test button accepts is now reported as too idiosyncratic to express, the same as an over-long statement, instead of being handed to you as a pattern that cannot be tested or saved. One statement in the test collection did this \u2014 \"v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)\" \u2014 and had for some time; the standard parser reads it as before."
+          "text": "A pattern whose expression comes out longer than the Test button accepts is now reported as too idiosyncratic to express, the same as an over-long statement, instead of being handed to you as a pattern that cannot be tested or saved. One statement in the test collection did this — \"v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)\" — and had for some time; the standard parser reads it as before."
         },
         {
           "tool": "Pattern Detector",
@@ -373,14 +398,14 @@
         },
         {
           "tool": "Pattern Detector",
-          "text": "A pattern set aside now says which limit refused it. The card had one explanation because there had only ever been one limit, so a statement declined for length was told it was \"25 parts long, past the point where a single expression can describe them\" \u2014 which is not true when the limit on parts is 40."
+          "text": "A pattern set aside now says which limit refused it. The card had one explanation because there had only ever been one limit, so a statement declined for length was told it was \"25 parts long, past the point where a single expression can describe them\" — which is not true when the limit on parts is 40."
         }
       ]
     },
     {
       "version": "0.8.1",
       "date": "2026-09-11",
-      "summary": "A year split across the turn of one \u2014 \"Winter 1996/97\" \u2014 is read and recorded in full.",
+      "summary": "A year split across the turn of one — \"Winter 1996/97\" — is read and recorded in full.",
       "changes": [
         {
           "tool": "Converter",
@@ -388,7 +413,7 @@
         },
         {
           "tool": "Converter",
-          "text": "A range ending in a split year keeps both ends. \"v.1(Spring 1996)-v.5(Winter 1996/97)\" recorded only \"$j 21\" \u2014 which said the whole run was Spring \u2014 and now gives $i 1996-1996/1997 $j 21-24."
+          "text": "A range ending in a split year keeps both ends. \"v.1(Spring 1996)-v.5(Winter 1996/97)\" recorded only \"$j 21\" — which said the whole run was Spring — and now gives $i 1996-1996/1997 $j 21-24."
         },
         {
           "tool": "Converter",
@@ -400,7 +425,7 @@
         },
         {
           "tool": "Pattern Detector",
-          "text": "Generated expressions are a little shorter, with no change to what they match \u2014 the whitespace between parts was being written twice. It matters because expressions are capped at 2,000 characters so that the Test button can always check them, and a chronology-heavy statement spends everything it has."
+          "text": "Generated expressions are a little shorter, with no change to what they match — the whitespace between parts was being written twice. It matters because expressions are capped at 2,000 characters so that the Test button can always check them, and a chronology-heavy statement spends everything it has."
         }
       ]
     },
@@ -411,7 +436,7 @@
       "changes": [
         {
           "tool": "Converter",
-          "text": "A date given to the day is now recorded to the day, in 863 $k under an 853 $k (day) caption. \"1983: 5 (7-30 [Jan 28-Dec 29])\" gives $i 1983 $j 01-12 $k 28-29. Until now the day was discarded from every bracketed date without a word \u2014 on one run-on statement in the test corpus that was fourteen dates gone from a single record, and it was the last thing the tools lost in silence."
+          "text": "A date given to the day is now recorded to the day, in 863 $k under an 853 $k (day) caption. \"1983: 5 (7-30 [Jan 28-Dec 29])\" gives $i 1983 $j 01-12 $k 28-29. Until now the day was discarded from every bracketed date without a word — on one run-on statement in the test corpus that was fourteen dates gone from a single record, and it was the last thing the tools lost in silence."
         },
         {
           "tool": "Converter",
@@ -423,7 +448,7 @@
         },
         {
           "tool": "Converter",
-          "text": "The caption and subfield settings now offer a day row, set to $k under the standard convention. The house convention has no day subfield \u2014 the local records it reproduces have no precedent for one \u2014 so a statement carrying a day converts without it and says which day it could not place, rather than quietly rounding to the month."
+          "text": "The caption and subfield settings now offer a day row, set to $k under the standard convention. The house convention has no day subfield — the local records it reproduces have no precedent for one — so a statement carrying a day converts without it and says which day it could not place, rather than quietly rounding to the month."
         },
         {
           "tool": "Workbench",
@@ -438,11 +463,11 @@
       "changes": [
         {
           "tool": "Converter",
-          "text": "A statement read as four or more levels of enumeration is now flagged for checking. \"8,13,15,17,19,20-(1982-1994)\" is six separate holdings; read as a hierarchy it becomes $a 8 $b 13 $c 15 $d 17 $e 19 $f 20, which says the library holds one issue numbered six levels deep. That is not something lost, it is something invented, and it used to come out looking like any other converted record. Nothing can tell a genuinely deep serial from a list once the numbers are in hand, so the fields are still written \u2014 what has changed is that the record no longer passes in silence."
+          "text": "A statement read as four or more levels of enumeration is now flagged for checking. \"8,13,15,17,19,20-(1982-1994)\" is six separate holdings; read as a hierarchy it becomes $a 8 $b 13 $c 15 $d 17 $e 19 $f 20, which says the library holds one issue numbered six levels deep. That is not something lost, it is something invented, and it used to come out looking like any other converted record. Nothing can tell a genuinely deep serial from a list once the numbers are in hand, so the fields are still written — what has changed is that the record no longer passes in silence."
         },
         {
           "tool": "Workbench",
-          "text": "Records flagged that way are counted as \"to check\" beside the converted count, and appear under \"Needs attention\" \u2014 which until now meant only \"nothing was converted\". A record can need attention because of what was written, not just because nothing was."
+          "text": "Records flagged that way are counted as \"to check\" beside the converted count, and appear under \"Needs attention\" — which until now meant only \"nothing was converted\". A record can need attention because of what was written, not just because nothing was."
         },
         {
           "tool": "Workbench",
@@ -469,7 +494,7 @@
         },
         {
           "tool": "Workbench",
-          "text": "A record read by one of your patterns has an \"Edit this pattern\" link beside it. It opens that pattern in step 2 wherever it is \u2014 unfolding the step, opening the group it sits in, and opening the pattern itself \u2014 because a mistake is nearly always spotted while reviewing records, and the place to fix it is the pattern."
+          "text": "A record read by one of your patterns has an \"Edit this pattern\" link beside it. It opens that pattern in step 2 wherever it is — unfolding the step, opening the group it sits in, and opening the pattern itself — because a mistake is nearly always spotted while reviewing records, and the place to fix it is the pattern."
         },
         {
           "tool": "Workbench",
@@ -484,11 +509,11 @@
       "changes": [
         {
           "tool": "Workbench",
-          "text": "A pattern can be skipped. \"Skip these\" on a pattern card means the statements it recognises are converted by nothing at all \u2014 no 853, no 863, and the 866 stays on the record. This is not the same as removing a pattern from the library: a removed pattern's statements fall through to the standard parser and are converted anyway, which is usually the opposite of what was wanted."
+          "text": "A pattern can be skipped. \"Skip these\" on a pattern card means the statements it recognises are converted by nothing at all — no 853, no 863, and the 866 stays on the record. This is not the same as removing a pattern from the library: a removed pattern's statements fall through to the standard parser and are converted anyway, which is usually the opposite of what was wanted."
         },
         {
           "tool": "Workbench",
-          "text": "You can skip a shape before deciding what its values mean. \"I cannot tell what this is\" is a good reason to leave it alone, so the Skip button does not ask you to fill the table in first. Taking the skip off does ask, and says what is still missing \u2014 and the shape stays skipped in the meantime rather than quietly starting to convert."
+          "text": "You can skip a shape before deciding what its values mean. \"I cannot tell what this is\" is a good reason to leave it alone, so the Skip button does not ask you to fill the table in first. Taking the skip off does ask, and says what is still missing — and the shape stays skipped in the meantime rather than quietly starting to convert."
         },
         {
           "tool": "Workbench",
@@ -496,7 +521,7 @@
         },
         {
           "tool": "Workbench",
-          "text": "Skipped records have their own filter chip, and the review line counts them separately from the ones you have reviewed \u2014 set aside is not the same as dealt with."
+          "text": "Skipped records have their own filter chip, and the review line counts them separately from the ones you have reviewed — set aside is not the same as dealt with."
         }
       ]
     },
@@ -507,11 +532,11 @@
       "changes": [
         {
           "tool": "Workbench",
-          "text": "Patterns that were confirmed for you, and those too idiosyncratic to express as a pattern at all, now sit in a folded group instead of filling the page. On a file producing 44 patterns, 37 of them fold away and only the 7 asking you something are in front of you \u2014 the step went from about 4,600 pixels tall to about 1,300."
+          "text": "Patterns that were confirmed for you, and those too idiosyncratic to express as a pattern at all, now sit in a folded group instead of filling the page. On a file producing 44 patterns, 37 of them fold away and only the 7 asking you something are in front of you — the step went from about 4,600 pixels tall to about 1,300."
         },
         {
           "tool": "Workbench",
-          "text": "The whole Patterns step can be folded to a single line with the Hide button, the way the Holdings step already folds once it has your file. Folded, it reads something like \"44 patterns \u00b7 36 confirmed \u00b7 1 too complex \u00b7 7 need a decision\", so folding it never hides work still waiting for you \u2014 and Convert is right there rather than several screens down."
+          "text": "The whole Patterns step can be folded to a single line with the Hide button, the way the Holdings step already folds once it has your file. Folded, it reads something like \"44 patterns · 36 confirmed · 1 too complex · 7 need a decision\", so folding it never hides work still waiting for you — and Convert is right there rather than several screens down."
         },
         {
           "tool": "Workbench",
@@ -526,7 +551,7 @@
       "changes": [
         {
           "tool": "Converter",
-          "text": "A title numbered by issue alone now converts. \"no. 26 (May 1994)-no. 37 (May 2000)\" produced nothing at all, because the tool could only read an issue that sat underneath a volume; it now records $a no. with 26-37, which is what MARC asks for \u2014 captions run from $a downwards in order of significance, and there is no rule that $a has to be a volume."
+          "text": "A title numbered by issue alone now converts. \"no. 26 (May 1994)-no. 37 (May 2000)\" produced nothing at all, because the tool could only read an issue that sat underneath a volume; it now records $a no. with 26-37, which is what MARC asks for — captions run from $a downwards in order of significance, and there is no rule that $a has to be a volume."
         },
         {
           "tool": "Converter",
@@ -550,7 +575,7 @@
         },
         {
           "tool": "Workbench",
-          "text": "The confirmation screen asks what each captured value means \u2014 enumeration, year, or month/season \u2014 and, for enumeration, offers the familiar caption words as suggestions you can type over. You can also set which level a value sits at; left alone, it takes the level its position in the statement implies."
+          "text": "The confirmation screen asks what each captured value means — enumeration, year, or month/season — and, for enumeration, offers the familiar caption words as suggestions you can type over. You can also set which level a value sits at; left alone, it takes the level its position in the statement implies."
         },
         {
           "tool": "Workbench",
@@ -569,15 +594,15 @@
         },
         {
           "tool": "Pattern Detector",
-          "text": "A pattern's description now shows where it contains text the tool does not recognise, as \u2039text\u203a. \"v. 58 Suppl. (Sep 2003)\" reads \"VOL\u2039text\u203a(CHRONYEAR)\" instead of looking exactly like a statement with no \"Suppl.\" in it \u2014 two different patterns could previously appear on screen under the same description."
+          "text": "A pattern's description now shows where it contains text the tool does not recognise, as ‹text›. \"v. 58 Suppl. (Sep 2003)\" reads \"VOL‹text›(CHRONYEAR)\" instead of looking exactly like a statement with no \"Suppl.\" in it — two different patterns could previously appear on screen under the same description."
         },
         {
           "tool": "Converter",
-          "text": "A date written with a day is now read. \"(Apr 18, 1996-Dec 1997)\" recorded only \"1997\", claiming the holdings began that year; it now records 1996-1997 and April-December. The day itself is still not encoded \u2014 it has its own subfield this tool does not yet write \u2014 and is named on screen."
+          "text": "A date written with a day is now read. \"(Apr 18, 1996-Dec 1997)\" recorded only \"1997\", claiming the holdings began that year; it now records 1996-1997 and April-December. The day itself is still not encoded — it has its own subfield this tool does not yet write — and is named on screen."
         },
         {
           "tool": "Converter",
-          "text": "Wording that is not a month or a season no longer reaches a subfield reserved for chronology codes. \"v. 15 (1998 Buyers Guide)\" wrote \"Buyers Guide\" into $j, and \"Late Summer\" produced the half-coded \"11/12-Late Summer\"; both are now left out and named, so you can record them by hand. Abbreviated seasons \u2014 Spr., Sum, Aut, Win \u2014 are recognised and coded rather than treated as wording."
+          "text": "Wording that is not a month or a season no longer reaches a subfield reserved for chronology codes. \"v. 15 (1998 Buyers Guide)\" wrote \"Buyers Guide\" into $j, and \"Late Summer\" produced the half-coded \"11/12-Late Summer\"; both are now left out and named, so you can record them by hand. Abbreviated seasons — Spr., Sum, Aut, Win — are recognised and coded rather than treated as wording."
         },
         {
           "tool": "Workbench",
@@ -585,7 +610,7 @@
         },
         {
           "tool": "Converter",
-          "text": "A bracketed group nested inside a year-first statement \u2014 the \"(1)\" in \"N1984: (2 (1))\" \u2014 is now named rather than dropped in silence. What it means is local to whoever wrote it, so the tool says it could not encode it instead of guessing."
+          "text": "A bracketed group nested inside a year-first statement — the \"(1)\" in \"N1984: (2 (1))\" — is now named rather than dropped in silence. What it means is local to whoever wrote it, so the tool says it could not encode it instead of guessing."
         }
       ]
     },
@@ -596,11 +621,11 @@
       "changes": [
         {
           "tool": "Converter",
-          "text": "A statement is now read whole or not at all. \"v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)\" used to produce \"$a 19 $b 1\" \u2014 one issue of twelve, no months, no year \u2014 and the original 866 was then removed, so the rest of the holdings went with it. Statements like this are now held for review, and the screen says how far the reading got: \"Read 'v. 19 nos. 1' but could not account for ', 3, 5, 7-12 (...)'\". The same applies to a supplement designation sitting between the numbering and the date, as in \"v. 58 Suppl. (Sep 2003)\". Fewer statements convert as a result; none of them were converting correctly. Please re-check any file converted before this version for holdings that stop earlier than they should."
+          "text": "A statement is now read whole or not at all. \"v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)\" used to produce \"$a 19 $b 1\" — one issue of twelve, no months, no year — and the original 866 was then removed, so the rest of the holdings went with it. Statements like this are now held for review, and the screen says how far the reading got: \"Read 'v. 19 nos. 1' but could not account for ', 3, 5, 7-12 (...)'\". The same applies to a supplement designation sitting between the numbering and the date, as in \"v. 58 Suppl. (Sep 2003)\". Fewer statements convert as a result; none of them were converting correctly. Please re-check any file converted before this version for holdings that stop earlier than they should."
         },
         {
           "tool": "Converter",
-          "text": "A month or season given at only one end of a range is no longer recorded. \"(1981 - Sep 1996)\" wrote \"$i 1981-1996 $j 09\", which a catalogue reads as the run beginning in September 1981 \u2014 the statement never said that. Where both ends name one it is kept as a pair, as before. The value that could not be placed is named on screen either way."
+          "text": "A month or season given at only one end of a range is no longer recorded. \"(1981 - Sep 1996)\" wrote \"$i 1981-1996 $j 09\", which a catalogue reads as the run beginning in September 1981 — the statement never said that. Where both ends name one it is kept as a pair, as before. The value that could not be placed is named on screen either way."
         },
         {
           "tool": "Converter",
@@ -615,7 +640,7 @@
       "changes": [
         {
           "tool": "Converter",
-          "text": "A range that begins and ends at the same issue now records both ends. \"v. 41 no. 1-v. 43 no. 1\" wrote \"$a 41-43 $b 1\", which reads just as well as issue 1 of each of volumes 41 to 43; it now writes \"$b 1-1\", so the first and last part held can be told apart. This applies to any level sitting under one that changes across the range \u2014 including the month in \"$i 2014-2022 $j 01\". Where nothing above a level changes, it is left as it was: \"v. 43 no. 6 - v. 43 no. 7\" still writes \"$a 43 $b 6-7\", which loses nothing."
+          "text": "A range that begins and ends at the same issue now records both ends. \"v. 41 no. 1-v. 43 no. 1\" wrote \"$a 41-43 $b 1\", which reads just as well as issue 1 of each of volumes 41 to 43; it now writes \"$b 1-1\", so the first and last part held can be told apart. This applies to any level sitting under one that changes across the range — including the month in \"$i 2014-2022 $j 01\". Where nothing above a level changes, it is left as it was: \"v. 43 no. 6 - v. 43 no. 7\" still writes \"$a 43 $b 6-7\", which loses nothing."
         },
         {
           "tool": "Converter",
@@ -623,11 +648,11 @@
         },
         {
           "tool": "Converter",
-          "text": "When a value has to be left out for that reason, the conversion now says which one \u2014 \"Only the end of this range gives an issue (3)...\" \u2014 instead of dropping it in silence. Nothing is written differently because of this; you can simply see what could not be placed, and decide whether to record it by hand."
+          "text": "When a value has to be left out for that reason, the conversion now says which one — \"Only the end of this range gives an issue (3)...\" — instead of dropping it in silence. Nothing is written differently because of this; you can simply see what could not be placed, and decide whether to record it by hand."
         },
         {
           "tool": "Converter",
-          "text": "Two ends naming the same month are kept as a pair rather than merged. \"(Jan 1956 - Jan 1957)\" now gives \"$i 1956-1957 $j 01-01\" instead of \"$j 01\", which read as a single January spanning two years. Where only one end names a month \u2014 \"(1981 - Sep 1996)\" \u2014 it is still recorded once, since repeating it would invent a month the statement never gave."
+          "text": "Two ends naming the same month are kept as a pair rather than merged. \"(Jan 1956 - Jan 1957)\" now gives \"$i 1956-1957 $j 01-01\" instead of \"$j 01\", which read as a single January spanning two years. Where only one end names a month — \"(1981 - Sep 1996)\" — it is still recorded once, since repeating it would invent a month the statement never gave."
         }
       ]
     },
@@ -638,7 +663,7 @@
       "changes": [
         {
           "tool": "Workbench",
-          "text": "A confirmed pattern now has to fit the whole statement before it is used. Until now one could match just part of a statement \u2014 the pattern for \"v. 9 no. 1 (Nov 1902)\" matched the tail end of \"v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)\" \u2014 and everything before the part it matched was dropped, with nothing on screen to say so. A statement a pattern only partly fits now goes to the standard parser whole, as though no pattern had matched it. Please re-check any file you converted with your own patterns for holdings that begin later than they should."
+          "text": "A confirmed pattern now has to fit the whole statement before it is used. Until now one could match just part of a statement — the pattern for \"v. 9 no. 1 (Nov 1902)\" matched the tail end of \"v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)\" — and everything before the part it matched was dropped, with nothing on screen to say so. A statement a pattern only partly fits now goes to the standard parser whole, as though no pattern had matched it. Please re-check any file you converted with your own patterns for holdings that begin later than they should."
         },
         {
           "tool": "Workbench",
@@ -646,11 +671,11 @@
         },
         {
           "tool": "Pattern Detector",
-          "text": "A pattern's match rate now counts only the statements it fits end to end. Some rates that read 100% will read lower \u2014 nothing got worse; the number now means what it says."
+          "text": "A pattern's match rate now counts only the statements it fits end to end. Some rates that read 100% will read lower — nothing got worse; the number now means what it says."
         },
         {
           "tool": "Converter",
-          "text": "Every generated 863 now carries second indicator 0, \"compressed\", instead of 1, \"uncompressed\". These fields state a range \u2014 the first part held and the last part held \u2014 which is what compressed means, so each one had been claiming the opposite of what it contained. If your system reads that indicator, records written before this version are worth reloading."
+          "text": "Every generated 863 now carries second indicator 0, \"compressed\", instead of 1, \"uncompressed\". These fields state a range — the first part held and the last part held — which is what compressed means, so each one had been claiming the opposite of what it contained. If your system reads that indicator, records written before this version are worth reloading."
         }
       ]
     },
@@ -661,31 +686,31 @@
       "changes": [
         {
           "tool": "Workbench",
-          "text": "A new tool joins the other two. It finds the patterns in your holdings the way the Pattern Detector does, then converts with them the way the Converter does \u2014 with a step in between where you say what each part of a pattern means. The Converter and the Pattern Detector are unchanged and still at their own addresses; nothing you do today has to change."
+          "text": "A new tool joins the other two. It finds the patterns in your holdings the way the Pattern Detector does, then converts with them the way the Converter does — with a step in between where you say what each part of a pattern means. The Converter and the Pattern Detector are unchanged and still at their own addresses; nothing you do today has to change."
         },
         {
           "tool": "Workbench",
-          "text": "A pattern whose every captured value could be read is confirmed for you as soon as the patterns are found. What is left is the shorter list that genuinely needs you: patterns holding a value the tool cannot place, marked \"needs a decision\". Removing a confirmed pattern, or clearing the library, is remembered \u2014 nothing you have taken out comes back the next time you look for patterns."
+          "text": "A pattern whose every captured value could be read is confirmed for you as soon as the patterns are found. What is left is the shorter list that genuinely needs you: patterns holding a value the tool cannot place, marked \"needs a decision\". Removing a confirmed pattern, or clearing the library, is remembered — nothing you have taken out comes back the next time you look for patterns."
         },
         {
           "tool": "Workbench",
-          "text": "Each pattern is shown against one holdings statement at a time, reading down the screen as the original 866, then the values taken out of it, then the 853 / 863 they produce. Use \u2039 and \u203a to step through the other statements the pattern covers; the table and the fields follow. Correct anything wrong and the MARC on screen changes as you do."
+          "text": "Each pattern is shown against one holdings statement at a time, reading down the screen as the original 866, then the values taken out of it, then the 853 / 863 they produce. Use ‹ and › to step through the other statements the pattern covers; the table and the fields follow. Correct anything wrong and the MARC on screen changes as you do."
         },
         {
           "tool": "Workbench",
-          "text": "The fields shown for a pattern now carry the linking numbers they would really be given. $8 depends on the whole record \u2014 statements published to the same pattern share one 853 and run 1.1, 1.2, and a change of pattern starts 2.1 \u2014 so the screen shows the entire record the example belongs to, with that statement marked. It previously showed every statement as 1.1 whatever it would actually receive."
+          "text": "The fields shown for a pattern now carry the linking numbers they would really be given. $8 depends on the whole record — statements published to the same pattern share one 853 and run 1.1, 1.2, and a change of pattern starts 2.1 — so the screen shows the entire record the example belongs to, with that statement marked. It previously showed every statement as 1.1 whatever it would actually receive."
         },
         {
           "tool": "Workbench",
-          "text": "The original 866 fields are now kept by default. The checkbox that removes them has moved out of Conversion settings to sit above the record list, where you can see it, and starts unticked \u2014 so the file you download has both the holdings you started with and the 853 / 863 built from them. Keeping them means the output can be run through the tool again with different settings, and a system that rebuilds 866s from 853 / 863 will replace them anyway. Tick the box if you want them removed as before."
+          "text": "The original 866 fields are now kept by default. The checkbox that removes them has moved out of Conversion settings to sit above the record list, where you can see it, and starts unticked — so the file you download has both the holdings you started with and the 853 / 863 built from them. Keeping them means the output can be run through the tool again with different settings, and a system that rebuilds 866s from 853 / 863 will replace them anyway. Tick the box if you want them removed as before."
         },
         {
           "tool": "Converter",
-          "text": "When a serial changes its publication pattern and later changes back, the later run now gets an 853 of its own instead of being filed under the earlier one. A journal running months, then seasons, then months again produces three 853s numbered $8 1, 2 and 3 \u2014 the third is a third pattern, not a resumption of the first. Two of those 853s read identically apart from their number, which is correct: they describe separate runs either side of a change."
+          "text": "When a serial changes its publication pattern and later changes back, the later run now gets an 853 of its own instead of being filed under the earlier one. A journal running months, then seasons, then months again produces three 853s numbered $8 1, 2 and 3 — the third is a third pattern, not a resumption of the first. Two of those 853s read identically apart from their number, which is correct: they describe separate runs either side of a change."
         },
         {
           "tool": "Converter",
-          "text": "Holdings that record less detail than their neighbours now share an 853 with them instead of getting one of their own. \"v.5(1994)\" beside \"v.1:no.1(1990)\" is the same publication with the issue simply not written down, so both sit under the fuller 853 and the sparser 863 leaves the issue empty. This previously split one publication across two 853s. Holdings that record something *different* \u2014 seasons where the others use months \u2014 still get their own."
+          "text": "Holdings that record less detail than their neighbours now share an 853 with them instead of getting one of their own. \"v.5(1994)\" beside \"v.1:no.1(1990)\" is the same publication with the issue simply not written down, so both sit under the fuller 853 and the sparser 863 leaves the issue empty. This previously split one publication across two 853s. Holdings that record something *different* — seasons where the others use months — still get their own."
         },
         {
           "tool": "Workbench",
@@ -697,11 +722,11 @@
         },
         {
           "tool": "Converter",
-          "text": "A range written with spaces around its dash \u2014 \"v. 1 (2001) - v. 5 (2005)\" \u2014 now keeps its end. It previously read only as far as the first half: an 863 was written for \"v. 1 (2001)\" alone, and because something had been converted the original 866 was then removed, so the rest of the range was deleted with nothing on screen to say so. The same statement written without the spaces was always read correctly. Please re-check any file converted before this version for holdings that end earlier than they should."
+          "text": "A range written with spaces around its dash — \"v. 1 (2001) - v. 5 (2005)\" — now keeps its end. It previously read only as far as the first half: an 863 was written for \"v. 1 (2001)\" alone, and because something had been converted the original 866 was then removed, so the rest of the range was deleted with nothing on screen to say so. The same statement written without the spaces was always read correctly. Please re-check any file converted before this version for holdings that end earlier than they should."
         },
         {
           "tool": "Converter",
-          "text": "Holdings that begin with a number carrying no caption of its own \u2014 \"39 no 1 (Spring 1995)\" \u2014 are now read, with that number taken as the volume. A number sitting a level above an issue is a volume, so \"39 no 1\" means the same as \"v.39 no 1\", which already worked. These statements were previously not converted at all."
+          "text": "Holdings that begin with a number carrying no caption of its own — \"39 no 1 (Spring 1995)\" — are now read, with that number taken as the volume. A number sitting a level above an issue is a volume, so \"39 no 1\" means the same as \"v.39 no 1\", which already worked. These statements were previously not converted at all."
         },
         {
           "tool": "Converter",
@@ -709,15 +734,15 @@
         },
         {
           "tool": "Workbench",
-          "text": "Where a level is worked out from cataloguing convention rather than stated in the holdings, the value is marked \"likely, please confirm\" and the pattern is not confirmed for you \u2014 it waits for you to look at it, even though the answer is already filled in."
+          "text": "Where a level is worked out from cataloguing convention rather than stated in the holdings, the value is marked \"likely, please confirm\" and the pattern is not confirmed for you — it waits for you to look at it, even though the answer is already filled in."
         },
         {
           "tool": "Pattern detector",
-          "text": "A holdings statement that compresses its range \u2014 \"v.1-5(1990-1994)\", \"no.1-6(1990)\" \u2014 is now read correctly. The hyphen in \"v.1-5\" joins two volumes; it does not split the statement into a beginning and an end. Reading it as a split put every value after it on the wrong side, so both years in \"v.1-5(1990-1994)\" were labelled as the end of the range and the \"5\" was left as a number of no particular kind."
+          "text": "A holdings statement that compresses its range — \"v.1-5(1990-1994)\", \"no.1-6(1990)\" — is now read correctly. The hyphen in \"v.1-5\" joins two volumes; it does not split the statement into a beginning and an end. Reading it as a split put every value after it on the wrong side, so both years in \"v.1-5(1990-1994)\" were labelled as the end of the range and the \"5\" was left as a number of no particular kind."
         },
         {
           "tool": "Pattern detector",
-          "text": "The parts of a generated expression are now named for what they hold \u2014 start_vol and end_vol, start_year and end_year \u2014 with each level getting at most one beginning and one end. Names such as end_year_2 no longer appear where a plain end_year was meant."
+          "text": "The parts of a generated expression are now named for what they hold — start_vol and end_vol, start_year and end_year — with each level getting at most one beginning and one end. Names such as end_year_2 no longer appear where a plain end_year was meant."
         },
         {
           "tool": "Pattern detector",
@@ -725,7 +750,7 @@
         },
         {
           "tool": "Workbench",
-          "text": "Because of those corrections, a statement such as \"v.1-5(1990-1994)\" now arrives with all four of its values already placed, and can be confirmed without correcting anything first. Statements where a value genuinely cannot be placed \u2014 the \"5\" in \"v.1(1990)-5(1994)\", which no caption reaches \u2014 still ask."
+          "text": "Because of those corrections, a statement such as \"v.1-5(1990-1994)\" now arrives with all four of its values already placed, and can be confirmed without correcting anything first. Statements where a value genuinely cannot be placed — the \"5\" in \"v.1(1990)-5(1994)\", which no caption reaches — still ask."
         },
         {
           "tool": "Workbench",
@@ -733,11 +758,11 @@
         },
         {
           "tool": "Workbench",
-          "text": "Each converted statement says what read it \u2014 the name of one of your confirmed patterns, or \"Standard parser\". Converting a whole file reports the same breakdown, so you can see how much of it your patterns covered."
+          "text": "Each converted statement says what read it — the name of one of your confirmed patterns, or \"Standard parser\". Converting a whole file reports the same breakdown, so you can see how much of it your patterns covered."
         },
         {
           "tool": "Workbench",
-          "text": "The patterns confirmed so far are listed under \"Pattern library\", folded away to a single line so it does not sit between you and the patterns you are working on. Open it to see what will read your holdings, to remove any that should not be used, or to Export them to a file and Import them again next time \u2014 so the work of confirming a collection's patterns is done once rather than every visit."
+          "text": "The patterns confirmed so far are listed under \"Pattern library\", folded away to a single line so it does not sit between you and the patterns you are working on. Open it to see what will read your holdings, to remove any that should not be used, or to Export them to a file and Import them again next time — so the work of confirming a collection's patterns is done once rather than every visit."
         },
         {
           "tool": "Workbench",
@@ -749,7 +774,7 @@
         },
         {
           "tool": "Workbench",
-          "text": "Each record under Convert says what it will produce before you open it \u2014 how many of its statements convert, and how many are held \u2014 so a file can be looked over as a list rather than a record at a time. Tick Reviewed as you work through it; the count beside the filters says how far you have got."
+          "text": "Each record under Convert says what it will produce before you open it — how many of its statements convert, and how many are held — so a file can be looked over as a list rather than a record at a time. Tick Reviewed as you work through it; the count beside the filters says how far you have got."
         },
         {
           "tool": "Workbench",
@@ -761,7 +786,7 @@
         },
         {
           "tool": "Workbench",
-          "text": "Records are listed under Convert and open where they sit, showing what that record converts to without leaving the page. The record list previously lived in the sidebar underneath everything else, where on an ordinary screen it fell below the edge of the panel \u2014 and since choosing a record was the only way into the conversion view, that view looked permanently empty."
+          "text": "Records are listed under Convert and open where they sit, showing what that record converts to without leaving the page. The record list previously lived in the sidebar underneath everything else, where on an ordinary screen it fell below the edge of the panel — and since choosing a record was the only way into the conversion view, that view looked permanently empty."
         },
         {
           "tool": "Workbench",
@@ -769,7 +794,7 @@
         },
         {
           "tool": "Workbench",
-          "text": "That fallback can now be switched off, under Conversion settings. With it off only your own confirmed patterns convert anything, and a statement none of them matches is left exactly as it was, 866 and all. A statement only half covered by a pattern is left alone too rather than half converted \u2014 the 866 is removed once anything has been written from it, so converting one range of a two-range statement would take the other with it."
+          "text": "That fallback can now be switched off, under Conversion settings. With it off only your own confirmed patterns convert anything, and a statement none of them matches is left exactly as it was, 866 and all. A statement only half covered by a pattern is left alone too rather than half converted — the 866 is removed once anything has been written from it, so converting one range of a two-range statement would take the other with it."
         }
       ]
     },
@@ -780,7 +805,7 @@
       "changes": [
         {
           "tool": "Converter",
-          "text": "A holdings statement the converter cannot read now keeps its original 866 field. Previously, converting a record could remove every 866 on it even when nothing was produced to replace them \u2014 so a statement in a format the converter did not recognise was deleted outright, and the file you downloaded was missing holdings with nothing on screen to say so. Please re-check any file you converted before this version: look for records that now have no holdings at all."
+          "text": "A holdings statement the converter cannot read now keeps its original 866 field. Previously, converting a record could remove every 866 on it even when nothing was produced to replace them — so a statement in a format the converter did not recognise was deleted outright, and the file you downloaded was missing holdings with nothing on screen to say so. Please re-check any file you converted before this version: look for records that now have no holdings at all."
         },
         {
           "tool": "Converter",
@@ -788,7 +813,7 @@
         },
         {
           "tool": "Converter",
-          "text": "On a record where some statements convert and others do not, only the converted ones have their 866 removed. The rest stay exactly as they were. Previously the whole record was treated as one decision, so a single statement needing review kept every 866 \u2014 leaving the converted holdings recorded twice, once as an 866 and once as an 853/863."
+          "text": "On a record where some statements convert and others do not, only the converted ones have their 866 removed. The rest stay exactly as they were. Previously the whole record was treated as one decision, so a single statement needing review kept every 866 — leaving the converted holdings recorded twice, once as an 866 and once as an 853/863."
         }
       ]
     },
@@ -799,7 +824,7 @@
       "changes": [
         {
           "tool": "Pattern detector",
-          "text": "A statement that separates its ranges with slashes \u2014 v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997) / v.10(1999)- \u2014 is now broken into those separate ranges before patterns are worked out. Previously the whole statement was read as one long run, which was usually reported as too idiosyncratic to express as a pattern, so it produced no pattern at all. Statements separated by commas or semicolons already behaved this way."
+          "text": "A statement that separates its ranges with slashes — v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997) / v.10(1999)- — is now broken into those separate ranges before patterns are worked out. Previously the whole statement was read as one long run, which was usually reported as too idiosyncratic to express as a pattern, so it produced no pattern at all. Statements separated by commas or semicolons already behaved this way."
         },
         {
           "tool": "Pattern detector",

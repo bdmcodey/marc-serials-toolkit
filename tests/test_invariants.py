@@ -271,11 +271,13 @@ def test_every_corpus_regex_is_testable():
 # Statements where the pattern path writes less chronology than the parser, with
 # the reason. The set is asserted exactly: one appearing is a regression, and one
 # disappearing means something was fixed and this note is stale.
-KNOWN_CHRON_GAPS = {
-    # The detector's CHRON token lists "summer" and not the abbreviation "sum",
-    # which the parser's own table does carry, so nothing is captured to encode.
-    "2018: ([Sum])": {"j"},
-}
+# Empty since September 2026, and by construction rather than by luck: the
+# parser is now the single reader of holdings structure, so where it writes a
+# chronology the pattern path writes the same one. "2018: ([Sum])" was the last
+# entry -- the detector's CHRON token lists "summer" and not the abbreviation
+# "sum", so the pattern captured nothing to encode -- and it closed when the
+# reading stopped coming from the captures.
+KNOWN_CHRON_GAPS: dict = {}
 
 
 def test_the_pattern_path_never_drops_a_chronology_the_parser_keeps():
@@ -336,3 +338,54 @@ def test_the_pattern_path_never_drops_a_chronology_the_parser_keeps():
     resolved = {k: v for k, v in KNOWN_CHRON_GAPS.items() if gaps.get(k) != v}
     assert not unexpected, f"the pattern path now drops chronology here: {unexpected}"
     assert not resolved, f"these no longer differ; update KNOWN_CHRON_GAPS: {resolved}"
+
+
+def test_the_two_paths_write_the_same_863():
+    """
+    The stronger form of the test above, and the one the architecture now allows.
+
+    Chronology was singled out because that is where the two readings were
+    caught differing twice. Since the parser became the single reader of
+    holdings structure there is nothing left for them to differ *about* in an
+    863: the pattern supplies captions, which the 853 carries, and the parser
+    supplies every value. So the whole 863 is compared, not three subfields of
+    it, and the expected number of disagreements is zero.
+
+    The 853 is deliberately not compared. That is where a confirmed pattern is
+    allowed to say something the parser cannot: "39 no 1 (Spring 1995)" gives
+    the parser no caption for the 39, so it writes "(*)", while a cataloguer who
+    confirmed the pattern has said it is a volume. Both 863s read "$a 39".
+    """
+    from marc_serials.detector import detect_patterns
+    from marc_serials.bridge import infer_roles, assign_levels, apply_patterns
+    from marc_serials.converter import convert_holdings
+    from marc_serials.parser import parse_866
+    import marc_serials.library as plib
+
+    def render(fields):
+        return [" ".join(f"${sf.code} {sf.value}" for sf in f.subfields)
+                for f in fields]
+
+    differ = {}
+    for line in (Path(__file__).resolve().parents[1]
+                 / "data" / "textual_holdings_corpus.txt").read_text().splitlines():
+        text = line.split("#")[0].strip()
+        if not text or text.startswith("["):
+            continue
+
+        group = detect_patterns([text])[0]
+        if group.too_complex:
+            continue
+        pattern = plib.ConfirmedPattern(
+            id="p", label=group.human_label, regex=group.regex,
+            roles=assign_levels(infer_roles(group.named_groups)), split=False)
+        parsed, _ = apply_patterns(text, [pattern])
+
+        by_parser = render(convert_holdings(parse_866(text)).fields_863)
+        by_pattern = render(convert_holdings(parsed).fields_863)
+        if not by_parser or not by_pattern:
+            continue
+        if by_parser != by_pattern:
+            differ[text] = (by_parser, by_pattern)
+
+    assert not differ, f"the two paths disagree about an 863: {differ}"

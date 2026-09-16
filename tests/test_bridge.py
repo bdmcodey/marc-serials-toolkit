@@ -275,8 +275,15 @@ def test_a_segment_the_pattern_misses_falls_to_the_parser_not_the_floor():
     """
     A pattern covering most of a statement must not cost the rest of it.
 
-    The second range here has an issue caption the pattern knows nothing about,
-    so the parser reads it and both ranges survive.
+    The second range here has an issue caption the pattern knows nothing about.
+    Both ranges survive, with the issue on the second one intact.
+
+    Which of the two read it stopped being visible in September 2026, when the
+    parser became the single reader of structure and the pattern was left
+    supplying only what the parser cannot settle. There is no longer a
+    per-segment handover to announce, so the warning that used to name one is
+    gone; what the test is for -- that a pattern covering part of a statement
+    does not cost the rest of it -- is asserted on the ranges themselves.
     """
     group = detect_patterns(["v.1(1990)-v.3(1992)"])[0]
     statement = "v.1(1990)-v.3(1992), v.5:no.2(1994)-v.6:no.4(1995)"
@@ -286,8 +293,8 @@ def test_a_segment_the_pattern_misses_falls_to_the_parser_not_the_floor():
         infer_roles(group.named_groups), split=True,
     )
     assert len(result.ranges) == 2
+    assert result.ranges[0].start.value_at(0) == "1"
     assert result.ranges[1].start.value_at(1) == "2"
-    assert any("standard parser" in w for w in result.warnings)
 
 
 def test_a_statement_the_pattern_cannot_match_returns_nothing():
@@ -864,12 +871,22 @@ def test_a_value_nobody_has_decided_about_forces_review():
     An undecided role is not the same as one set to 'Not encoded'. The second
     is a cataloguer's choice; the first is a value that reached the screen and
     was never accounted for, which is the one thing that must not pass quietly.
+
+    Asked of "v.1(1990)-5(1994)", which is where the question now arises: the
+    parser writes nothing for it, because no caption reaches across the
+    separator to say what the 5 is, so the confirmed pattern is what builds the
+    result and an undecided role is the only thing standing between the
+    cataloguer and a guess. A statement the parser can read is read by it, and
+    an undecided role costs it nothing.
     """
-    group = detect_one("Series 1, v. 6 no. 1 (Summer/Fall 1992)")
+    statement = "v.1(1990)-5(1994)"
+    assert not parse_866(statement).ranges, "the parser must refuse this one"
+
+    group = detect_one(statement)
     roles = infer_roles(group.named_groups)
     assert any(r.kind == KIND_UNRESOLVED for r in roles)
 
-    result = parse_with("Series 1, v. 6 no. 1 (Summer/Fall 1992)", roles=roles)
+    result = parse_with(statement, roles=roles)
     assert result.needs_review is True
     assert any("not encoded" in w for w in result.warnings)
 

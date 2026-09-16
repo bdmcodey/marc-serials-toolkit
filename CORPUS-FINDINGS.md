@@ -31,7 +31,8 @@ D10 (0.8.0); D19 (0.8.1); D20 (0.8.2); D21 (0.8.4); D1 in full
 (0.8.5, and on the pattern path in 0.8.6); D22 (0.8.7); D7 in part
 (0.8.9); the block grammar's invented captions (0.9.0); D23 (0.9.1);
 D24 (0.9.4); D25 (0.9.5); D26 (0.9.6, and its own
-regression in 0.9.7); D27 (0.9.8); D28 (0.9.9, 15 September 2026).
+regression in 0.9.7); D27 (0.9.8); D28 (0.9.9, 15 September 2026); the two conversion paths collapsed into
+one reader (0.10.0, 16 September 2026).
 Their sections below are kept and marked, because the reasoning is the record of
 why the code looks the way it does now. **D7 and D11 remain open** — see the
 list at the end.
@@ -1092,10 +1093,17 @@ said nothing.
 
 `test_the_pattern_path_never_drops_a_chronology_the_parser_keeps` now compares
 the two paths directly, on exactly what went wrong both times. It fails on 0.9.6
-naming all ten statements. The one standing exception is `2018: ([Sum])` — the
+naming all ten statements. Its one standing exception was `2018: ([Sum])` — the
 detector's CHRON token lists `summer` and not the abbreviation `sum`, which the
 parser's own table carries — and the set is asserted exactly, so a new one is a
 failure and a resolved one is a stale note.
+
+That exception closed in 0.10.0, when the parser became the single reader of
+holdings structure and there was no longer a second reading for the abbreviation
+to fall out of. `KNOWN_CHRON_GAPS` is now empty, and
+`test_the_two_paths_write_the_same_863()` makes the stronger claim the
+architecture allows: not that chronology survives, but that both paths write the
+same 863, on every statement where both write one. See "One reader, not two".
 
 ### D27 — a spaced slash is not read as a separator, and the refusal keeps half a range · **FIXED in 0.9.8**
 
@@ -1693,6 +1701,85 @@ everything correctly" is not.
 The bounded-error work cuts across all of these and is worth doing alongside
 rather than after: every fix on this list was easier to trust because the report
 could show what it changed.
+
+## One reader, not two · **DONE in 0.10.0**
+
+*16 September 2026.*
+
+The finding that runs underneath most of the others, written up once the
+evidence for it was measurable.
+
+**What was wrong.** A statement could reach MARC by two independent routes. A
+confirmed pattern built a `ParseResult` itself, out of what its capture groups
+caught; `parse_866()` built one by reading the text. Two implementations of the
+same job, and whichever ran was whichever the caller happened to pick.
+
+**How much of this log is that finding.** D24, D25, D26 and its regression,
+0.8.6, 0.9.3 and the run-index investigation were all, in the end, "the two
+paths disagree about this statement", and the resolution was almost always
+"make the pattern path do what the parser does". Each was fixed on its own
+terms. None of them removed the reason there was something to fix.
+
+**Why it kept getting missed.** `corpus_report.py --drift` reported *no drift*
+for D26, its regression, D27 and D28 — because it only ever runs the parser.
+The "0 silent losses" figure quoted throughout this document never covered the
+pattern path at all.
+`test_the_pattern_path_never_drops_a_chronology_the_parser_keeps` was added to
+close that blind spot, and it did, but a test asserting that two
+implementations agree is a design paying rent on the second one.
+
+**The measurement.** Both paths were run over all 141 statements in the corpus
+and the two `.mrc` fixtures, and the converted fields compared:
+
+| | |
+|---|---|
+| identical | 90 |
+| only the parser writes anything | 12 |
+| only the pattern writes anything | 5 |
+| **they disagree** | **10** |
+
+Of the 10 disagreements the pattern was wrong in 9. Eight declared a `$j`
+caption in the 853 that their own 863 never filled; one lost `[Sum]`; one
+produced nothing where the parser converted correctly. The tenth,
+`v. 15 (1998 Buyers Guide)`, is a parser defect (D5) the pattern happened to
+sidestep. Of the 5 the pattern alone converted, 3 were supplements belonging in
+an 867, and one produced no fields at all.
+
+So the second implementation's only wins were statements it converted into the
+wrong field.
+
+**What was changed.** `parse_866()` is the single reader of holdings structure.
+`build_parse_result()` still answers *whether the pattern applies* — that is the
+regex's question, and every caller depends on it, since `fallback=False` must
+write nothing for an unmatched statement and a skip pattern must claim only what
+it matches — and then hands the reading to the parser. `_build_from_pattern()`
+keeps the old construction for the one case that needs it: a statement the
+parser writes nothing for, where the cataloguer's confirmation is the only thing
+that can settle what a value means. `v.1(1990)-5(1994)` is the example — a `5`
+no caption reaches, which no amount of parsing can type.
+
+Captions are the other thing a pattern still decides. Where a level is written
+as a bare number the parser writes `NO_CAPTION` and the 853 declares `(*)`; the
+confirmed word is filled in there. Only there: a caption the statement states is
+what the piece in hand says, and a pattern's generic `v.` must not overwrite a
+`vol.` printed on the volume.
+
+**What it cost and what it bought.** Nothing on the parser path changed — all
+141 statements convert exactly as before. On the pattern path, nothing was lost,
+22 outputs changed and every one is an improvement: five statements that
+produced nothing now convert in full, `2018: ([Sum])` keeps its season,
+`v.7/8(1996:Jul./Aug.)` keeps both months, and eight stop declaring a caption
+they never fill. Two entries from the backlog closed without being worked on.
+
+Where both paths now write an 863 they write the same 863, on 117 of 117
+statements. `test_the_two_paths_write_the_same_863()` asserts exactly that, and
+`KNOWN_CHRON_GAPS` is empty for the first time.
+
+**What is left.** The three Flask applications still duplicate their MARC glue
+and carry a session each. That is the next structural piece, and it is
+independent of this one.
+
+---
 
 ## Requested, not yet started
 

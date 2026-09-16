@@ -149,10 +149,19 @@ MARC 21 puts captions in `$a`–`$f` "in descending order of significance" and s
 nothing about which words go in them, so a title numbered by issue alone quite
 properly gets `$a no.`
 
-Statements no confirmed pattern matches are parsed by
-`marc_serials.parser.parse_866()` exactly as the Converter parses them, so an empty
-pattern library produces output identical to the Converter's — asserted byte for
-byte in `tests/test_workbench_api.py`.
+Every statement is read by `marc_serials.parser.parse_866()`, whether a pattern
+matches it or not, so an empty pattern library produces output identical to the
+Converter's — asserted byte for byte in `tests/test_workbench_api.py`. A
+confirmed pattern supplies what the parser cannot work out on its own: the
+caption for a level written as a bare number, and the meaning of a value nothing
+in the statement can type.
+
+Until 0.10.0 a confirmed pattern read a statement a second way, from its own
+capture groups, and the two readings could disagree. Measured across all 141
+statements in the corpus and the `.mrc` fixtures, they agreed on 90 and
+disagreed on 10 — and on nine of those ten the pattern was the wrong one. There
+is now one reader, and `tests/test_invariants.py` asserts that both paths write
+the same 863.
 
 ## Notes on the MARC fields
 
