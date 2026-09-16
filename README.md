@@ -68,7 +68,9 @@ marc-serials-toolkit/
 ├── scripts/
 │   ├── create_example_mrc.py  Regenerates the synthetic sample
 │   ├── create_messy_mrc.py    Regenerates the awkward-case fixture
-│   └── corpus_report.py       Runs the corpus through the engines
+│   ├── corpus_report.py       Runs the corpus through the engines
+│   └── build_changelog.py     Writes CHANGELOG.md from shared/about.json
+├── CHANGELOG.md        Every released version (generated; see the script above)
 ├── CORPUS-FINDINGS.md  What that corpus reveals about the tool
 ├── NOTICE.md           Licensing status — no license currently granted
 ├── THIRD-PARTY-NOTICES.md  Attribution for derived third-party code

@@ -1,0 +1,407 @@
+<!--
+  Generated from marc_serials/shared/about.json by scripts/build_changelog.py.
+  Edit that file, not this one, and run the script to regenerate.
+-->
+
+# Changelog
+
+Every released version, newest first. The wording is written for cataloguing
+staff rather than developers: each entry says what changed about the output or
+the screen, not how the code changed.
+
+A note on the version numbers. They stood still for a week in August 2026 while
+the three separate tools were being built out, so the 0.6.0 entry covers rather
+more than one release; numbering resumed with 0.6.1. Reasoning behind the
+parser and converter decisions, including the defects a real corpus exposed and
+what was done about each, is in [CORPUS-FINDINGS.md](CORPUS-FINDINGS.md).
+
+## 0.11.1 — 2026-09-16
+
+Confirming a pattern now says what your answer will change — the reading of a statement, a caption, or nothing at all — and stops asking where the answer would change nothing.
+
+- **MARC Serials Toolkit** — Since 0.10.0 the standard parser reads every statement it can and a confirmed pattern supplies only what it cannot. The Patterns step had not caught up: it asked about every pattern in the same words, whether the answer decided how a statement was read or was discarded entirely. Each pattern now says which.
+- **MARC Serials Toolkit** — Three things an answer can do. It can decide the reading — the parser writes nothing for those statements, so what you say is what converts them. It can supply a caption — the parser reads the statement, and your word goes where it could only write “(*)”. Or it can change nothing, when the statement names its own captions and the parser reads it in full.
+- **MARC Serials Toolkit** — Patterns in that third group are no longer presented as work. They are folded away with the confirmed ones under “the standard parser reads on its own”. In the test collection one pattern of 44 was being asked about for an answer that was then discarded — “Series 1, v. 6 no. 1 (Summer/Fall 1992)”, which the parser reads as ser. 1, v. 6, no. 1 without help.
+- **MARC Serials Toolkit** — A pattern whose answer decides the reading is no longer confirmed for you automatically, however confident it looks. The parser refuses those statements deliberately — it read part of the wording and could not account for the rest — so confirming one unasked writes holdings on a guess nobody checked. “v. 19 no. 2 Suppl. (1998)” is the case that showed it up: the pattern reads it as volume 19, issue 2, and the supplement, which is what the library actually holds, disappears into an ordinary 863. Those patterns now wait for you.
+- **MARC Serials Toolkit** — The count at the top of the step says what is outstanding and why: “3 still want an answer — 1 decides how a statement is read, 2 supply a caption”, rather than describing them all as needing you to say what a value means.
+
+## 0.11.0 — 2026-09-16
+
+The Converter and the Pattern Detector are now part of the one tool rather than separate sites. Everything they did is still here.
+
+- **MARC Serials Toolkit** — There were three tools on three addresses: a Converter, a Pattern Detector, and the Workbench that joined them up. There is one now. Both of the other two had already been rebuilt inside the Workbench, so nothing they could do has been lost — the screens you used are the screens that remain, and every address the old tools answered on has a matching one here.
+- **MARC Serials Toolkit** — The single-statement box is back: paste an 866 statement and see the 853 and 863 it converts to, with no file and no pattern needed. That was the Converter's front page and it is the quickest way to check one statement.
+- **MARC Serials Toolkit** — One difference to know about. The old Converter removed the original 866 by default when a statement converted; this tool keeps it unless you ask for it to go. Keeping it is the safer default and the one the Workbench has always used, but if you were relying on the Converter's behaviour, tick 'Remove converted 866 fields' under Conversion settings.
+- **MARC Serials Toolkit** — It opens at http://localhost:5003 — 5003 rather than 5000 because macOS uses 5000 for AirPlay Receiver. Start it with 'marc-serials' after installing, or 'python run.py' from a copy of the repository.
+- **MARC Serials Toolkit** — Because there is one tool, there is one session and one place your uploaded file and pattern library are kept. Running the old Converter used to delete pattern libraries the Workbench was keeping; that cannot happen now.
+
+## 0.10.1 — 2026-09-16
+
+A MARC file containing a record that cannot be read no longer fails with a server error. It is refused, and the record is named.
+
+- **Converter** — A file with a damaged record in it — a bad length in the leader, a truncated directory, the sort of thing that turns up in a large export — failed to upload with a server error and nothing to say which record was at fault. The file is now refused with a message naming the position of every record that could not be read, so you can find and repair them.
+- **Converter** — Refusing rather than converting is deliberate. A record that cannot be read cannot be written back out either, so converting the file would hand it back with that record missing — and the download is the copy you would load into the catalogue. It is the same rule already applied to a holdings statement the tool can only partly read.
+- **Converter** — The file is checked before anything is stored, so a refused upload leaves the file you were already working on, and your pattern library, exactly as they were.
+- **Holdings Workbench** — The same, and for the same reasons. Both tools now read a file through one piece of code rather than a copy each.
+
+## 0.10.0 — 2026-09-16
+
+A confirmed pattern and the standard parser can no longer read the same statement two different ways. Five statements that produced nothing now convert, and eight stop declaring a month caption they never fill.
+
+- **Holdings Workbench** — Until now a confirmed pattern read a statement by itself, from what its capture groups caught, and the standard parser read it a second way. Where they disagreed you got whichever one happened to run. Held against each other across all 141 statements in the test collection, the two agreed on 90 and disagreed on 10 — and on nine of those ten the pattern was the one that was wrong. The parser now reads every statement, and a confirmed pattern supplies what the parser cannot work out on its own.
+- **Holdings Workbench** — What a pattern still decides is the part no parsing can settle. "v.1(1990)-5(1994)" carries a 5 that no caption reaches, so nothing in the statement says whether it is a volume or an issue; a cataloguer knows, and that is what confirming a pattern records. Captions work the same way: where a level is written as a bare number the 853 said "(*)", and the word you confirmed is now used instead. A caption the statement itself states is left alone — a pattern's "v." will not overwrite a "vol." printed on the piece.
+- **Holdings Workbench** — Five statements that a pattern converted into nothing at all now convert in full: "1949: 1 (1-6 [Apr-Sep])", "1979: 1 (6-8 [Sep-Dec])" and "N 1994: (2 [Mar])" among them. "2018: ([Sum])" keeps its season, and "v.7/8(1996:Jul./Aug.)" keeps both its months; each was previously losing them on the pattern path only.
+- **Holdings Workbench** — Eight statements were declaring a month or season caption in the 853 that their own 863 never filled — "v. 78 - v. 93 no. 3 (1981 - Sep 1996)" among them. A compressed 863 records the first and last part held, so a month at only one end of a range cannot be paired and is not written; the 853 now stops promising it.
+- **Converter** — Nothing about the Converter's own output changes. It was already using the parser, and every one of the 141 statements converts exactly as it did before.
+
+## 0.9.9 — 2026-09-15
+
+A statement that is only a year spanning the turn of one — "1996/97" — now converts instead of coming out empty.
+
+- **Converter** — "1996/97" was producing an 863 with nothing in it, and a note saying the year could not be held. A year written across the turn of one is a single publication year and has been written out in full since 0.8.1 — everywhere except a statement whose only content is that year. It now converts to "$i 1996/1997", and "1999/00" to "$i 1999/2000".
+- **Converter** — A range of them works the same way: "1990/91-1995/96" gives "$i 1990/1991-1995/1996".
+
+## 0.9.8 — 2026-09-15
+
+Holdings written as two ranges either side of a slash are both recorded. One of them used to disappear, along with most of the other.
+
+- **Converter** — "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)" names eight volumes across seven years. It was converting to a single 863 reading "$a 1 $i 1990" — volume 1, 1990 — and the rest was gone. It now produces the two 863s the statement describes.
+- **Converter** — The warning on that statement said nothing had been converted, while a field had in fact been written, and the record was not marked for review. So with "remove the 866" switched on, the original statement was deleted and the record left claiming holdings it does not describe. A statement the tool can only read part of is now refused outright, which is what the message always said happened.
+- **Converter** — A slash only separates when there is a space on each side of it. A slash inside a value still means what it always did — a combined issue like "v.7/8", a combined month like "Jul./Aug.", a year spanning the turn of one like "1996/97" — and those are untouched.
+
+## 0.9.7 — 2026-09-15
+
+Fixes a mistake in 0.9.6: a date range like "(Jan/Feb-July/Aug 1985)" was being refused and marked for review.
+
+- **Holdings Workbench** — 0.9.6 taught patterns to notice a word attached to a season, so that "Late Summer" is not quietly recorded as Summer. It was reading the dash in a date range as part of that word: in "(Jan/Feb-July/Aug 1985)" it took "Feb-" to be a qualifier on "July/Aug". Statements that had been converting correctly lost their months and were marked as needing review. Ten statements in the test collection were affected — every "Apr-Jul", "Jan-Jun" and "Jul/Aug-Sep/Oct" in them.
+- **Holdings Workbench** — What separates the two cases is whether the word before the dash is itself a month or a season. "Feb-" is, so the dash is separating two dates; "mid-" is not, so "mid-July" is still a qualified month and is still named rather than coded.
+- **Holdings Workbench** — "Late Summer" is unaffected and still behaves as it did in 0.9.6: left out, named, and the record flagged for you to look at.
+
+## 0.9.6 — 2026-09-15
+
+"Late Summer" is no longer recorded as Summer. Wording the tool cannot code is named, and the record is flagged for you to look at.
+
+- **Holdings Workbench** — A pattern reading "(Nov/Dec 1994 - Late Summer 2002)" was writing the season as Summer and dropping the word "Late" without saying so. It may well be the Summer issue — or the serial may have an Early Summer too, in which case coding both as Summer merges two different issues. Nothing in the statement settles that, so the season is left out and named, and you are told, which is what the Converter has always done with it.
+- **Converter** — Wording that a coded subfield cannot hold now marks the record as needing attention, not just a warning on the row. A warning only shows once you open a row, and nobody opens a row that looks converted. Two statements in the test collection are affected: the "Late Summer" one and "v. 15 (1998 Buyers Guide)", where a named issue sits where a date should be.
+- **Holdings Workbench** — An ordinary season is untouched. A word only counts as a qualifier when it runs straight into the season or month; a dash or a bracket in front of it does not, so "(Spring 1990)" and "(Winter 1986 - Summer 1987)" convert exactly as before.
+
+## 0.9.5 — 2026-09-15
+
+An issue number under a volume range is named rather than written, because a compressed 863 cannot say which volume it belongs to.
+
+- **Converter** — "v. 40-45 no. 4 (1974-Apr 1979)" was converting to "$a 40-45 $b 4". A compressed 863 pairs its subfields position by position, so that field reads as no. 4 of every volume from 40 to 45 just as well as it reads as a run ending at v. 45 no. 4 — and nothing in the notation tells the two apart. The volumes are recorded and the issue is named as left out, with a note saying that writing both ends of the run out in full is what records it.
+- **Converter** — This rule was already in place for a statement written with both ends — "v. 1 (1956) - v. 51 nos. 1-2 (2006)" has always dropped and named the issue. It was not reaching a statement written with one, like "v. 40-45 no. 4", where the volume range sits inside a single boundary. The two are now treated the same.
+- **Converter** — Nothing is inferred. "v. 40-45 no. 4" is not read as starting at no. 1: the statement does not say so, and supposing it would invent a value.
+- **Converter** — A statement where both levels give both ends is unaffected. "v. 40-45 nos. 2-5" reads back as one run, v. 40 no. 2 through v. 45 no. 5, and is written in full.
+
+## 0.9.4 — 2026-09-15
+
+A combined issue like "no. 8/9" is read as one issue again, instead of being split in half and filed under the wrong levels.
+
+- **Pattern Detector** — "no. 8/9" is one issue — a single issue numbered 8/9 — and patterns now capture it as one value. It was being split at the slash, which left half of every combined designation as a stray number for you to explain on the confirmation screen.
+- **Holdings Workbench** — That split was doing real damage. In "v. 34 no. 8/9-v. 35 no. 23/24" the halves were not just lost but swapped: the issue 9 was treated as a volume and the volume 35 as an issue, and the field came out "$a 34 $b 8" — the end of the range gone and the issue cut in half. It now reads "$a 34-35 $b 8/9-23/24", the same as the Converter.
+- **Pattern Detector** — A hyphen is treated differently from a slash, because it means something different. In "v.1-5(1990-1994)" it means volume 1 *through* volume 5 — two ends of a range, and you still confirm each. In "v. 23 no. 3-4-v. 29 no. 3-4" the statement is already divided into two, so the "3-4" in each half is issues 3-4 of that volume. Six statements in the test collection now convert the same way through patterns as through the Converter, and none changed for the worse.
+
+## 0.9.3 — 2026-09-15
+
+A confirmed pattern now gives way to the standard parser for any statement holding several runs of holdings, not just a comma list.
+
+- **Holdings Workbench** — A pattern describes one run of holdings. Where a statement holds several, the pattern kept the first and last values and set the rest aside — and for year-first statements like "N1984: (2 (1))M1985: 2 (2 [summer])" it was worse than that: the pattern claimed the statement and produced no 863 at all, where the standard parser produces the two it holds. These now go to the parser, as comma lists already did.
+- **Holdings Workbench** — The test is no longer about commas. It asks the parser how many runs the statement holds, which is the thing that knows.
+
+## 0.9.2 — 2026-09-15
+
+The summary after converting a whole file is now readable: figures first, then a table of which pattern read what.
+
+- **Holdings Workbench** — The result of "Convert all records" was one long sentence with every pattern joined by commas — hundreds of characters on a small file and thousands on a real one. Worse, pattern names contain dashes of their own, so there was no telling where one entry ended and the next began. It is now a short line saying how many records were converted, a row of figures, and a table.
+- **Holdings Workbench** — The figures lead with the question worth asking: of the statements read, how many did your own confirmed patterns handle, and how many fell through to the standard parser? Statements left for review, records you skipped, and statements a pattern deliberately left alone each get their own figure when there are any.
+- **Holdings Workbench** — The per-pattern breakdown is a table — pattern, count, and a bar showing its share — sorted with the busiest first. It folds itself away when there are more than eight, so a large library no longer pushes the download button off the screen, and it scrolls rather than running down the page.
+- **Holdings Workbench** — If none of your confirmed patterns were used, the summary says so outright instead of leaving you to count. That is exactly what a lost library looks like, and it was previously buried in the middle of a paragraph.
+
+## 0.9.1 — 2026-09-15
+
+Uploading a MARC file no longer deletes a pattern library you confirmed earlier.
+
+- **Holdings Workbench** — Your confirmed patterns were being stored alongside uploaded MARC files and cleared out on the same six-hour timer. So if you confirmed a library one day and uploaded a file the next, the upload deleted the library — and because the page had already read it, the sidebar went on showing the patterns while the server had none. Every record then converted with the standard parser, with nothing on screen explaining why. Libraries are now kept for thirty days.
+- **Holdings Workbench** — Those thirty days are counted from the last time a library was used rather than the last time it was changed. Converting with the same patterns every week keeps them; only a library nobody has touched for a month is cleared.
+- **Holdings Workbench** — Uploaded MARC files are still removed after six hours. That limit is there because the file is your data and should not sit on a server longer than the work takes; the patterns are your work, which is a different thing.
+- **Holdings Workbench** — The pattern count in the sidebar is re-read from the server whenever you upload a file, so it can no longer show a number that conversion will not use.
+
+## 0.9.0 — 2026-09-11
+
+Year-first statements no longer have "volume" and "issue" read into them, and an issue that was landing in the volume's subfield is put right.
+
+- **Converter** — The year-first format — "1979: 1 (6-8 [Sep-Dec])" — says which number is the higher level and which is the lower. It does not say what either is called. The 853 was reading "volume" and "issue" out of it anyway; it now writes "(*)" for both, the same as anywhere else a level has no caption. If you know this format and want the words, set them once in the settings and they are used throughout.
+- **Converter** — A real error was hiding behind those words. Where a block omits its higher level — "N1984: (2 (1))M1985: 2 (2 [summer])" — the lower number was sliding up into the higher one's place, so the 1984 issue went to $a and the 1985 issue to $b: the same level of the same serial in two different subfields, under an 853 that called them both "no.". Both now go to $b, where they belong.
+- **Converter** — The volume that statement does state was being thrown away as well, with a note telling you to split records that "number differently". They do not number differently; one block just leaves a level out. It is now recorded, and the note is gone.
+- **Converter** — A statement where no block states the higher level — "1993: (1 [Feb])" — still describes one level, not two. There is no sense declaring a level in the 853 that the serial does not have.
+
+## 0.8.9 — 2026-09-11
+
+A level the piece does not caption is now written as having no caption, instead of being called a volume on the tool's say-so.
+
+- **Converter** — "39 no 1 (Spring 1995)" captions its issue and not the number above it. The 853 read "$a v. $b no." — calling the 39 a volume because of where it sat, with nothing on the screen to say the word had been supplied rather than read. It is very probably a volume. That is not the same as the piece having said so. The 853 now reads "$a (*) $b no.", which is MARC 21 for a level with no caption on the piece.
+- **Converter** — You can still name the level yourself: type a caption in the settings and it wins over everything. Bracket it — "[v.]" — if you want the record to show that you supplied it. The caption boxes now show "(*)" as what you get by leaving them blank, with v., no. and pt. offered as suggestions beside the grid.
+- **Converter** — Holdings listed with no caption at all now convert. "8,13,15,17,19,20-(1982-1994)" becomes six 863s under one 853 — one per run, with the gaps marked and the last still open. It was refused before, on the grounds that nothing said whether those were volumes or issues. Nothing does; it turns out nothing needs to. The date range is named as left out, because it covers the whole statement and not any one run in it.
+- **Converter** — A statement that is only a number — "106" — is still refused, because on its own it really does say nothing about what it counts.
+
+## 0.8.8 — 2026-09-11
+
+A date that covers a whole statement is no longer copied onto each of its runs, and the pattern preview works again for statements you paste in.
+
+- **Converter** — "v. 19 nos. 1, 3, 5 (1982-1994)" was writing 1982-1994 onto all three 863s, so each one claimed a single issue spanned twelve years. A span like that belongs to the statement as a whole, not to any one run in it. The issues are still recorded; the dates are named as left out, so you can add them by hand. A single year — "(1915)", or "1915/16" — really is every run's year and is still written to all of them.
+- **Converter** — For the same reason, "v. 19 nos. 1, 3 (Jan 1915)" no longer refuses outright. January cannot be true of both no. 1 and no. 3, but the issues themselves are perfectly clear, so they are recorded and the date is named.
+- **Holdings Workbench** — Pasting holdings statements into the text box instead of uploading a file no longer breaks the preview. The confirmation step was showing "renderPreviewPair is not defined" where the 853 and 863 fields should be — for every pasted statement, which is the quickest way to try the tool. It now shows what your pattern writes beside what the standard parser writes, as it was meant to.
+
+## 0.8.7 — 2026-09-11
+
+An expression that never finishes is now stopped instead of hanging the server, and one warning no longer reads like a typo.
+
+- **Pattern Detector** — A regular expression that runs forever is stopped after five seconds and reported, instead of taking the server out of service. This is easier to write by accident than it sounds — a repeat inside a repeat, such as (\d+)+, can take longer than the rest of your career on a statement that nearly matches — and until now the Test button had no way to give up. The message says what the likely cause is and how to fix it.
+- **Holdings Workbench** — The same protection on the Test button and on the preview of a pattern you are editing.
+- **Holdings Workbench** — A pattern whose expression does not finish is refused when you confirm it, rather than being stored and then hanging every conversion that used it. Your existing library is untouched when that happens — previously the screen would also have appeared to empty itself, which it no longer does.
+- **Converter** — A warning read "so with no no level at the end it was left out" — the first "no" a negation, the second the caption "no.". Captions are now quoted and keep their period, and the sentence no longer needs the negation: "Only the end of this range gives a 'no.' level (1-2); a compressed 863 records the first and last part held, and there is nothing at the start to pair it with, so it was left out."
+
+## 0.8.6 — 2026-09-11
+
+The Workbench now handles holdings written as a list with gaps the same way the Converter does.
+
+- **Holdings Workbench** — Find patterns no longer breaks a list apart. "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" was arriving at the confirm step as four separate shapes — "v. 19 nos. 1", "3", "5" and "7-12 (Jan, Mar, May, Jul-Dec 1915)" — two of which mean nothing on their own and still asked you to confirm them. It is one statement and is now shown as one.
+- **Holdings Workbench** — A confirmed pattern no longer converts a list with gaps in it. A pattern describes one run of holdings: it kept the first and last values and set everything between them to "not encoded", so four runs came out as a single 863 holding two of the statement's twelve assertions. These statements are now read by the standard parser, which records each run as its own 863.
+- **Holdings Workbench** — When that happens the conversion says so, naming the pattern that matched and why it was not used — a pattern you confirmed should never just quietly go unused.
+- **Holdings Workbench** — A pattern you have marked to skip still claims these statements and leaves them alone. Skipping is your decision about what you will handle by hand, and it keeps working on every shape.
+
+## 0.8.5 — 2026-09-11
+
+Holdings written as a list with gaps in it are read properly — one 863 for each run, and a break indicator saying where the gaps are.
+
+- **Converter** — "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" now converts to four 863s under one 853 — one for no. 1, one for no. 3, one for no. 5, one for nos. 7-12 — which is how MARC 21 records holdings with gaps in them. It was refused outright before, because reading only the first run and removing the 866 would have deleted the other three. Seven statements in the test collection are this shape, and all seven now convert.
+- **Converter** — Each 863 before a gap carries $w g, the break indicator for parts that are lacking or a break whose cause is not known. Runs that follow straight on — "nos. 1, 2, 3" — carry nothing, because there is no gap to report. The other code, $w n for parts that were never published, is never written: nothing here can tell an unpublished issue from a missing one, and the wrong code is a claim about your collection.
+- **Converter** — The two halves of the statement have to line up, or nothing is written. Three issue runs against two months means the statement was not understood, and holdings filed under the wrong dates is not something anyone downstream could catch. A year stated once at the end — "(Jan, Mar, May, Jul-Dec 1915)" — covers every run before it; a year stated per run is read that way instead.
+- **Converter** — A comma inside a single date is left alone: "(Apr 18, 1996-Dec 1997)" is one date, not two, and is read exactly as it was before.
+
+## 0.8.4 — 2026-09-11
+
+A range that names one level at its start and a different one at its end is no longer read backwards.
+
+- **Converter** — "v. 12 no. 1-no. 6 (1990)" now converts to "$a 12 $b 1-6" — issues 1 to 6 of volume 12, which is what it says. It was producing "$a 12-6": volume 12 to volume 6, a range running backwards. The end of the statement writes only "no. 6", and the level a value belongs to was decided by its position alone, so "6" was read as a volume. Its caption is now read too, and settles it.
+- **Converter** — The warning that came with it was also wrong, and is gone. It said the issue level had been left out for want of a closing value — while that closing value was the one sitting in the volume subfield.
+- **Converter** — Where the captions cannot settle it — a range opening "v." and closing "pt.", which pairs nothing with nothing — the closing value is left out and named, rather than written into whichever subfield its position happened to fall in.
+- **Holdings Workbench** — The same correction reaches statements converted through a confirmed pattern, where it was doing more damage: "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" was producing "$a 19-3". It now reads "$a 19 $b 1-3". That is still not the whole statement — a list with gaps in it needs one 863 per run, which is the next piece of work — but it is no longer a claim the statement contradicts.
+
+## 0.8.3 — 2026-09-11
+
+Longer patterns are allowed: the limit was turning away expressions the tool legitimately produces.
+
+- **Pattern Detector** — The limit on how long a generated expression may be is raised from 2,000 characters to 4,000. Statements carrying several months are expensive to describe — "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" needs 2,384 characters and is an ordinary discontinuous list, not anything exotic — so the old limit was setting aside patterns that were perfectly good. That statement now gets a pattern again, which is its only route to conversion: the standard parser declines it.
+- **Pattern Detector** — The limit is still there, and the Test button still honours it: an expression past 4,000 characters is one nobody could read, edit or check, so the tool declines to offer it rather than handing over something unusable.
+
+## 0.8.2 — 2026-09-11
+
+The detector no longer offers a pattern it would then refuse to test.
+
+- **Pattern Detector** — A pattern whose expression comes out longer than the Test button accepts is now reported as too idiosyncratic to express, the same as an over-long statement, instead of being handed to you as a pattern that cannot be tested or saved. One statement in the test collection did this — "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" — and had for some time; the standard parser reads it as before.
+- **Pattern Detector** — The length limit is now measured on the expression itself rather than estimated from how many parts a statement has. The estimate was the problem: a month or season costs roughly seven times what a plain number costs, so a short statement full of dates could quietly exceed the limit.
+- **Pattern Detector** — A pattern set aside now says which limit refused it. The card had one explanation because there had only ever been one limit, so a statement declined for length was told it was "25 parts long, past the point where a single expression can describe them" — which is not true when the limit on parts is 40.
+
+## 0.8.1 — 2026-09-11
+
+A year split across the turn of one — "Winter 1996/97" — is read and recorded in full.
+
+- **Converter** — "Winter 1996/97" now converts to $i 1996/1997 $j 24. A serial whose winter issue straddles the new year is numbered that way as a matter of course, and MARC joins the pair with a slash in $i exactly as it joins a combined month in $j. Until now the whole date failed to parse: "v. 12 no. 4 (Winter 1996/97)" produced a record with no year and no season at all, and the season was lost as quietly as the year.
+- **Converter** — A range ending in a split year keeps both ends. "v.1(Spring 1996)-v.5(Winter 1996/97)" recorded only "$j 21" — which said the whole run was Spring — and now gives $i 1996-1996/1997 $j 21-24.
+- **Converter** — The two-digit half is written out in full, taking its century from the first half and rolling forward where it has to: 1996/97 is 1996/1997, and 1999/00 is 1999/2000.
+- **Pattern Detector** — A split year is one value rather than three. "Winter 1996/97" used to read as a season, a year, some text and a stray number, so a statement carrying one formed its own pattern and asked you about the "97". It now clusters with its ordinary siblings: "(Spring 1996)" and "(Winter 1996/97)" are one pattern to confirm, not two.
+- **Pattern Detector** — Generated expressions are a little shorter, with no change to what they match — the whitespace between parts was being written twice. It matters because expressions are capped at 2,000 characters so that the Test button can always check them, and a chronology-heavy statement spends everything it has.
+
+## 0.8.0 — 2026-09-03
+
+Day-level dates are recorded. Nothing in the test corpus is now lost without saying so.
+
+- **Converter** — A date given to the day is now recorded to the day, in 863 $k under an 853 $k (day) caption. "1983: 5 (7-30 [Jan 28-Dec 29])" gives $i 1983 $j 01-12 $k 28-29. Until now the day was discarded from every bracketed date without a word — on one run-on statement in the test corpus that was fourteen dates gone from a single record, and it was the last thing the tools lost in silence.
+- **Converter** — "Apr 18, 1996" keeps its day too. It was previously recorded to the month with a note saying the day could not be encoded; there is now a subfield for it.
+- **Converter** — A day only one end of a range gives is still left out and named, exactly as a month is. "Apr 18, 1996-Dec 1997" records 1996-1997 and April-December but no day: a lone 18 in $k pairs with the other subfields positionally, so it would say the holdings end on the 18th as well as beginning on it.
+- **Converter** — The caption and subfield settings now offer a day row, set to $k under the standard convention. The house convention has no day subfield — the local records it reproduces have no precedent for one — so a statement carrying a day converts without it and says which day it could not place, rather than quietly rounding to the month.
+- **Workbench** — "Day" is now one of the meanings you can give a captured value on the confirmation screen, so a pattern can record day-level dates the same way the standard parser does.
+
+## 0.7.4 — 2026-09-03
+
+A record numbered more deeply than any serial plausibly is now says so instead of looking ordinary.
+
+- **Converter** — A statement read as four or more levels of enumeration is now flagged for checking. "8,13,15,17,19,20-(1982-1994)" is six separate holdings; read as a hierarchy it becomes $a 8 $b 13 $c 15 $d 17 $e 19 $f 20, which says the library holds one issue numbered six levels deep. That is not something lost, it is something invented, and it used to come out looking like any other converted record. Nothing can tell a genuinely deep serial from a list once the numbers are in hand, so the fields are still written — what has changed is that the record no longer passes in silence.
+- **Workbench** — Records flagged that way are counted as "to check" beside the converted count, and appear under "Needs attention" — which until now meant only "nothing was converted". A record can need attention because of what was written, not just because nothing was.
+- **Workbench** — Warnings about a converted statement now appear beside the 863 they describe, when reviewing a record. They were previously shown only for statements that produced no fields at all, so anything the converter said about a record it did convert never reached the screen.
+
+## 0.7.3 — 2026-09-03
+
+The filters now answer for the whole file, and a record can send you back to the pattern that read it.
+
+- **Workbench** — Fixed: the filters in Convert only knew about the fifty records whose previews were loaded, and every record past those passed every filter. "Needs attention" on a 120-record file showed the eight records that needed it and seventy-eight that did not. The counts behind the filters are now worked out for every record in the file, so a filter shows what it says it shows.
+- **Workbench** — Paging now walks what the filter is showing rather than the file in order. With a filter on, "records 1-50 of 120" was answering a question nobody asked; it now reads "showing 1-50 of 120 matching", and disappears when everything matching already fits on one page.
+- **Workbench** — Every record row now shows what it would produce, not just the first fifty.
+- **Workbench** — A record read by one of your patterns has an "Edit this pattern" link beside it. It opens that pattern in step 2 wherever it is — unfolding the step, opening the group it sits in, and opening the pattern itself — because a mistake is nearly always spotted while reviewing records, and the place to fix it is the pattern.
+- **Workbench** — Editing a pattern now puts the records it read back to "not yet reviewed", and says how many. A tick means somebody looked at this record's MARC; once the pattern changes that MARC is different and nobody has looked at it. Records the pattern never read keep their tick.
+
+## 0.7.2 — 2026-09-03
+
+Set a shape or a record aside, and the tool leaves it exactly as it is.
+
+- **Workbench** — A pattern can be skipped. "Skip these" on a pattern card means the statements it recognises are converted by nothing at all — no 853, no 863, and the 866 stays on the record. This is not the same as removing a pattern from the library: a removed pattern's statements fall through to the standard parser and are converted anyway, which is usually the opposite of what was wanted.
+- **Workbench** — You can skip a shape before deciding what its values mean. "I cannot tell what this is" is a good reason to leave it alone, so the Skip button does not ask you to fill the table in first. Taking the skip off does ask, and says what is still missing — and the shape stays skipped in the meantime rather than quietly starting to convert.
+- **Workbench** — A record can be skipped from its row in Convert. A skipped record is not touched at all: nothing converted, no 866 removed, and its existing 853/863 left alone even with "Clear existing 853 / 863 first" ticked. It comes out of a run exactly as it went in, for the ones you would rather catalogue by hand.
+- **Workbench** — Skipped records have their own filter chip, and the review line counts them separately from the ones you have reviewed — set aside is not the same as dealt with.
+
+## 0.7.1 — 2026-09-03
+
+The Patterns step folds up, and patterns that need nothing from you stay out of the way.
+
+- **Workbench** — Patterns that were confirmed for you, and those too idiosyncratic to express as a pattern at all, now sit in a folded group instead of filling the page. On a file producing 44 patterns, 37 of them fold away and only the 7 asking you something are in front of you — the step went from about 4,600 pixels tall to about 1,300.
+- **Workbench** — The whole Patterns step can be folded to a single line with the Hide button, the way the Holdings step already folds once it has your file. Folded, it reads something like "44 patterns · 36 confirmed · 1 too complex · 7 need a decision", so folding it never hides work still waiting for you — and Convert is right there rather than several screens down.
+- **Workbench** — When a run finds nothing that needs deciding, the Patterns step folds itself, since there is nothing there for you to do.
+
+## 0.7.0 — 2026-09-02
+
+Enumeration is no longer volume-then-issue: a title can be numbered any way it likes, to any depth.
+
+- **Converter** — A title numbered by issue alone now converts. "no. 26 (May 1994)-no. 37 (May 2000)" produced nothing at all, because the tool could only read an issue that sat underneath a volume; it now records $a no. with 26-37, which is what MARC asks for — captions run from $a downwards in order of significance, and there is no rule that $a has to be a volume.
+- **Converter** — Enumeration can go deeper than volume, issue and part. "v. 1 no. 2 pt. 3" already worked; a fourth, fifth or sixth level now works too, and a statement deeper than the convention has subfields for says so rather than losing the levels it could not place.
+- **Converter** — The caption written into the 853 is the word the statement itself used. A statement that says "Bd." or "Heft" or "Report no." keeps it, instead of being renamed to the nearest of volume, issue and part.
+- **Converter** — A leading series designation is no longer dropped. "Series 1, v. 6 no. 1 (Summer/Fall 1992)" was split at the comma into two unrelated holdings and the series was set aside with a note; it now converts whole, three levels deep, as $a ser. $b v. $c no.
+- **Converter** — Two statements on one record that number in different ways can no longer be filed under each other's captions. "v.1(1990), no.5(1995)" would have written the 5 into the volume subfield, where anything reading the record afterwards would take it for volume 5; it is now left out and named, with a note that those statements belong on separate records.
+- **Converter** — The caption and subfield settings now offer the first three enumeration levels by position rather than by name. The caption boxes start empty and show what an uncaptioned statement would get; fill one in only to override the word the statement used.
+- **Workbench** — The confirmation screen asks what each captured value means — enumeration, year, or month/season — and, for enumeration, offers the familiar caption words as suggestions you can type over. You can also set which level a value sits at; left alone, it takes the level its position in the statement implies.
+- **Workbench** — A value the pattern captured that nobody has decided about now marks the statement for review, instead of being noted and passed over. A value you deliberately set to "Not encoded" still passes, because that is an answer.
+
+## 0.6.4 — 2026-09-01
+
+Fewer patterns to confirm, dates read to the day, and nothing but codes in a coded subfield.
+
+- **Pattern Detector** — Months and seasons are now treated as the same kind of thing, and a combined chronology like "Jul/Aug" or "Winter/Spring" counts as one value rather than two with something in between. "(Sep 1944 - Aug 1945)" and "(Winter 1986 - Summer 1987)" are the same shape and used to be two patterns to confirm separately; across the test collection this took 55 patterns down to 44 and removed every case where one shape had been split. A pattern found from months will now also read the season a later record uses in the same place.
+- **Pattern Detector** — A pattern's description now shows where it contains text the tool does not recognise, as ‹text›. "v. 58 Suppl. (Sep 2003)" reads "VOL‹text›(CHRONYEAR)" instead of looking exactly like a statement with no "Suppl." in it — two different patterns could previously appear on screen under the same description.
+- **Converter** — A date written with a day is now read. "(Apr 18, 1996-Dec 1997)" recorded only "1997", claiming the holdings began that year; it now records 1996-1997 and April-December. The day itself is still not encoded — it has its own subfield this tool does not yet write — and is named on screen.
+- **Converter** — Wording that is not a month or a season no longer reaches a subfield reserved for chronology codes. "v. 15 (1998 Buyers Guide)" wrote "Buyers Guide" into $j, and "Late Summer" produced the half-coded "11/12-Late Summer"; both are now left out and named, so you can record them by hand. Abbreviated seasons — Spr., Sum, Aut, Win — are recognised and coded rather than treated as wording.
+- **Workbench** — "Split multi-range statements on top-level commas, semicolons or slashes" now starts switched off. Tick it when a file needs it.
+- **Converter** — A bracketed group nested inside a year-first statement — the "(1)" in "N1984: (2 (1))" — is now named rather than dropped in silence. What it means is local to whoever wrote it, so the tool says it could not encode it instead of guessing.
+
+## 0.6.3 — 2026-09-01
+
+Statements the parser can only partly read are now held for review instead of half-converted.
+
+- **Converter** — A statement is now read whole or not at all. "v. 19 nos. 1, 3, 5, 7-12 (Jan, Mar, May, Jul-Dec 1915)" used to produce "$a 19 $b 1" — one issue of twelve, no months, no year — and the original 866 was then removed, so the rest of the holdings went with it. Statements like this are now held for review, and the screen says how far the reading got: "Read 'v. 19 nos. 1' but could not account for ', 3, 5, 7-12 (...)'". The same applies to a supplement designation sitting between the numbering and the date, as in "v. 58 Suppl. (Sep 2003)". Fewer statements convert as a result; none of them were converting correctly. Please re-check any file converted before this version for holdings that stop earlier than they should.
+- **Converter** — A month or season given at only one end of a range is no longer recorded. "(1981 - Sep 1996)" wrote "$i 1981-1996 $j 09", which a catalogue reads as the run beginning in September 1981 — the statement never said that. Where both ends name one it is kept as a pair, as before. The value that could not be placed is named on screen either way.
+- **Converter** — A combined volume is now read. "v.7/8(1996:Jul./Aug.)" matched only "v.7" and dropped the year and both months in silence; volumes now accept the same combined form issues always have.
+
+## 0.6.2 — 2026-09-01
+
+A range now records both of its ends, and says which value it could not place.
+
+- **Converter** — A range that begins and ends at the same issue now records both ends. "v. 41 no. 1-v. 43 no. 1" wrote "$a 41-43 $b 1", which reads just as well as issue 1 of each of volumes 41 to 43; it now writes "$b 1-1", so the first and last part held can be told apart. This applies to any level sitting under one that changes across the range — including the month in "$i 2014-2022 $j 01". Where nothing above a level changes, it is left as it was: "v. 43 no. 6 - v. 43 no. 7" still writes "$a 43 $b 6-7", which loses nothing.
+- **Converter** — Where only one end of a range gives a value, that value is no longer written as though it belonged to the other end. "v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)" used to record December as the month the holdings *begin*; the month is now left out, because the statement does not say what it is. The same applies to enumeration: "v. 1 - v. 55 no. 3" leaves the issue out rather than guessing.
+- **Converter** — When a value has to be left out for that reason, the conversion now says which one — "Only the end of this range gives an issue (3)..." — instead of dropping it in silence. Nothing is written differently because of this; you can simply see what could not be placed, and decide whether to record it by hand.
+- **Converter** — Two ends naming the same month are kept as a pair rather than merged. "(Jan 1956 - Jan 1957)" now gives "$i 1956-1957 $j 01-01" instead of "$j 01", which read as a single January spanning two years. Where only one end names a month — "(1981 - Sep 1996)" — it is still recorded once, since repeating it would invent a month the statement never gave.
+
+## 0.6.1 — 2026-09-01
+
+Two corrections: a pattern can no longer convert half a statement, and every 863 now says it is compressed.
+
+- **Workbench** — A confirmed pattern now has to fit the whole statement before it is used. Until now one could match just part of a statement — the pattern for "v. 9 no. 1 (Nov 1902)" matched the tail end of "v. 1 no. 1 (1995)-v. 12 no. 4 (December 2006)" — and everything before the part it matched was dropped, with nothing on screen to say so. A statement a pattern only partly fits now goes to the standard parser whole, as though no pattern had matched it. Please re-check any file you converted with your own patterns for holdings that begin later than they should.
+- **Workbench** — The Test button and the example values on the confirmation screen now count a pattern as matching only when it fits the whole statement, so what you see while confirming is what conversion will do. A pattern that fits only part is still shown, along with the part it covers, so you can see how close it came.
+- **Pattern Detector** — A pattern's match rate now counts only the statements it fits end to end. Some rates that read 100% will read lower — nothing got worse; the number now means what it says.
+- **Converter** — Every generated 863 now carries second indicator 0, "compressed", instead of 1, "uncompressed". These fields state a range — the first part held and the last part held — which is what compressed means, so each one had been claiming the opposite of what it contained. If your system reads that indicator, records written before this version are worth reloading.
+
+## 0.6.0 — 2026-08-25
+
+A new Holdings Workbench: find a pattern, say what it means, convert with it.
+
+- **Workbench** — A new tool joins the other two. It finds the patterns in your holdings the way the Pattern Detector does, then converts with them the way the Converter does — with a step in between where you say what each part of a pattern means. The Converter and the Pattern Detector are unchanged and still at their own addresses; nothing you do today has to change.
+- **Workbench** — A pattern whose every captured value could be read is confirmed for you as soon as the patterns are found. What is left is the shorter list that genuinely needs you: patterns holding a value the tool cannot place, marked "needs a decision". Removing a confirmed pattern, or clearing the library, is remembered — nothing you have taken out comes back the next time you look for patterns.
+- **Workbench** — Each pattern is shown against one holdings statement at a time, reading down the screen as the original 866, then the values taken out of it, then the 853 / 863 they produce. Use ‹ and › to step through the other statements the pattern covers; the table and the fields follow. Correct anything wrong and the MARC on screen changes as you do.
+- **Workbench** — The fields shown for a pattern now carry the linking numbers they would really be given. $8 depends on the whole record — statements published to the same pattern share one 853 and run 1.1, 1.2, and a change of pattern starts 2.1 — so the screen shows the entire record the example belongs to, with that statement marked. It previously showed every statement as 1.1 whatever it would actually receive.
+- **Workbench** — The original 866 fields are now kept by default. The checkbox that removes them has moved out of Conversion settings to sit above the record list, where you can see it, and starts unticked — so the file you download has both the holdings you started with and the 853 / 863 built from them. Keeping them means the output can be run through the tool again with different settings, and a system that rebuilds 866s from 853 / 863 will replace them anyway. Tick the box if you want them removed as before.
+- **Converter** — When a serial changes its publication pattern and later changes back, the later run now gets an 853 of its own instead of being filed under the earlier one. A journal running months, then seasons, then months again produces three 853s numbered $8 1, 2 and 3 — the third is a third pattern, not a resumption of the first. Two of those 853s read identically apart from their number, which is correct: they describe separate runs either side of a change.
+- **Converter** — Holdings that record less detail than their neighbours now share an 853 with them instead of getting one of their own. "v.5(1994)" beside "v.1:no.1(1990)" is the same publication with the issue simply not written down, so both sit under the fuller 853 and the sparser 863 leaves the issue empty. This previously split one publication across two 853s. Holdings that record something *different* — seasons where the others use months — still get their own.
+- **Workbench** — Where two holdings statements were put under one 853 because one records less detail than the other, the pattern is marked "merged" on the record. Whether they really are one publication is a judgement about the serial rather than about the wording, so if they are not, tick "Keep patterns separate" on that record and each gets its own 853. The choice applies to that record alone and is remembered for the visit.
+- **Converter** — Because runs are read in the order the 866 fields appear, a record whose holdings are not in publication order may produce more 853s than it should. Check the order of the 866s if a record comes out with more patterns than you expect.
+- **Converter** — A range written with spaces around its dash — "v. 1 (2001) - v. 5 (2005)" — now keeps its end. It previously read only as far as the first half: an 863 was written for "v. 1 (2001)" alone, and because something had been converted the original 866 was then removed, so the rest of the range was deleted with nothing on screen to say so. The same statement written without the spaces was always read correctly. Please re-check any file converted before this version for holdings that end earlier than they should.
+- **Converter** — Holdings that begin with a number carrying no caption of its own — "39 no 1 (Spring 1995)" — are now read, with that number taken as the volume. A number sitting a level above an issue is a volume, so "39 no 1" means the same as "v.39 no 1", which already worked. These statements were previously not converted at all.
+- **Converter** — That reading is applied only where the statement supports it. "2016?" is still an uncertain year rather than volume 2016, and "34 no 3, 4 (Summer, Autumn 1990)" is still left alone: only its first issue can be read, and converting that much would remove the 866 and take the second issue and both seasons with it.
+- **Workbench** — Where a level is worked out from cataloguing convention rather than stated in the holdings, the value is marked "likely, please confirm" and the pattern is not confirmed for you — it waits for you to look at it, even though the answer is already filled in.
+- **Pattern detector** — A holdings statement that compresses its range — "v.1-5(1990-1994)", "no.1-6(1990)" — is now read correctly. The hyphen in "v.1-5" joins two volumes; it does not split the statement into a beginning and an end. Reading it as a split put every value after it on the wrong side, so both years in "v.1-5(1990-1994)" were labelled as the end of the range and the "5" was left as a number of no particular kind.
+- **Pattern detector** — The parts of a generated expression are now named for what they hold — start_vol and end_vol, start_year and end_year — with each level getting at most one beginning and one end. Names such as end_year_2 no longer appear where a plain end_year was meant.
+- **Pattern detector** — A pattern's heading shows a compressed range as one: "VOL-VOL(YEAR-YEAR)" rather than "VOL#(YEARYEAR)", which ran the two values together and gave no hint that a range was involved.
+- **Workbench** — Because of those corrections, a statement such as "v.1-5(1990-1994)" now arrives with all four of its values already placed, and can be confirmed without correcting anything first. Statements where a value genuinely cannot be placed — the "5" in "v.1(1990)-5(1994)", which no caption reaches — still ask.
+- **Workbench** — Holdings that were being left for review can now be converted. "?: 16" has a number in it but nothing to say whether it is a volume or an issue, so it was never converted and never could be. Tell the workbench which it is, once, and every statement of that shape converts.
+- **Workbench** — Each converted statement says what read it — the name of one of your confirmed patterns, or "Standard parser". Converting a whole file reports the same breakdown, so you can see how much of it your patterns covered.
+- **Workbench** — The patterns confirmed so far are listed under "Pattern library", folded away to a single line so it does not sit between you and the patterns you are working on. Open it to see what will read your holdings, to remove any that should not be used, or to Export them to a file and Import them again next time — so the work of confirming a collection's patterns is done once rather than every visit.
+- **Workbench** — The MARC file is uploaded once and used both for finding patterns and for converting. Previously the same file had to be given to two separate tools.
+- **Workbench** — The screen is one page of three numbered steps rather than a sidebar and a pair of tabs. At the start you see only Holdings; finding patterns appears once you have given it a file or pasted some statements, and converting appears once a file is loaded. Each step shows what the one before it produced, so the work reads top to bottom.
+- **Workbench** — Each record under Convert says what it will produce before you open it — how many of its statements convert, and how many are held — so a file can be looked over as a list rather than a record at a time. Tick Reviewed as you work through it; the count beside the filters says how far you have got.
+- **Workbench** — The record list can be narrowed to what you want to look at: only records with something held back, only those a confirmed pattern read, only those the standard parser read, or only those you have not reviewed yet. Open all and Close all work on whatever is showing.
+- **Workbench** — Long files are read fifty records at a time, with Previous and Next to walk them.
+- **Workbench** — Records are listed under Convert and open where they sit, showing what that record converts to without leaving the page. The record list previously lived in the sidebar underneath everything else, where on an ordinary screen it fell below the edge of the panel — and since choosing a record was the only way into the conversion view, that view looked permanently empty.
+- **Workbench** — Holdings matching none of your confirmed patterns are converted exactly as the Converter converts them today, including the ones it holds back for review. Confirming no patterns at all gives output identical to the Converter's, so there is nothing to lose by working here instead.
+- **Workbench** — That fallback can now be switched off, under Conversion settings. With it off only your own confirmed patterns convert anything, and a statement none of them matches is left exactly as it was, 866 and all. A statement only half covered by a pattern is left alone too rather than half converted — the 866 is removed once anything has been written from it, so converting one range of a two-range statement would take the other with it.
+
+## 0.5.2 — 2026-08-21
+
+Holdings the converter cannot read are no longer deleted.
+
+- **Converter** — A holdings statement the converter cannot read now keeps its original 866 field. Previously, converting a record could remove every 866 on it even when nothing was produced to replace them — so a statement in a format the converter did not recognise was deleted outright, and the file you downloaded was missing holdings with nothing on screen to say so. Please re-check any file you converted before this version: look for records that now have no holdings at all.
+- **Converter** — Converting a single record from its own button follows the same rule. It previously removed every 866 on the record before it had worked anything out, so even statements it had set aside for review were lost.
+- **Converter** — On a record where some statements convert and others do not, only the converted ones have their 866 removed. The rest stay exactly as they were. Previously the whole record was treated as one decision, so a single statement needing review kept every 866 — leaving the converted holdings recorded twice, once as an 866 and once as an 853/863.
+
+## 0.5.1 — 2026-08-21
+
+Holdings that use slashes between their ranges now produce patterns.
+
+- **Pattern detector** — A statement that separates its ranges with slashes — v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997) / v.10(1999)- — is now broken into those separate ranges before patterns are worked out. Previously the whole statement was read as one long run, which was usually reported as too idiosyncratic to express as a pattern, so it produced no pattern at all. Statements separated by commas or semicolons already behaved this way.
+- **Pattern detector** — Slashes that form part of a number are left alone. Combined issues such as v.1/2, split years such as 1990/91, and month spans such as Jan./Feb. are not split. Only a slash with a space on either side is treated as separating one range from the next.
+- **Pattern detector** — The Options checkbox now reads "Split multi-range statements on top-level commas, semicolons or slashes". It has always handled semicolons as well as commas; the label mentioned only commas.
+
+## 0.5.0 — 2026-08-04
+
+Corrected how 853s are numbered, and made previews appear on their own.
+
+- **Converter** — A single 853 is now shared by every holdings statement that follows the same publication pattern, numbered $8 1.1, 1.2, 1.3 and so on. Previously each statement produced its own 853, so one record could end up with four identical patterns under four different linking numbers. A gap in your holdings no longer starts a new pattern — only an actual change in how the serial is published does.
+- **Converter** — The 853/863 preview now appears as soon as you select a record. There is no longer a Preview button to press, and the 853 is shown once at the top of each group rather than repeated beside every statement.
+- **Converter** — Each source 866 is shown side by side with the 863 it produced, so you can check them against each other directly.
+- **Converter** — Conversion settings moved into their own window, opened with the Conversion settings button. They previously sat in the sidebar, where they overlapped the record list when expanded.
+- **Converter** — Converting from a record's own button now converts every statement in that record. Doing them one at a time could silently discard the previous one.
+- **Pattern detector** — Expanding "+ N more" under Example Statements now shows every statement in the group. It previously showed only two, however many the link promised.
+- **Pattern detector** — Fixed a display fault where pattern cards collapsed to a few pixels and their contents were invisible.
+- **Both** — The record list and results panel now scroll on their own instead of stretching the whole page.
+
+## 0.4.0 — 2026-08-04
+
+Rebuilt both interfaces for readability.
+
+- **Both** — Text is substantially larger throughout. The smallest text on screen went from around 8 pixels to 14, and body text to 18.
+- **Both** — Added an A / A+ / A++ control in the top corner that enlarges everything, and a light/dark theme switch. Both remember your choice on the next visit.
+- **Both** — The tools now respect whatever text size you have set in your own browser instead of overriding it. If you had already made text larger, these tools were previously shrinking it back down.
+- **Both** — Colours were adjusted so labels and borders meet accessibility contrast guidance, buttons and boxes are large enough to click comfortably, and the layout reflows rather than clipping when text is enlarged.
+- **Toolkit** — No license is granted pending a review of institutional intellectual property rights, and attribution to the original author was made complete.
+
+## 0.3.0 — 2026-08-03
+
+The converter learned a second holdings format and stopped guessing.
+
+- **Converter** — Year-first holdings such as "1993: (1 [Feb])" and "2019: (1-6 [Feb-Nov])2020: (7-12 [Jan-Dec])" are now understood. On one test file the share of statements the converter could read went from 6% to 94%; previously almost none of that format could be converted at all.
+- **Converter** — When a record already has an 853 that describes its holdings, the converter now adds 863s under it rather than creating a second, competing 853.
+- **Converter** — Statements where it cannot tell what a number means — whether it is a volume or an issue — are held for review and left unconverted, rather than being guessed at. They are listed with the reason.
+- **Converter** — Running a conversion twice on the same file no longer duplicates fields.
+- **Converter** — You can now choose which subfields the captions use, and whether chronology is written as MARC codes (03) or as text (Mar).
+
+## 0.2.0 — 2026-07-30
+
+Pattern detector made usable on messy holdings.
+
+- **Pattern detector** — Groups too irregular to express as a single pattern are now reported as a finding — "too idiosyncratic to express as a pattern, N statements affected" — instead of producing an unusable expression or an error about length.
+- **Pattern detector** — Free text inside a holdings statement, such as "Library has:" or "[lacks v.3]", is now handled as a single unit. Generated expressions are shorter and match related statements rather than only the exact one they came from.
+- **Pattern detector** — Fixed a fault where any group containing free text reported 0% matched, because the generated expression could not match the statement it was built from.
+
+## 0.1.0 — 2026-07-24
+
+First working version.
+
+- **Converter** — Converts 866 textual holdings into 853/863 fields, from pasted text or an uploaded MARC file, with month and season written as MARC chronology codes.
+- **Pattern detector** — Groups 866 statements by structure and generates a named-group regular expression for each pattern found.
