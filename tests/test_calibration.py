@@ -9,9 +9,9 @@ to catch -- output has already shifted materially between versions, and this is
 the only check that would notice.
 
 The files are real library holdings and are deliberately absent from the
-repository. Point the suite at a mounted share to run these:
+repository. Point the suite at the directory holding them to run these:
 
-    MARC_TEST_DATA_DIR=/Volumes/rfolders/.../serials-enhancement \\
+    MARC_TEST_DATA_DIR=/path/to/holdings \\
         python -m pytest -m calibration
 
 Without that variable every test here skips, which is the normal case on any

@@ -171,15 +171,16 @@ def messy_marc_bytes() -> bytes:
 # The private corpus
 #
 # The historical verification numbers in test_calibration.py were measured
-# against two files on a USC SMB share that are not, and must not be, in the
-# repository.
-# They are reached through an environment variable naming the mounted
-# directory, so the suite is fully green on a clean clone and *additionally*
-# pins exact counts on a machine where the share is mounted:
+# against two files of real library holdings that are not, and must not be, in
+# the repository.
+# They are reached through an environment variable naming the directory they
+# sit in, so the suite is fully green on a clean clone and *additionally* pins
+# exact counts on a machine that has them:
 #
-#     export MARC_TEST_DATA_DIR=/Volumes/rfolders/codey/.../serials-enhancement
+#     export MARC_TEST_DATA_DIR=/path/to/holdings
 #
-# An unset variable and an unmounted share produce the same clean skip.
+# An unset variable and a directory that is not there produce the same clean
+# skip.
 # ---------------------------------------------------------------------------
 
 WELLFORMED_NAME = "test_extract_10per.mrc"

@@ -1,7 +1,12 @@
 # Notice — Licensing Status
 
 **No license is granted at this time.**
-**Last updated: 2026-08-04**
+**Last updated: 2026-09-16**
+
+> **Draft pending institutional review.** The statement below, and in
+> particular the section on prior MIT licensing, has not been confirmed by the
+> University of Southern California. It records what happened; it is not a
+> determination of who owns the work, and should not be relied on as one.
 
 ## Current status
 
@@ -21,10 +26,16 @@ file is in place.
 
 ## Prior MIT licensing
 
-Earlier commits in this repository carried an MIT license. Anyone who obtained a
-copy of the software under those terms retains the rights that license granted
-with respect to that copy. Nothing in this notice is intended to alter or revoke
-rights already granted.
+An MIT license was applied to this work from 24 July 2026 until 4 August 2026,
+when it was withdrawn pending the review described above.
+
+Anyone who obtained a copy of the software under those terms retains whatever
+rights that license granted with respect to that copy. Nothing in this notice is
+intended to alter or revoke rights already granted, and nothing here should be
+read as a statement about whether that grant was validly made.
+
+This paragraph is deliberately about the work rather than about any one
+repository, so that it stays accurate wherever the work is published.
 
 ## Prior work and attribution
 
@@ -32,7 +43,8 @@ This project originated from `extract.py` by Phani Chaitanya Pendyala,
 published at <https://github.com/chaitupendyala/inmagic-project> under the MIT
 License. That work remains available under MIT from its original source,
 independent of anything stated here. The applicable copyright and permission
-notice is reproduced in `THIRD-PARTY-NOTICES.md`.
+notice is reproduced in `THIRD-PARTY-NOTICES.md`, and is retained regardless of
+how the licensing question above is resolved.
 
 ## Contact
 

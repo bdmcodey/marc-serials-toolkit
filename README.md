@@ -119,13 +119,13 @@ The suite runs in under a second: everything is in-process, with no servers and
 no network. A few tests are marked `xfail` — they describe known defects and say
 what the behaviour should be, so fixing one turns its test green.
 
-A further set of tests pins exact output counts against private holdings files
+A further set of tests pins exact output counts against real library holdings
 that are deliberately not in this repository — the counts live in
-`tests/test_calibration.py`. They are skipped unless you point the suite at
-those files:
+`tests/test_calibration.py`. They skip unless you point the suite at the
+directory holding those files:
 
 ```bash
-MARC_TEST_DATA_DIR=/path/to/mounted/share python -m pytest -m calibration
+MARC_TEST_DATA_DIR=/path/to/holdings python -m pytest -m calibration
 ```
 
 ## Why confirming a pattern is not ceremony
