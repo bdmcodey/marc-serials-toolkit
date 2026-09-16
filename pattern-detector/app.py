@@ -31,6 +31,8 @@ import re
 from flask import (Flask, render_template, request, jsonify,
                    send_from_directory)
 
+from marc_serials.webui import (load_about as _load_about,
+                                register_shared_routes)
 from marc_serials.detector import (detect_patterns, split_multi_range,
                               MAX_REGEX_CHARS)
 from marc_serials.budget import (MatchFailed, MatchTimeout, match_statements,
@@ -51,41 +53,14 @@ app = Flask(
     static_folder=os.path.join(_BASE_DIR, "static"),
 )
 app.secret_key = os.environ.get("SECRET_KEY", "pattern-tool-dev-key")
+
+register_shared_routes(app)
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # 25 MB
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
-
-def _load_about() -> dict:
-    """
-    Version and changelog, shared with the converter.
-
-    Read per request rather than cached at import, so editing the file and
-    reloading the page is enough to see the change. Never fatal: a missing or
-    malformed file degrades to no badge rather than a broken page.
-    """
-    path = os.path.join(_BASE_DIR, os.pardir, "shared", "about.json")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        app.logger.warning("Could not read shared/about.json", exc_info=True)
-        return {}
-
-
-@app.route("/ui.css")
-def ui_css():
-    """
-    Serve the stylesheet shared with the converter.
-
-    Templates link to it relatively, so it resolves both locally and behind
-    nginx, whose trailing-slash proxy_pass strips the /patterns prefix.
-    """
-    return send_from_directory(os.path.join(_BASE_DIR, os.pardir, "shared"),
-                               "ui.css", mimetype="text/css")
-
 
 @app.route("/")
 def index():

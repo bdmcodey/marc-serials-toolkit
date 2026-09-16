@@ -13,6 +13,8 @@ import io
 import pytest
 from pymarc import MARCReader
 
+import marc_serials.store as store
+
 from conftest import upload_marc
 
 
@@ -106,7 +108,7 @@ def test_uploads_do_not_leak_between_clients(converter_app, example_marc_bytes,
     """
     upload_dir = tmp_path / "shared-uploads"
     upload_dir.mkdir()
-    monkeypatch.setattr(converter_app, "UPLOAD_DIR", str(upload_dir))
+    monkeypatch.setattr(store, "UPLOAD_DIR", str(upload_dir))
     converter_app.app.config.update(TESTING=True, SECRET_KEY="test-secret-key")
 
     # Not `with` blocks: two nested test-client contexts unwind out of order.

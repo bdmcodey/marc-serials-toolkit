@@ -16,6 +16,8 @@ import time
 
 import pytest
 
+import marc_serials.store as store
+
 from conftest import upload_marc
 
 
@@ -268,8 +270,8 @@ def test_an_unreadable_expression_is_reported_not_raised(workbench_client):
 def _age_stored_files(workbench_app, seconds: float) -> None:
     """Backdate everything in the store, to stand in for time passing."""
     now = time.time()
-    for name in os.listdir(workbench_app.UPLOAD_DIR):
-        path = os.path.join(workbench_app.UPLOAD_DIR, name)
+    for name in os.listdir(store.UPLOAD_DIR):
+        path = os.path.join(store.UPLOAD_DIR, name)
         os.utime(path, (now - seconds, now - seconds))
 
 
@@ -286,7 +288,7 @@ def test_uploading_a_file_does_not_delete_the_pattern_library(
     confirm(workbench_client, group_for(workbench_client, "v.1(1990)-v.5(1994)"))
     assert workbench_client.get("/api/patterns").get_json()["count"] == 1
 
-    _age_stored_files(workbench_app, workbench_app.UPLOAD_TTL_SECONDS + 60)
+    _age_stored_files(workbench_app, store.UPLOAD_TTL_SECONDS + 60)
 
     upload_marc(workbench_client, example_marc_bytes)
     assert workbench_client.get("/api/patterns").get_json()["count"] == 1
@@ -306,11 +308,11 @@ def test_a_stale_upload_is_still_swept(workbench_client, workbench_app,
     upload_marc(workbench_client, example_marc_bytes)
     confirm(workbench_client, group_for(workbench_client, "v.1(1990)-v.5(1994)"))
 
-    _age_stored_files(workbench_app, workbench_app.UPLOAD_TTL_SECONDS + 60)
+    _age_stored_files(workbench_app, store.UPLOAD_TTL_SECONDS + 60)
     # Saving the library runs the sweep without rewriting the MARC file.
     workbench_client.put("/api/patterns", json={"patterns": []})
 
-    remaining = os.listdir(workbench_app.UPLOAD_DIR)
+    remaining = os.listdir(store.UPLOAD_DIR)
     assert not any(n.endswith(".mrc") for n in remaining), remaining
 
 
@@ -324,7 +326,7 @@ def test_reading_the_library_keeps_it_alive(workbench_client, workbench_app,
     upload_marc(workbench_client, example_marc_bytes)
     confirm(workbench_client, group_for(workbench_client, "v.1(1990)-v.5(1994)"))
 
-    _age_stored_files(workbench_app, workbench_app.LIBRARY_TTL_SECONDS + 60)
+    _age_stored_files(workbench_app, store.LIBRARY_TTL_SECONDS + 60)
     workbench_client.get("/api/patterns")          # used: the clock restarts
 
     upload_marc(workbench_client, example_marc_bytes)
@@ -1158,3 +1160,40 @@ def test_keep_separate_reaches_the_written_file(workbench_client,
     written = list(MARCReader(_io.BytesIO(
         workbench_client.get("/api/download-converted").data)))[idx]
     assert len(written.get_fields("853")) == 2
+
+
+def test_the_converter_does_not_delete_the_workbenchs_pattern_library(
+        workbench_client, workbench_app, converter_app, example_marc_bytes):
+    """
+    Both applications default to the same store, and only one of them knew that
+    a pattern library is not an upload.
+
+    0.9.1 taught the workbench to age a library by its own far longer limit.
+    The converter kept a sweep of its own, written before that and never
+    updated, which aged every file in the directory as an upload -- so a
+    cataloguer who used both on one machine lost any library they had not
+    touched for six hours, silently, to the *other* tool. The page went on
+    showing patterns the server no longer had and every record converted with
+    the standard parser.
+
+    There is one sweep now, in marc_serials.store, and this asserts it from the
+    converter's side: the sweep the converter runs must leave the library alone.
+    """
+    upload_marc(workbench_client, example_marc_bytes)
+    confirm(workbench_client, group_for(workbench_client, "v.1(1990)-v.5(1994)"))
+    assert workbench_client.get("/api/patterns").get_json()["count"] == 1
+
+    libraries = [n for n in os.listdir(store.UPLOAD_DIR)
+                 if n.endswith(store.LIBRARY_EXT)]
+    assert libraries, "the confirmed library should be on disk"
+
+    # Older than an upload is allowed to be, younger than a library may be.
+    _age_stored_files(workbench_app, store.UPLOAD_TTL_SECONDS + 60)
+
+    # The converter reaches the same sweep the workbench does.
+    converter_app._purge_old_uploads()
+
+    survived = [n for n in os.listdir(store.UPLOAD_DIR)
+                if n.endswith(store.LIBRARY_EXT)]
+    assert survived == libraries, "the converter swept away the pattern library"
+    assert workbench_client.get("/api/patterns").get_json()["count"] == 1

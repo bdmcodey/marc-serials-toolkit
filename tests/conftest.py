@@ -50,6 +50,7 @@ if str(REPO_ROOT) not in sys.path:
 # Imported under its old bare name because the fixture below patches this one
 # module object, and every caller resolves the budget from it at call time.
 import marc_serials.budget as regex_budget                                    # noqa: E402
+import marc_serials.store as store                                            # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -159,14 +160,18 @@ def converter_client(converter_app, tmp_path: Path, monkeypatch):
 
     Two layers of isolation, and both are needed. Each test client carries its
     own cookie jar, so it gets its own Flask session and therefore its own
-    {uuid}.mrc -- state cannot leak between tests through the session. But
-    UPLOAD_DIR is a process-wide global shared by every client, so repointing it
-    per test stops _purge_old_uploads() from walking another test's working set
-    and lets a test assert on directory contents without seeing its neighbours'.
+    {uuid}.mrc -- state cannot leak between tests through the session. But the
+    store is a process-wide global shared by every client, so repointing it per
+    test stops the sweep from walking another test's working set and lets a test
+    assert on directory contents without seeing its neighbours'.
+
+    Patched on marc_serials.store, which is where the directory now lives. The
+    applications used to declare one each, and defaulting both to the same path
+    is what let the converter's sweep delete the workbench's pattern libraries.
     """
     upload_dir = tmp_path / "uploads"
     upload_dir.mkdir()
-    monkeypatch.setattr(converter_app, "UPLOAD_DIR", str(upload_dir))
+    monkeypatch.setattr(store, "UPLOAD_DIR", str(upload_dir))
 
     # A plain client, not `with app.test_client() as client`. The context-manager
     # form preserves each request's context until the fixture ends, and two
@@ -183,17 +188,17 @@ def workbench_client(workbench_app, tmp_path: Path, monkeypatch):
     """
     A workbench test client with an upload directory of its own.
 
-    Isolated the same two ways the converter's client is, and for the same
-    reasons -- but the workbench also stores its pattern library there, so
-    without the redirect one test's confirmed patterns would convert another
-    test's holdings.
+    Isolated the same way the converter's client is, and for the same reasons --
+    but the workbench also stores its pattern library there, so without the
+    redirect one test's confirmed patterns would convert another test's
+    holdings.
     """
-    # Named apart from the converter's directory, not merely isolated from other
-    # tests: a test using both clients must not have them share a store, or
-    # _purge_old_uploads() would walk the other app's working set.
+    # A directory of its own per test. It no longer has to be named apart from
+    # the converter's: there is one sweep now, and it ages a library by the
+    # library limit whichever application happens to run it.
     upload_dir = tmp_path / "workbench-uploads"
     upload_dir.mkdir()
-    monkeypatch.setattr(workbench_app, "UPLOAD_DIR", str(upload_dir))
+    monkeypatch.setattr(store, "UPLOAD_DIR", str(upload_dir))
 
     workbench_app.app.config.update(TESTING=True, SECRET_KEY="test-secret-key")
     return workbench_app.app.test_client()      # plain: see converter_client

@@ -23,9 +23,7 @@ import json
 import os
 import re
 import sys
-import tempfile
 import time
-import uuid
 from typing import Optional
 
 # The engines live in the two standalone apps' directories and import each other
@@ -45,11 +43,32 @@ from flask import (Flask, jsonify, render_template, request, send_file,
                    send_from_directory, session)
 
 try:
-    from pymarc import MARCReader, MARCWriter
+    from pymarc import MARCReader
     HAS_PYMARC = True
 except ImportError:
     HAS_PYMARC = False
 
+from marc_serials.store import (
+    LIBRARY_EXT,
+    LIBRARY_TTL_SECONDS,
+    UPLOAD_TTL_SECONDS,
+    file_path as _file_path,
+    load_file as _load_file,
+    purge_old_stored_files as _purge_old_stored_files,
+    save_file as _save_file,
+)
+from marc_serials.webui import (convention_opts as _convention_opts,
+                                load_about as _load_about,
+                                register_shared_routes)
+from marc_serials.records import (
+    add_853 as _add_853,
+    apply_record_conversion as _apply_record_conversion,
+    display_marc_field as _display_marc_field,
+    match_866_sources as _match_866_sources,
+    read_marc_file as _read_marc_file,
+    records_to_bytes as _records_to_bytes,
+    remove_converted_866s as _remove_converted_866s,
+)
 from marc_serials.parser import parse_866
 from marc_serials.converter import (CONVENTION_LEVELS, CONVENTION_STANDARD,
                             enum_level_fields,
@@ -73,6 +92,8 @@ app = Flask(__name__,
             template_folder=os.path.join(_BASE_DIR, "templates"),
             static_folder=os.path.join(_BASE_DIR, "static"))
 app.secret_key = os.environ.get("SECRET_KEY", "marc-workbench-dev-key")
+
+register_shared_routes(app)
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # 25 MB
 
 # Flask names its session cookie "session" at path / by default, and the three
@@ -82,29 +103,11 @@ app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # 25 MB
 # is the newcomer, so it is the one that yields.
 app.config["SESSION_COOKIE_NAME"] = "workbench_session"
 
-UPLOAD_DIR = os.environ.get(
-    "MARC_UPLOAD_DIR", os.path.join(tempfile.gettempdir(), "marc_uploads")
-)
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-# An uploaded MARC file is the cataloguer's data, and should not sit on a server
-# any longer than the work takes.
-UPLOAD_TTL_SECONDS = int(os.environ.get("MARC_UPLOAD_TTL", 6 * 3600))
-
-# The pattern library is not an upload.  It is work -- a cataloguer's decisions
-# about their own collection, a hundred of them on a large file -- and it was
-# stored in the same directory under the same sweep, so uploading a file six
-# hours after confirming a library *deleted the library*.  The page had already
-# read it and went on showing patterns the server no longer had; every record
-# then converted with the standard parser, with nothing to say why.
-#
-# Kept far longer, and measured from last use rather than from when it was
-# written: a library someone converts with every week is in use, whether or not
-# they have edited it.
-LIBRARY_TTL_SECONDS = int(os.environ.get("MARC_LIBRARY_TTL", 30 * 86400))
-
-# Which stored things are libraries rather than uploads.
-LIBRARY_EXT = ".json"
+# Uploads, pattern libraries and the sweep that ages them out live in
+# marc_serials.store, shared with the converter. Keeping the rules in one place
+# is not tidiness: the converter had its own sweep that aged every file in the
+# directory as an upload, so running it deleted the libraries this application
+# was deliberately keeping. See marc_serials/store.py.
 
 # Bounds on user-supplied text, matching the pattern detector's: a regex the
 # cataloguer edited runs against statements the cataloguer uploaded, so both
@@ -134,69 +137,6 @@ CANDIDATE_PRIORITY = 10 ** 6
 # only a UUID per kind goes into the session cookie, which Flask caps at 4 KB --
 # a single generated regex can run to a quarter of that.
 # ---------------------------------------------------------------------------
-
-def _purge_old_stored_files() -> None:
-    """
-    Delete stored files past their age, each kind by its own limit.
-
-    One sweep used to apply the upload limit to everything in the directory,
-    which meant an upload could delete a pattern library that had taken an
-    afternoon to confirm.
-    """
-    now = time.time()
-    try:
-        names = os.listdir(UPLOAD_DIR)
-    except OSError:
-        return
-    for fname in names:
-        fpath = os.path.join(UPLOAD_DIR, fname)
-        ttl = (LIBRARY_TTL_SECONDS if fname.endswith(LIBRARY_EXT)
-               else UPLOAD_TTL_SECONDS)
-        try:
-            if now - os.path.getmtime(fpath) > ttl:
-                os.remove(fpath)
-        except OSError:
-            pass
-
-
-def _file_path(file_id: str, ext: str = ".mrc") -> str:
-    return os.path.join(UPLOAD_DIR, f"{file_id}{ext}")
-
-
-def _save_file(session_key: str, data: bytes, ext: str = ".mrc") -> None:
-    _purge_old_stored_files()
-    file_id = session.get(session_key)
-    if not isinstance(file_id, str) or len(file_id) != 32:
-        file_id = uuid.uuid4().hex
-    session[session_key] = file_id
-    with open(_file_path(file_id, ext), "wb") as fh:
-        fh.write(data)
-
-
-def _load_file(session_key: str, ext: str = ".mrc",
-               refresh: bool = False) -> Optional[bytes]:
-    """
-    Read a stored file, or None.
-
-    `refresh` marks it as still in use, so its age is measured from the last
-    time it was wanted rather than from the last time it was written.  Reading
-    is what a pattern library mostly gets: a cataloguer who converts with the
-    same hundred patterns every week never rewrites them.
-    """
-    file_id = session.get(session_key)
-    if not file_id:
-        return None
-    path = _file_path(file_id, ext)
-    if not os.path.exists(path):
-        return None
-    if refresh:
-        try:
-            os.utime(path, None)
-        except OSError:
-            pass                     # read-only store; the read still works
-    with open(path, "rb") as fh:
-        return fh.read()
-
 
 # ---------------------------------------------------------------------------
 # The pattern library, for this session
@@ -232,59 +172,6 @@ def _save_library(patterns) -> None:
 # deliberately left untouched, so the glue is repeated rather than imported --
 # importing its app.py would execute a second Flask application at import time.
 # ---------------------------------------------------------------------------
-
-def _add_853(record, field_data) -> None:
-    """Add a regenerated 853, replacing any existing one with the same $8."""
-    link = next((sf.value for sf in field_data.subfields if sf.code == "8"), None)
-    if link is not None:
-        for old in list(record.get_fields("853")):
-            if (old.get("8") or "").strip() == str(link).strip():
-                record.remove_field(old)
-    record.add_field(field_data.to_pymarc())
-
-
-def _display_marc_field(fld) -> str:
-    """Render an existing field the way a generated one renders."""
-    ind = f"{fld.indicator1}{fld.indicator2}".replace(" ", "#")
-    sfs = " ".join(f"${sf.code} {(sf.value or '').strip()}" for sf in fld.subfields)
-    return f"{fld.tag} {ind} {sfs}"
-
-
-def _apply_record_conversion(record, rc) -> None:
-    """Write a RecordConversion onto a record, replacing superseded 863s."""
-    links = set(rc.links_written)
-    for old in list(record.get_fields("863")):
-        if (old.get("8") or "").split(".")[0].strip() in links:
-            record.remove_field(old)
-    for f853 in rc.fields_853:
-        _add_853(record, f853)
-    for f863 in rc.fields_863:
-        record.add_field(f863.to_pymarc())
-
-
-def _match_866_sources(record, texts) -> list:
-    """Line each statement up with the 866 field it came from, claiming each once."""
-    claimed, matched = [], []
-    for text in texts:
-        wanted = (text or "").strip()
-        found = None
-        for field in record.get_fields("866"):
-            if any(field is c for c in claimed):
-                continue
-            if (field["a"] or "").strip() == wanted:
-                found = field
-                claimed.append(field)
-                break
-        matched.append(found)
-    return matched
-
-
-def _remove_converted_866s(record, sources, rc) -> None:
-    """Drop only those 866s whose statement actually produced 863s."""
-    for field, result in zip(sources, rc.results):
-        if field is not None and result.fields_863:
-            record.remove_field(field)
-
 
 def _parser_fallback(data: dict) -> bool:
     """Whether an unmatched statement falls to the standard parser. Default yes."""
@@ -336,86 +223,12 @@ def _skipped_records(data: dict) -> set:
     return out
 
 
-def _convention_opts(data: dict) -> tuple:
-    """Build a caption-convention spec from a request body."""
-    conv = (data.get("convention") or CONVENTION_STANDARD).strip().lower()
-
-    subfields = data.get("subfields")
-    if not isinstance(subfields, dict):
-        subfields = None
-
-    indicators = data.get("indicators")
-    if not (isinstance(indicators, (list, tuple)) and len(indicators) == 2):
-        indicators = None
-
-    chron = data.get("chronology")
-    chron_as_text = None
-    if isinstance(chron, str) and chron.strip().lower() in ("text", "code"):
-        chron_as_text = chron.strip().lower() == "text"
-
-    spec, rejections = resolve_convention(
-        conv, subfields=subfields, indicators=indicators, chron_as_text=chron_as_text
-    )
-    return {"convention_spec": spec}, rejections
-
-
 def _record_title(record) -> str:
     """The 245 $a$b of a record, trimmed of ISBD punctuation."""
     field = record.get("245")
     if not field:
         return ""
     return " ".join(field.get_subfields("a", "b")).strip().rstrip(" /:")
-
-
-def _read_marc_file(fileobj) -> list[dict]:
-    """Read a MARC file into the record summaries the record list renders."""
-    records_out = []
-    reader = MARCReader(fileobj, to_unicode=True, force_utf8=True,
-                        utf8_handling="replace")
-    for rec_idx, record in enumerate(reader):
-        if record is None:
-            continue
-        title = _record_title(record)
-
-        issn_field = record.get("022")
-        issn = issn_field["a"] if issn_field and issn_field["a"] else ""
-
-        holdings_loc = record.get("852")
-        location = " > ".join(holdings_loc.get_subfields("b", "c")) if holdings_loc else ""
-
-        fields_866 = []
-        for f in record.get_fields("866"):
-            subfield_a = f.get("a") or ""
-            subfield_z = f.get("z") or ""
-            fields_866.append({
-                "ind1": f.indicator1,
-                "ind2": f.indicator2,
-                "a": subfield_a,
-                "z": subfield_z,
-                "display": f"866 {f.indicator1}{f.indicator2} $a {subfield_a}"
-                           + (f" $z {subfield_z}" if subfield_z else ""),
-            })
-
-        records_out.append({
-            "index": rec_idx,
-            "title": title or f"Record {rec_idx + 1}",
-            "issn": issn,
-            "location": location,
-            "fields_866": fields_866,
-            "has_853": bool(record.get_fields("853")),
-            "has_863": bool(record.get_fields("863")),
-        })
-
-    return records_out
-
-
-def _records_to_bytes(records: list) -> bytes:
-    buf = io.BytesIO()
-    writer = MARCWriter(buf)
-    for rec in records:
-        writer.write(rec)
-    writer.close(close_fh=False)
-    return buf.getvalue()
 
 
 def _load_all_records() -> Optional[list]:
@@ -658,24 +471,6 @@ def _annotate_group(group_dict: dict, origins: Optional[dict] = None) -> dict:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
-
-def _load_about() -> dict:
-    """Version and changelog, shared with the two standalone tools."""
-    path = os.path.join(_REPO_ROOT, "shared", "about.json")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        app.logger.warning("Could not read shared/about.json", exc_info=True)
-        return {}
-
-
-@app.route("/ui.css")
-def ui_css():
-    """Serve the stylesheet shared with the two standalone tools."""
-    return send_from_directory(os.path.join(_REPO_ROOT, "shared"),
-                               "ui.css", mimetype="text/css")
-
 
 @app.route("/")
 def index():
