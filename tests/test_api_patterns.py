@@ -92,13 +92,13 @@ def previews_for(client, index):
 # One upload, both halves
 # ---------------------------------------------------------------------------
 
-def test_upload_serves_the_record_list_and_the_statements(workbench_client,
+def test_upload_serves_the_record_list_and_the_statements(client,
                                                           example_marc_bytes):
     """
     The integration win, at its plainest: the file is read once and both sides
     of the tool are fed from it.
     """
-    body = upload_marc(workbench_client, example_marc_bytes).get_json()
+    body = upload_marc(client, example_marc_bytes).get_json()
     assert body["total"] == 5
     assert body["count"] == 10
     assert "v.6(1995)-" in body["statements"]
@@ -106,15 +106,15 @@ def test_upload_serves_the_record_list_and_the_statements(workbench_client,
 
 
 def test_detection_can_read_the_uploaded_file_without_being_resent_it(
-        workbench_client, example_marc_bytes):
-    upload_marc(workbench_client, example_marc_bytes)
-    body = workbench_client.post("/api/detect", json={}).get_json()
+        client, example_marc_bytes):
+    upload_marc(client, example_marc_bytes)
+    body = client.post("/api/detect", json={}).get_json()
     assert body["total_statements"] > 0
     assert body["total_patterns"] > 0
 
 
-def test_detection_without_statements_or_a_file_is_refused(workbench_client):
-    assert workbench_client.post("/api/detect", json={}).status_code == 400
+def test_detection_without_statements_or_a_file_is_refused(client):
+    assert client.post("/api/detect", json={}).status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +122,8 @@ def test_detection_without_statements_or_a_file_is_refused(workbench_client):
 # ---------------------------------------------------------------------------
 
 def test_every_group_arrives_with_roles_and_the_values_they_would_take(
-        workbench_client):
-    group = group_for(workbench_client, "v.1(1990)-v.5(1994)")
+        client):
+    group = group_for(client, "v.1(1990)-v.5(1994)")
     roles = {r["group"]: r for r in group["suggested_roles"]}
     assert set(roles) == set(group["named_groups"])
     assert roles["start_vol"]["kind"] == "enum"
@@ -134,19 +134,19 @@ def test_every_group_arrives_with_roles_and_the_values_they_would_take(
     assert group["example_values"][0]["end_year"] == "1994"
 
 
-def test_values_are_reported_per_example_not_pooled(workbench_client):
+def test_values_are_reported_per_example_not_pooled(client):
     """
     A cataloguer checks one statement at a time. Pooling values across examples
     produced a column that could not be lined up against any single 866.
     """
-    body = detect(workbench_client, ["v.1(1990)-v.5(1994)", "v.2(1991)-v.6(1995)"])
+    body = detect(client, ["v.1(1990)-v.5(1994)", "v.2(1991)-v.6(1995)"])
     group = body["groups"][0]
     assert group["count"] == 2
     assert [v["start_vol"] for v in group["example_values"]] == ["1", "2"]
     assert [v["end_year"] for v in group["example_values"]] == ["1994", "1995"]
 
 
-def test_an_example_resolves_to_the_record_it_came_from(workbench_client,
+def test_an_example_resolves_to_the_record_it_came_from(client,
                                                         messy_marc_bytes):
     """
     Splitting means an example need not equal any $a: "v.1(1990)-v.3(1992) /
@@ -154,10 +154,10 @@ def test_an_example_resolves_to_the_record_it_came_from(workbench_client,
     could match back to a record by comparing text. The association is made on
     the server while the statements are being taken apart.
     """
-    records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
+    records = upload_marc(client, messy_marc_bytes).get_json()["records"]
     expected = record_index_with(records, "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)")
 
-    groups = workbench_client.post("/api/detect", json={}).get_json()["groups"]
+    groups = client.post("/api/detect", json={}).get_json()["groups"]
     found = [
         (g["examples"][i], src)
         for g in groups
@@ -170,29 +170,29 @@ def test_an_example_resolves_to_the_record_it_came_from(workbench_client,
     assert source["source_866"] == "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)"
 
 
-def test_a_group_needing_a_decision_says_so(workbench_client):
+def test_a_group_needing_a_decision_says_so(client):
     """
     A captionless value the detector cannot place has to be flagged, so the card
     shows the amber pill rather than looking ready to confirm.
     """
-    group = group_for(workbench_client, "v.1(1990)-5(1994)", split=False)
+    group = group_for(client, "v.1(1990)-5(1994)", split=False)
     assert group["needs_decision"] is True
 
 
-def test_a_compressed_range_needs_no_decision_at_all(workbench_client):
+def test_a_compressed_range_needs_no_decision_at_all(client):
     """
     "v.1-5(1990-1994)" used to need one: the detector named both years end_year
     and left the 5 as a captionless number. It now reads all four values, so the
     cataloguer confirms it without having to correct anything first.
     """
-    group = group_for(workbench_client, "v.1-5(1990-1994)", split=False)
+    group = group_for(client, "v.1-5(1990-1994)", split=False)
     assert group["needs_decision"] is False
     assert group["named_groups"] == ["start_vol", "end_vol", "start_year", "end_year"]
 
 
-def test_preview_shows_the_pattern_beside_the_parser(workbench_client):
-    group = group_for(workbench_client, "v.1(1990)-v.5(1994)")
-    body = workbench_client.post("/api/pattern-preview", json={
+def test_preview_shows_the_pattern_beside_the_parser(client):
+    group = group_for(client, "v.1(1990)-v.5(1994)")
+    body = client.post("/api/pattern-preview", json={
         "regex": group["regex"],
         "roles": group["suggested_roles"],
         "statements": group["examples"],
@@ -207,22 +207,22 @@ def test_preview_shows_the_pattern_beside_the_parser(workbench_client):
     assert preview["differs"] is False        # the parser already reads this one
 
 
-def test_correcting_a_role_changes_the_marc_the_screen_shows(workbench_client):
+def test_correcting_a_role_changes_the_marc_the_screen_shows(client):
     """
     The cataloguer's loop, end to end over HTTP: a real separator divides
     "v.1(1990)-5(1994)", so the "v." does not reach the 5 and nothing is encoded
     for it; saying it is the end volume puts it in the 863.
     """
     statement = "v.1(1990)-5(1994)"
-    group = group_for(workbench_client, statement, split=False)
+    group = group_for(client, statement, split=False)
 
     def preview(roles):
-        return workbench_client.post("/api/pattern-preview", json={
+        return client.post("/api/pattern-preview", json={
             "regex": group["regex"], "roles": roles,
             "statements": [statement], "split": False, **SETTINGS,
         }).get_json()["previews"][0]
 
-    before = workbench_client.post("/api/pattern-preview", json={
+    before = client.post("/api/pattern-preview", json={
         "regex": group["regex"], "roles": group["suggested_roles"],
         "statements": [statement], "split": False, **SETTINGS,
     }).get_json()
@@ -240,9 +240,9 @@ def test_correcting_a_role_changes_the_marc_the_screen_shows(workbench_client):
     assert "$a 1-5" in after["pattern"]["fields_863"][0]
 
 
-def test_preview_reports_a_statement_the_pattern_cannot_read(workbench_client):
-    group = group_for(workbench_client, "v.1(1990)-v.5(1994)")
-    body = workbench_client.post("/api/pattern-preview", json={
+def test_preview_reports_a_statement_the_pattern_cannot_read(client):
+    group = group_for(client, "v.1(1990)-v.5(1994)")
+    body = client.post("/api/pattern-preview", json={
         "regex": group["regex"], "roles": group["suggested_roles"],
         "statements": ["1993: (1 [Feb])"], **SETTINGS,
     }).get_json()
@@ -251,23 +251,23 @@ def test_preview_reports_a_statement_the_pattern_cannot_read(workbench_client):
     assert body["previews"][0]["parser"]["fields_863"]     # the parser still reads it
 
 
-def test_editing_the_expression_returns_roles_for_it(workbench_client):
-    group = group_for(workbench_client, "v.1(1990)-v.5(1994)")
-    body = workbench_client.post("/api/test-regex", json={
+def test_editing_the_expression_returns_roles_for_it(client):
+    group = group_for(client, "v.1(1990)-v.5(1994)")
+    body = client.post("/api/test-regex", json={
         "regex": group["regex"], "statements": group["examples"],
     }).get_json()
     assert body["match_rate"] == 1.0
     assert [r["group"] for r in body["roles"]] == group["named_groups"]
 
 
-def test_an_unreadable_expression_is_reported_not_raised(workbench_client):
-    response = workbench_client.post("/api/test-regex", json={
+def test_an_unreadable_expression_is_reported_not_raised(client):
+    response = client.post("/api/test-regex", json={
         "regex": "(?P<start_vol>[", "statements": ["v.1(1990)"]})
     assert response.status_code == 400
     assert "Invalid regex" in response.get_json()["error"]
 
 
-def _age_stored_files(workbench_app, seconds: float) -> None:
+def _age_stored_files(marc_app, seconds: float) -> None:
     """Backdate everything in the store, to stand in for time passing."""
     now = time.time()
     for name in os.listdir(store.UPLOAD_DIR):
@@ -276,7 +276,7 @@ def _age_stored_files(workbench_app, seconds: float) -> None:
 
 
 def test_uploading_a_file_does_not_delete_the_pattern_library(
-        workbench_client, workbench_app, example_marc_bytes):
+        client, marc_app, example_marc_bytes):
     """
     The library is not an upload. It was stored in the same directory and swept
     by the same age limit, so uploading a file six hours after confirming a
@@ -284,53 +284,53 @@ def test_uploading_a_file_does_not_delete_the_pattern_library(
     when it loaded, went on showing a count the server no longer had. Every
     record then converted with the standard parser, with nothing saying why.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    confirm(workbench_client, group_for(workbench_client, "v.1(1990)-v.5(1994)"))
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 1
+    upload_marc(client, example_marc_bytes)
+    confirm(client, group_for(client, "v.1(1990)-v.5(1994)"))
+    assert client.get("/api/patterns").get_json()["count"] == 1
 
-    _age_stored_files(workbench_app, store.UPLOAD_TTL_SECONDS + 60)
+    _age_stored_files(marc_app, store.UPLOAD_TTL_SECONDS + 60)
 
-    upload_marc(workbench_client, example_marc_bytes)
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 1
+    upload_marc(client, example_marc_bytes)
+    assert client.get("/api/patterns").get_json()["count"] == 1
 
-    body = workbench_client.post("/api/batch-convert", json={}).get_json()
+    body = client.post("/api/batch-convert", json={}).get_json()
     sources = {d["source"] for d in body["by_source"]}
     assert sources != {"parser"}, "the confirmed pattern should still be used"
 
 
-def test_a_stale_upload_is_still_swept(workbench_client, workbench_app,
+def test_a_stale_upload_is_still_swept(client, marc_app,
                                        example_marc_bytes):
     """
     The other half of the same rule. The upload limit exists because the file is
     the cataloguer's data and should not sit on a server; giving the library a
     longer life must not give the MARC one too.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    confirm(workbench_client, group_for(workbench_client, "v.1(1990)-v.5(1994)"))
+    upload_marc(client, example_marc_bytes)
+    confirm(client, group_for(client, "v.1(1990)-v.5(1994)"))
 
-    _age_stored_files(workbench_app, store.UPLOAD_TTL_SECONDS + 60)
+    _age_stored_files(marc_app, store.UPLOAD_TTL_SECONDS + 60)
     # Saving the library runs the sweep without rewriting the MARC file.
-    workbench_client.put("/api/patterns", json={"patterns": []})
+    client.put("/api/patterns", json={"patterns": []})
 
     remaining = os.listdir(store.UPLOAD_DIR)
     assert not any(n.endswith(".mrc") for n in remaining), remaining
 
 
-def test_reading_the_library_keeps_it_alive(workbench_client, workbench_app,
+def test_reading_the_library_keeps_it_alive(client, marc_app,
                                             example_marc_bytes):
     """
     Its age is measured from last use, not last write. A cataloguer converting
     with the same hundred patterns every week never rewrites them, and a library
     in weekly use is not abandoned.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    confirm(workbench_client, group_for(workbench_client, "v.1(1990)-v.5(1994)"))
+    upload_marc(client, example_marc_bytes)
+    confirm(client, group_for(client, "v.1(1990)-v.5(1994)"))
 
-    _age_stored_files(workbench_app, store.LIBRARY_TTL_SECONDS + 60)
-    workbench_client.get("/api/patterns")          # used: the clock restarts
+    _age_stored_files(marc_app, store.LIBRARY_TTL_SECONDS + 60)
+    client.get("/api/patterns")          # used: the clock restarts
 
-    upload_marc(workbench_client, example_marc_bytes)
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 1
+    upload_marc(client, example_marc_bytes)
+    assert client.get("/api/patterns").get_json()["count"] == 1
 
 
 RUNAWAY_REGEX = r"^(?P<start_vol>a+)+$"
@@ -339,70 +339,70 @@ RUNAWAY_ROLES = [{"group": "start_vol", "kind": "enum", "boundary": "start",
                   "level": 0, "caption": "v."}]
 
 
-def test_a_runaway_expression_on_the_test_screen_is_stopped(workbench_client):
+def test_a_runaway_expression_on_the_test_screen_is_stopped(client):
     """
     Where a runaway expression comes from: an edit on the confirmation screen.
     The matching runs in a child process the request kills, so the endpoint
     answers and the worker is still usable afterwards.
     """
-    response = workbench_client.post("/api/test-regex", json={
+    response = client.post("/api/test-regex", json={
         "regex": RUNAWAY_REGEX, "statements": [RUNAWAY_VICTIM]})
     assert response.status_code == 400
     assert "repeat" in response.get_json()["error"]
 
-    ok = workbench_client.post("/api/test-regex", json={
+    ok = client.post("/api/test-regex", json={
         "regex": r"v\.(?P<start_vol>\d+)", "statements": ["v.1"]})
     assert ok.status_code == 200
 
 
-def test_a_runaway_expression_never_reaches_the_preview(workbench_client):
+def test_a_runaway_expression_never_reaches_the_preview(client):
     """
     The preview runs the candidate through the whole conversion, which nothing
     could interrupt. It is checked against the same statements first.
     """
-    response = workbench_client.post("/api/pattern-preview", json={
+    response = client.post("/api/pattern-preview", json={
         "regex": RUNAWAY_REGEX, "roles": RUNAWAY_ROLES,
         "statements": [RUNAWAY_VICTIM]})
     assert response.status_code == 400
 
 
-def test_a_runaway_expression_is_refused_by_the_library(workbench_client):
+def test_a_runaway_expression_is_refused_by_the_library(client):
     """
     The door that matters. A pattern on the Test screen is bounded; a pattern
     *stored* is run by every conversion afterwards, against every statement of
     every record, with nothing able to stop it. The library keeps what it had.
     """
-    response = workbench_client.put("/api/patterns", json={"patterns": [{
+    response = client.put("/api/patterns", json={"patterns": [{
         "id": "runaway", "label": "runaway", "regex": RUNAWAY_REGEX,
         "roles": RUNAWAY_ROLES}]})
     assert response.status_code == 400
     assert "runaway" in response.get_json()["error"]
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 0
+    assert client.get("/api/patterns").get_json()["count"] == 0
 
 
-def test_an_ordinary_pattern_is_still_stored(workbench_client):
+def test_an_ordinary_pattern_is_still_stored(client):
     """The guard has to be invisible to every pattern that is not a runaway."""
-    response = workbench_client.put("/api/patterns", json={"patterns": [{
+    response = client.put("/api/patterns", json={"patterns": [{
         "id": "fine", "label": "fine", "regex": r"v\.(?P<start_vol>\d+)",
         "roles": RUNAWAY_ROLES}]})
     assert response.status_code == 200
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 1
+    assert client.get("/api/patterns").get_json()["count"] == 1
 
 
-def test_an_imported_library_is_checked_the_same_way(workbench_client):
+def test_an_imported_library_is_checked_the_same_way(client):
     """
     An exported file comes from somewhere else, so every expression in it is
     new to this session and every one is tried.
     """
-    response = workbench_client.post("/api/patterns/import", json={
+    response = client.post("/api/patterns/import", json={
         "library": {"schema": 1, "patterns": [{
             "id": "runaway", "label": "runaway", "regex": RUNAWAY_REGEX,
             "roles": RUNAWAY_ROLES}]}})
     assert response.status_code == 400
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 0
+    assert client.get("/api/patterns").get_json()["count"] == 0
 
 
-def test_preview_numbers_a_statement_as_its_record_would(workbench_client,
+def test_preview_numbers_a_statement_as_its_record_would(client,
                                                          example_marc_bytes):
     """
     $8 is a record-level decision, so a statement previewed on its own always
@@ -413,11 +413,11 @@ def test_preview_numbers_a_statement_as_its_record_would(workbench_client,
     The preview must therefore agree with /api/preview-record, which is what
     conversion actually goes through.
     """
-    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    records = upload_marc(client, example_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "v.1(1990)-v.10(1999)")
-    group = group_for(workbench_client, "v.1(1990)-v.10(1999)")
+    group = group_for(client, "v.1(1990)-v.10(1999)")
 
-    body = workbench_client.post("/api/pattern-preview", json={
+    body = client.post("/api/pattern-preview", json={
         "regex": group["regex"], "roles": group["suggested_roles"],
         "record_index": idx, "field_index": 0, "split": True, **SETTINGS,
     }).get_json()
@@ -426,20 +426,20 @@ def test_preview_numbers_a_statement_as_its_record_would(workbench_client,
     assert body["record"]["index"] == idx
     assert body["record"]["title"]
 
-    from_record = previews_for(workbench_client, idx)
+    from_record = previews_for(client, idx)
     assert [p["fields_863"] for p in body["previews"]] == \
            [p["fields_863"] for p in from_record]
 
 
-def test_preview_marks_the_example_among_its_siblings(workbench_client,
+def test_preview_marks_the_example_among_its_siblings(client,
                                                       example_marc_bytes):
-    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    records = upload_marc(client, example_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "v.12(2001)-v.15(2004)")
     field_index = next(i for i, f in enumerate(records[idx]["fields_866"])
                        if f["a"] == "v.12(2001)-v.15(2004)")
-    group = group_for(workbench_client, "v.12(2001)-v.15(2004)")
+    group = group_for(client, "v.12(2001)-v.15(2004)")
 
-    body = workbench_client.post("/api/pattern-preview", json={
+    body = client.post("/api/pattern-preview", json={
         "regex": group["regex"], "roles": group["suggested_roles"],
         "record_index": idx, "field_index": field_index, "split": True, **SETTINGS,
     }).get_json()
@@ -461,19 +461,19 @@ def preview_links(client, statement, records, split=True):
             for p in body["previews"] for f in p["fields_863"]]
 
 
-def test_statements_sharing_a_pattern_share_an_853(workbench_client,
+def test_statements_sharing_a_pattern_share_an_853(client,
                                                    example_marc_bytes):
     """
     Half of the behaviour the change exists for: two statements of the same
     publication pattern sit under one 853 and run 1.1, 1.2 -- not 1.1 twice,
     which is what previewing each statement in isolation used to show.
     """
-    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
-    assert preview_links(workbench_client, "v.1(1990)-v.10(1999)", records) == \
+    records = upload_marc(client, example_marc_bytes).get_json()["records"]
+    assert preview_links(client, "v.1(1990)-v.10(1999)", records) == \
         ["1.1", "1.2"]
 
 
-def test_a_statement_recording_more_detail_joins_the_same_853(workbench_client,
+def test_a_statement_recording_more_detail_joins_the_same_853(client,
                                                               messy_marc_bytes):
     """
     Sequence numbers run across a whole record, through the API as through the
@@ -487,36 +487,36 @@ def test_a_statement_recording_more_detail_joins_the_same_853(workbench_client,
     than starting its own 853. The rule itself is pinned in
     tests/test_marc_converter.py; this checks the API agrees.
     """
-    records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
+    records = upload_marc(client, messy_marc_bytes).get_json()["records"]
     assert preview_links(
-        workbench_client, "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)", records
+        client, "v.1(1990)-v.3(1992) / v.5(1994)-v.8(1997)", records
     ) == ["1.1", "1.2", "1.3"]
 
 
 def test_the_candidate_pattern_outranks_the_library_but_is_never_stored(
-        workbench_client, example_marc_bytes):
+        client, example_marc_bytes):
     """
     The cataloguer is looking at this pattern, so it must be the one that reads
     its own shape -- but previewing must not quietly add it to the library.
     """
-    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    records = upload_marc(client, example_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "v.6(1995)-")
-    group = group_for(workbench_client, "v.6(1995)-")
+    group = group_for(client, "v.6(1995)-")
 
-    body = workbench_client.post("/api/pattern-preview", json={
+    body = client.post("/api/pattern-preview", json={
         "regex": group["regex"], "roles": group["suggested_roles"],
         "record_index": idx, "field_index": 0, "split": True, **SETTINGS,
     }).get_json()
 
     used = [p["source_label"] for p in body["previews"] if p["source_866"] == "v.6(1995)-"]
     assert used == ["This pattern"]
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 0
+    assert client.get("/api/patterns").get_json()["count"] == 0
 
 
-def test_a_statement_with_no_record_still_previews(workbench_client):
+def test_a_statement_with_no_record_still_previews(client):
     """Pasted statements have no record to sit in; they fall back gracefully."""
-    group = group_for(workbench_client, "v.1(1990)-v.5(1994)")
-    body = workbench_client.post("/api/pattern-preview", json={
+    group = group_for(client, "v.1(1990)-v.5(1994)")
+    body = client.post("/api/pattern-preview", json={
         "regex": group["regex"], "roles": group["suggested_roles"],
         "statements": ["v.1(1990)-v.5(1994)"], "split": True, **SETTINGS,
     }).get_json()
@@ -529,17 +529,17 @@ def test_a_statement_with_no_record_still_previews(workbench_client):
 # The library
 # ---------------------------------------------------------------------------
 
-def test_confirming_a_pattern_stores_it(workbench_client):
-    group = group_for(workbench_client, "v.1(1990)-v.5(1994)")
-    body = confirm(workbench_client, group)
+def test_confirming_a_pattern_stores_it(client):
+    group = group_for(client, "v.1(1990)-v.5(1994)")
+    body = confirm(client, group)
     assert body["count"] == 1
     assert not body["rejected"]
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 1
+    assert client.get("/api/patterns").get_json()["count"] == 1
 
 
-def test_an_invalid_pattern_is_refused_with_a_reason_and_not_stored(workbench_client):
-    group = group_for(workbench_client, "v.1(1990)-v.5(1994)")
-    body = workbench_client.put("/api/patterns", json={"patterns": [{
+def test_an_invalid_pattern_is_refused_with_a_reason_and_not_stored(client):
+    group = group_for(client, "v.1(1990)-v.5(1994)")
+    body = client.put("/api/patterns", json={"patterns": [{
         "label": "bad", "regex": group["regex"],
         "roles": [{"group": "start_vol", "boundary": "start", "level": "vol"}],
     }]}).get_json()
@@ -547,20 +547,20 @@ def test_an_invalid_pattern_is_refused_with_a_reason_and_not_stored(workbench_cl
     assert any("no role decided" in r for r in body["rejected"])
 
 
-def test_a_library_survives_export_and_import_over_http(workbench_client):
-    group = group_for(workbench_client, "v.1(1990)-v.5(1994)")
-    confirm(workbench_client, group)
+def test_a_library_survives_export_and_import_over_http(client):
+    group = group_for(client, "v.1(1990)-v.5(1994)")
+    confirm(client, group)
 
-    exported = workbench_client.get("/api/patterns/export")
+    exported = client.get("/api/patterns/export")
     assert exported.status_code == 200
     document = json.loads(exported.get_data())
     assert document["schema"] == 1
     assert len(document["patterns"]) == 1
 
-    workbench_client.put("/api/patterns", json={"patterns": []})
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 0
+    client.put("/api/patterns", json={"patterns": []})
+    assert client.get("/api/patterns").get_json()["count"] == 0
 
-    restored = workbench_client.post(
+    restored = client.post(
         "/api/patterns/import",
         data={"file": (io.BytesIO(exported.get_data()), "patterns.json")},
         content_type="multipart/form-data",
@@ -569,8 +569,8 @@ def test_a_library_survives_export_and_import_over_http(workbench_client):
     assert restored["count"] == 1
 
 
-def test_importing_something_that_is_not_a_library_is_refused(workbench_client):
-    response = workbench_client.post(
+def test_importing_something_that_is_not_a_library_is_refused(client):
+    response = client.post(
         "/api/patterns/import",
         data={"file": (io.BytesIO(b"not json at all"), "patterns.json")},
         content_type="multipart/form-data",
@@ -583,23 +583,23 @@ def test_importing_something_that_is_not_a_library_is_refused(workbench_client):
 # Converting with the library applied
 # ---------------------------------------------------------------------------
 
-def test_previews_say_what_read_each_statement(workbench_client, example_marc_bytes):
-    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+def test_previews_say_what_read_each_statement(client, example_marc_bytes):
+    records = upload_marc(client, example_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "v.6(1995)-")
 
-    before = previews_for(workbench_client, idx)
+    before = previews_for(client, idx)
     assert all(p["source"] == "parser" for p in before)
     assert all(p["source_label"] == "Standard parser" for p in before)
 
-    confirm(workbench_client, group_for(workbench_client, "v.6(1995)-"))
+    confirm(client, group_for(client, "v.6(1995)-"))
 
-    after = previews_for(workbench_client, idx)
+    after = previews_for(client, idx)
     used = [p for p in after if p["source_866"] == "v.6(1995)-"]
     assert used and used[0]["from_pattern"] is True
 
 
 def test_a_confirmed_pattern_converts_what_the_parser_held_for_review(
-        workbench_client, messy_marc_bytes):
+        client, messy_marc_bytes):
     """
     The reason to build this at all.
 
@@ -608,19 +608,19 @@ def test_a_confirmed_pattern_converts_what_the_parser_held_for_review(
     for ever, because no amount of parser work can supply information the
     statement does not contain. A cataloguer who knows the collection can.
     """
-    records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
+    records = upload_marc(client, messy_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "?: 16")
 
-    held = [p for p in previews_for(workbench_client, idx)
+    held = [p for p in previews_for(client, idx)
             if p["source_866"] == "?: 16"]
     assert held and not held[0]["fields_863"]
 
-    group = group_for(workbench_client, "?: 16")
+    group = group_for(client, "?: 16")
     number = next(g for g in group["named_groups"] if g.endswith("num"))
-    confirm(workbench_client, group, decisions={
+    confirm(client, group, decisions={
         number: {"boundary": "start", "kind": "enum", "level": 0, "caption": "no."}})
 
-    converted = [p for p in previews_for(workbench_client, idx)
+    converted = [p for p in previews_for(client, idx)
                  if p["source_866"] == "?: 16"]
     assert converted[0]["from_pattern"] is True
     # The cataloguer called it an issue; with no volume above it, it is this
@@ -628,15 +628,15 @@ def test_a_confirmed_pattern_converts_what_the_parser_held_for_review(
     assert any("$a 16" in f for f in converted[0]["fields_863"])
 
 
-def test_the_settings_the_screen_sends_reach_the_fields(workbench_client,
+def test_the_settings_the_screen_sends_reach_the_fields(client,
                                                         example_marc_bytes):
     """
     The convention editor posts enumeration by position ("e1" is the first
     level) and chronology by name. A shape the server does not understand would
     fall back to the preset without complaint, so this pins the round trip.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    body = workbench_client.post("/api/batch-convert", json={
+    upload_marc(client, example_marc_bytes)
+    body = client.post("/api/batch-convert", json={
         **SETTINGS,
         "convention": "house",
         "subfields": {"enum": {"e1": "b", "e2": "c", "e3": "d"},
@@ -649,14 +649,14 @@ def test_the_settings_the_screen_sends_reach_the_fields(workbench_client,
 
 
 def test_moving_a_level_onto_one_the_screen_does_not_show_is_reported(
-        workbench_client, example_marc_bytes):
+        client, example_marc_bytes):
     """
     The editor shows three enumeration levels; the standard convention has six.
     Moving the first level onto a subfield one of the hidden three is using
     costs that level, and saying so is the only way a cataloguer could know.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    body = workbench_client.post("/api/batch-convert", json={
+    upload_marc(client, example_marc_bytes)
+    body = client.post("/api/batch-convert", json={
         **SETTINGS, "subfields": {"enum": {"e1": "d"}},
     }).get_json()
 
@@ -664,10 +664,10 @@ def test_moving_a_level_onto_one_the_screen_does_not_show_is_reported(
     assert any("room for 5 levels" in r for r in body["rejections"])
 
 
-def test_a_settings_shape_the_server_cannot_use_is_reported(workbench_client,
+def test_a_settings_shape_the_server_cannot_use_is_reported(client,
                                                             example_marc_bytes):
-    upload_marc(workbench_client, example_marc_bytes)
-    body = workbench_client.post("/api/batch-convert", json={
+    upload_marc(client, example_marc_bytes)
+    body = client.post("/api/batch-convert", json={
         **SETTINGS, "subfields": {"enum": {"e1": "z"}},
     }).get_json()
 
@@ -679,14 +679,14 @@ def test_a_settings_shape_the_server_cannot_use_is_reported(workbench_client,
 # The review index: an answer for every record, not just the loaded page
 # ---------------------------------------------------------------------------
 
-def test_the_review_index_covers_every_record(workbench_client, example_marc_bytes):
+def test_the_review_index_covers_every_record(client, example_marc_bytes):
     """
     The filters run on this, so it has to answer for the whole file. Paging it
     is what broke them: a record with no entry passed every test, so filtering
     showed the rest of the file alongside the actual matches.
     """
-    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
-    body = workbench_client.post("/api/review-index", json=SETTINGS).get_json()
+    records = upload_marc(client, example_marc_bytes).get_json()["records"]
+    body = client.post("/api/review-index", json=SETTINGS).get_json()
 
     assert body["total"] == len(records)
     assert [r["index"] for r in body["records"]] == list(range(len(records)))
@@ -694,25 +694,25 @@ def test_the_review_index_covers_every_record(workbench_client, example_marc_byt
         assert {"converted", "held", "sources", "has_866", "skipped"} <= set(row)
 
 
-def test_the_review_index_carries_no_field_data(workbench_client, example_marc_bytes):
+def test_the_review_index_carries_no_field_data(client, example_marc_bytes):
     """
     Counts, not fields. Carrying previews for every record in a 400-record file
     would be most of a megabyte spent on rows nobody has opened.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    body = workbench_client.post("/api/review-index", json=SETTINGS).get_json()
+    upload_marc(client, example_marc_bytes)
+    body = client.post("/api/review-index", json=SETTINGS).get_json()
     assert all("previews" not in row for row in body["records"])
 
 
-def test_the_index_and_the_previews_agree(workbench_client, messy_marc_bytes):
+def test_the_index_and_the_previews_agree(client, messy_marc_bytes):
     """
     A filter that ran on different numbers than the preview it filtered on
     would be its own bug, so both come from one function.
     """
-    upload_marc(workbench_client, messy_marc_bytes)
+    upload_marc(client, messy_marc_bytes)
     index = {r["index"]: r for r in
-             workbench_client.post("/api/review-index", json=SETTINGS).get_json()["records"]}
-    paged = workbench_client.post("/api/preview-records", json={
+             client.post("/api/review-index", json=SETTINGS).get_json()["records"]}
+    paged = client.post("/api/preview-records", json={
         **SETTINGS, "offset": 0, "limit": 50}).get_json()["records"]
 
     for row in paged:
@@ -721,64 +721,64 @@ def test_the_index_and_the_previews_agree(workbench_client, messy_marc_bytes):
                (row["converted"], row["held"], row["sources"], row["has_866"])
 
 
-def test_previews_can_be_asked_for_by_index(workbench_client, messy_marc_bytes):
+def test_previews_can_be_asked_for_by_index(client, messy_marc_bytes):
     """
     The screen pages through what the *filter* shows, which is not a slice of
     the file in order -- so it asks for the records it wants by name.
     """
-    upload_marc(workbench_client, messy_marc_bytes)
-    body = workbench_client.post("/api/preview-records", json={
+    upload_marc(client, messy_marc_bytes)
+    body = client.post("/api/preview-records", json={
         **SETTINGS, "indices": [3, 1]}).get_json()
 
     assert [r["index"] for r in body["records"]] == [3, 1]   # order kept
     assert all("previews" in r for r in body["records"])
 
 
-def test_an_impossible_index_is_ignored_rather_than_fatal(workbench_client,
+def test_an_impossible_index_is_ignored_rather_than_fatal(client,
                                                           messy_marc_bytes):
-    upload_marc(workbench_client, messy_marc_bytes)
-    body = workbench_client.post("/api/preview-records", json={
+    upload_marc(client, messy_marc_bytes)
+    body = client.post("/api/preview-records", json={
         **SETTINGS, "indices": [0, 9999, -1, "x", 0]}).get_json()
     assert [r["index"] for r in body["records"]] == [0]
 
 
-def test_the_index_knows_which_records_a_pattern_read(workbench_client,
+def test_the_index_knows_which_records_a_pattern_read(client,
                                                       example_marc_bytes):
     """
     This is what lets editing a pattern put the records it touched back into
     the review queue instead of leaving a stale tick beside them.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    confirm(workbench_client, group_for(workbench_client, "v.6(1995)-"))
+    upload_marc(client, example_marc_bytes)
+    confirm(client, group_for(client, "v.6(1995)-"))
 
-    rows = workbench_client.post("/api/review-index", json=SETTINGS).get_json()["records"]
+    rows = client.post("/api/review-index", json=SETTINGS).get_json()["records"]
     used_by_pattern = [r["index"] for r in rows if "confirmed-1" in r["sources"]]
     assert used_by_pattern, rows
 
 
-def test_a_flagged_record_reaches_the_needs_attention_count(workbench_client,
+def test_a_flagged_record_reaches_the_needs_attention_count(client,
                                                             messy_marc_bytes):
     """
     A record the tool cannot vouch for is counted apart from a held one -- it
     has fields; what it needs is a look, not a pattern -- but both have to
     reach the cataloguer, so the review index carries the count.
     """
-    upload_marc(workbench_client, messy_marc_bytes)
-    rows = workbench_client.post("/api/review-index", json=SETTINGS).get_json()["records"]
+    upload_marc(client, messy_marc_bytes)
+    rows = client.post("/api/review-index", json=SETTINGS).get_json()["records"]
     assert all("flagged" in row for row in rows)
 
 
-def test_a_preview_says_when_it_cannot_vouch_for_what_it_wrote(workbench_client,
+def test_a_preview_says_when_it_cannot_vouch_for_what_it_wrote(client,
                                                                messy_marc_bytes):
-    upload_marc(workbench_client, messy_marc_bytes)
-    body = workbench_client.post("/api/preview-records", json={
+    upload_marc(client, messy_marc_bytes)
+    body = client.post("/api/preview-records", json={
         **SETTINGS, "offset": 0, "limit": 50}).get_json()
     for row in body["records"]:
         for preview in row["previews"]:
             assert "flagged" in preview
 
 
-def test_a_skipped_record_comes_out_exactly_as_it_went_in(workbench_client,
+def test_a_skipped_record_comes_out_exactly_as_it_went_in(client,
                                                           example_marc_bytes):
     """
     Skipping is stronger than every other switch on the screen: no conversion,
@@ -786,8 +786,8 @@ def test_a_skipped_record_comes_out_exactly_as_it_went_in(workbench_client,
     set. If any of that leaked, the record a cataloguer set aside for hand
     work would come back altered.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    body = workbench_client.post("/api/batch-convert", json={
+    upload_marc(client, example_marc_bytes)
+    body = client.post("/api/batch-convert", json={
         **SETTINGS, "clear_existing_853_863": True, "skip_records": [0],
     }).get_json()
 
@@ -798,16 +798,16 @@ def test_a_skipped_record_comes_out_exactly_as_it_went_in(workbench_client,
 
     from pymarc import MARCReader
 
-    converted = workbench_client.get("/api/download-converted")
+    converted = client.get("/api/download-converted")
     record = list(MARCReader(converted.data))[0]
     original = list(MARCReader(example_marc_bytes))[0]
     assert record.as_marc() == original.as_marc()
 
 
-def test_a_skipped_record_previews_as_nothing(workbench_client, example_marc_bytes):
+def test_a_skipped_record_previews_as_nothing(client, example_marc_bytes):
     """A preview showing fields the record will never get is a false promise."""
-    upload_marc(workbench_client, example_marc_bytes)
-    body = workbench_client.post("/api/preview-records", json={
+    upload_marc(client, example_marc_bytes)
+    body = client.post("/api/preview-records", json={
         **SETTINGS, "offset": 0, "limit": 10, "skip_records": [0],
     }).get_json()
 
@@ -817,10 +817,10 @@ def test_a_skipped_record_previews_as_nothing(workbench_client, example_marc_byt
     assert first["converted"] == 0
 
 
-def test_records_not_skipped_are_untouched_by_the_skip(workbench_client,
+def test_records_not_skipped_are_untouched_by_the_skip(client,
                                                        example_marc_bytes):
-    upload_marc(workbench_client, example_marc_bytes)
-    body = workbench_client.post("/api/batch-convert", json={
+    upload_marc(client, example_marc_bytes)
+    body = client.post("/api/batch-convert", json={
         **SETTINGS, "skip_records": [0],
     }).get_json()
     assert body["skipped_records"] == 1
@@ -828,79 +828,55 @@ def test_records_not_skipped_are_untouched_by_the_skip(workbench_client,
                for s in body["summary"]), body["summary"]
 
 
-def test_batch_conversion_reports_what_read_what(workbench_client, example_marc_bytes):
-    upload_marc(workbench_client, example_marc_bytes)
-    confirm(workbench_client, group_for(workbench_client, "v.6(1995)-"))
+def test_batch_conversion_reports_what_read_what(client, example_marc_bytes):
+    upload_marc(client, example_marc_bytes)
+    confirm(client, group_for(client, "v.6(1995)-"))
 
-    body = workbench_client.post("/api/batch-convert", json=SETTINGS).get_json()
+    body = client.post("/api/batch-convert", json=SETTINGS).get_json()
     assert body["success"] is True
     by_source = {s["source"]: s["count"] for s in body["by_source"]}
     assert by_source.get("confirmed-1", 0) >= 1
     assert by_source.get("parser", 0) >= 1
 
 
-def test_conversion_is_downloadable(workbench_client, example_marc_bytes):
-    upload_marc(workbench_client, example_marc_bytes)
-    workbench_client.post("/api/batch-convert", json=SETTINGS)
-    response = workbench_client.get("/api/download-converted")
+def test_conversion_is_downloadable(client, example_marc_bytes):
+    upload_marc(client, example_marc_bytes)
+    client.post("/api/batch-convert", json=SETTINGS)
+    response = client.get("/api/download-converted")
     assert response.status_code == 200
     assert response.data.startswith(b"0")        # a MARC leader
 
 
-def test_the_workbench_cannot_clobber_the_converters_session(workbench_client,
-                                                            converter_client,
-                                                            example_marc_bytes):
-    """
-    All three apps are served from one hostname, and Flask names its session
-    cookie "session" at path / by default. With the stock name, a cataloguer who
-    uploaded in the converter and then uploaded here would overwrite the
-    converter's cookie -- and on going back would be told their file was gone,
-    because the cookie no longer verifies against the converter's secret key.
-
-    Ports do not save this either: cookies ignore them, so localhost:5000 and
-    localhost:5003 share a jar just as the deployed paths share a hostname.
-    """
-    def cookie_name(response):
-        return response.headers["Set-Cookie"].split("=", 1)[0]
-
-    here = cookie_name(upload_marc(workbench_client, example_marc_bytes))
-    there = cookie_name(upload_marc(converter_client, example_marc_bytes))
-
-    assert here != there, (
-        f"both apps set a cookie named {here!r}; one would overwrite the other"
-    )
-
-
 def test_turning_the_parser_off_leaves_unmatched_holdings_untouched(
-        workbench_client, messy_marc_bytes):
+        client, messy_marc_bytes):
     """
     With the parser switched off, a record whose statements no pattern matches
     converts to nothing and keeps every 866 it started with.
     """
-    records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
+    records = upload_marc(client, messy_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "1993: (1 [Feb])")
 
-    with_parser = previews_for(workbench_client, idx)
+    with_parser = previews_for(client, idx)
     assert any(p["fields_863"] for p in with_parser)
 
-    body = workbench_client.post("/api/preview-record", json={
+    body = client.post("/api/preview-record", json={
         "record_index": idx, "parser_fallback": False, **SETTINGS}).get_json()
     assert all(not p["fields_863"] for p in body["previews"])
     assert all(p["source"] == "unmatched" for p in body["previews"])
     assert body["previews"][0]["source_label"].startswith("No pattern matched")
 
 
-def test_turning_the_parser_off_keeps_the_866_on_disk(workbench_client,
+def test_turning_the_parser_off_keeps_the_866_on_disk(client,
                                                       messy_marc_bytes):
     """The point of leaving it alone: the holdings are still there afterwards."""
     import io as _io
     from pymarc import MARCReader
 
-    upload_marc(workbench_client, messy_marc_bytes)
-    assert workbench_client.post("/api/batch-convert", json={
+    upload_marc(client, messy_marc_bytes)
+    assert client.post("/api/batch-convert", json={
         **SETTINGS, "parser_fallback": False}).status_code == 200
 
-    data = workbench_client.get("/api/download-converted").data
+    data = client.get("/api/download-converted").data
     statements = [
         (f["a"] or "").strip()
         for rec in MARCReader(_io.BytesIO(data)) if rec
@@ -910,27 +886,27 @@ def test_turning_the_parser_off_keeps_the_866_on_disk(workbench_client,
     assert "?: 16" in statements
 
 
-def test_the_parser_is_used_unless_it_is_switched_off(workbench_client,
+def test_the_parser_is_used_unless_it_is_switched_off(client,
                                                       messy_marc_bytes):
     """Default behaviour is unchanged, which every other test depends on."""
-    records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
+    records = upload_marc(client, messy_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "1993: (1 [Feb])")
-    assert any(p["source"] == "parser" for p in previews_for(workbench_client, idx))
+    assert any(p["source"] == "parser" for p in previews_for(client, idx))
 
 
 # ---------------------------------------------------------------------------
 # Reviewing a file record by record
 # ---------------------------------------------------------------------------
 
-def test_a_page_of_records_previews_in_one_request(workbench_client,
+def test_a_page_of_records_previews_in_one_request(client,
                                                    example_marc_bytes):
     """
     Reviewing a file a record at a time needs the whole file, and a round trip
     per record is what makes that impractical -- previewing one costs well under
     a millisecond.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    body = workbench_client.post("/api/preview-records", json=SETTINGS).get_json()
+    upload_marc(client, example_marc_bytes)
+    body = client.post("/api/preview-records", json=SETTINGS).get_json()
 
     assert body["total"] == 5
     assert [r["index"] for r in body["records"]] == [0, 1, 2, 3, 4]
@@ -938,32 +914,32 @@ def test_a_page_of_records_previews_in_one_request(workbench_client,
     assert any(r["previews"] for r in body["records"])
 
 
-def test_the_page_agrees_with_previewing_records_one_at_a_time(workbench_client,
+def test_the_page_agrees_with_previewing_records_one_at_a_time(client,
                                                                example_marc_bytes):
     """
     The bulk route exists to save round trips, not to be a second opinion. It
     shares convert_record() with the single route, and this pins that.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    bulk = workbench_client.post("/api/preview-records", json=SETTINGS).get_json()
+    upload_marc(client, example_marc_bytes)
+    bulk = client.post("/api/preview-records", json=SETTINGS).get_json()
 
     for entry in bulk["records"]:
         if not entry["has_866"]:
             continue
-        one = previews_for(workbench_client, entry["index"])
+        one = previews_for(client, entry["index"])
         assert [p["fields_863"] for p in entry["previews"]] == \
                [p["fields_863"] for p in one], entry["index"]
         assert [p["source"] for p in entry["previews"]] == [p["source"] for p in one]
 
 
-def test_each_record_carries_the_counts_a_reviewer_filters_on(workbench_client,
+def test_each_record_carries_the_counts_a_reviewer_filters_on(client,
                                                               messy_marc_bytes):
     """
     'Show me what is still held for review' has to be answerable without
     reopening every record, so the counts come back with the page.
     """
-    upload_marc(workbench_client, messy_marc_bytes)
-    body = workbench_client.post("/api/preview-records", json=SETTINGS).get_json()
+    upload_marc(client, messy_marc_bytes)
+    body = client.post("/api/preview-records", json=SETTINGS).get_json()
 
     held = [r for r in body["records"] if r["held"]]
     assert held, "the messy corpus has statements no engine converts"
@@ -981,12 +957,12 @@ def test_each_record_carries_the_counts_a_reviewer_filters_on(workbench_client,
     assert empty and all(r["previews"] == [] for r in empty)
 
 
-def test_the_page_is_bounded_and_can_be_walked(workbench_client,
+def test_the_page_is_bounded_and_can_be_walked(client,
                                                messy_marc_bytes):
-    upload_marc(workbench_client, messy_marc_bytes)
-    first = workbench_client.post("/api/preview-records", json={
+    upload_marc(client, messy_marc_bytes)
+    first = client.post("/api/preview-records", json={
         **SETTINGS, "offset": 0, "limit": 4}).get_json()
-    second = workbench_client.post("/api/preview-records", json={
+    second = client.post("/api/preview-records", json={
         **SETTINGS, "offset": 4, "limit": 4}).get_json()
 
     assert [r["index"] for r in first["records"]] == [0, 1, 2, 3]
@@ -994,17 +970,17 @@ def test_the_page_is_bounded_and_can_be_walked(workbench_client,
     assert first["total"] == second["total"]
 
 
-def test_the_page_writes_nothing(workbench_client, example_marc_bytes):
+def test_the_page_writes_nothing(client, example_marc_bytes):
     """The read-only twin of batch-convert: reviewing must not convert."""
-    upload_marc(workbench_client, example_marc_bytes)
-    before = workbench_client.get("/api/download-converted").data
-    workbench_client.post("/api/preview-records", json=SETTINGS)
-    assert workbench_client.get("/api/download-converted").data == before
+    upload_marc(client, example_marc_bytes)
+    before = client.get("/api/download-converted").data
+    client.post("/api/preview-records", json=SETTINGS)
+    assert client.get("/api/download-converted").data == before
 
 
-def test_the_page_honours_the_parser_switch(workbench_client, messy_marc_bytes):
-    upload_marc(workbench_client, messy_marc_bytes)
-    off = workbench_client.post("/api/preview-records", json={
+def test_the_page_honours_the_parser_switch(client, messy_marc_bytes):
+    upload_marc(client, messy_marc_bytes)
+    off = client.post("/api/preview-records", json={
         **SETTINGS, "parser_fallback": False}).get_json()
     assert all(p["source"] == "unmatched"
                for r in off["records"] for p in r["previews"])
@@ -1014,35 +990,69 @@ def test_the_page_honours_the_parser_switch(workbench_client, messy_marc_bytes):
 # The promise: nothing is sacrificed
 # ---------------------------------------------------------------------------
 
-def test_empty_library_matches_the_converter_exactly(workbench_client,
-                                                     converter_client, any_corpus):
+def test_an_empty_library_converts_exactly_as_the_engine_does(client, any_corpus):
     """
-    With no pattern confirmed, the workbench must be the converter.
+    With no pattern confirmed, the application must be the plain converter.
 
-    Byte for byte, over every corpus this machine can reach -- the synthetic two
-    on a clean clone, plus the private files when the share is mounted. Anything
-    less and merging the tools would have cost a cataloguer something, which is
-    the one outcome this change is not allowed to have.
+    This used to run the same file through the standalone converter and compare
+    the two downloads byte for byte. There is no standalone converter to compare
+    against now, so the comparison is made against the engine itself: for every
+    record, the 853s and 863s the application wrote must be the ones
+    convert_record() produces from that record's own 866 statements. Not
+    circular -- the route is not consulted, only parse_866() and
+    convert_record() are.
+
+    Over every corpus this machine can reach: the synthetic two on a clean
+    clone, plus the private files when the share is mounted.
     """
-    upload_marc(workbench_client, any_corpus)
-    upload_marc(converter_client, any_corpus)
+    import io
 
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 0
+    from pymarc import MARCReader
 
-    assert workbench_client.post("/api/batch-convert", json=SETTINGS).status_code == 200
-    assert converter_client.post("/api/batch-convert", json=SETTINGS).status_code == 200
+    from marc_serials.converter import convert_record
+    from marc_serials.parser import parse_866
 
-    from_workbench = workbench_client.get("/api/download-converted").data
-    from_converter = converter_client.get("/api/download-converted").data
-    assert from_workbench == from_converter
+    before = [r for r in MARCReader(io.BytesIO(any_corpus)) if r is not None]
+
+    upload_marc(client, any_corpus)
+    assert client.get("/api/patterns").get_json()["count"] == 0
+    assert client.post("/api/batch-convert", json=SETTINGS).status_code == 200
+    converted = client.get("/api/download-converted").data
+    after = [r for r in MARCReader(io.BytesIO(converted)) if r is not None]
+
+    assert len(after) == len(before)
+
+    def rendered(fields):
+        return [" ".join(f"${sf.code} {(sf.value or '').strip()}"
+                         for sf in f.subfields) for f in fields]
+
+    for index, (original, result) in enumerate(zip(before, after)):
+        texts = [(f["a"] or "").strip() for f in original.get_fields("866")
+                 if (f["a"] or "").strip()]
+        if not texts:
+            continue
+        expected = convert_record(
+            [parse_866(t) for t in texts],
+            existing_853s=original.get_fields("853"),
+            frequency=SETTINGS["frequency"],
+            numbering_continuity=SETTINGS["numbering_continuity"],
+        )
+        assert rendered(result.get_fields("863")) == \
+            [" ".join(f"${sf.code} {sf.value}" for sf in f.subfields)
+             for f in expected.fields_863], f"record {index}"
 
 
-def test_single_record_conversion_also_matches_the_converter(workbench_client,
-                                                             converter_client,
-                                                             messy_marc_bytes):
-    """The record-level route has its own 866-stripping rules; check them too."""
-    records = upload_marc(workbench_client, messy_marc_bytes).get_json()["records"]
-    upload_marc(converter_client, messy_marc_bytes)
+def test_single_record_conversion_matches_the_batch_route(client,
+                                                          messy_marc_bytes):
+    """
+    The record-level route has its own 866-stripping rules; check them too.
+
+    It used to be checked against the standalone converter's copy of the route.
+    With one application the comparison that still means something is against
+    the batch route here: converting one record must write what converting the
+    whole file writes for that record.
+    """
+    records = upload_marc(client, messy_marc_bytes).get_json()["records"]
 
     idx = record_index_with(records, "?: 16")
     payload = {
@@ -1051,14 +1061,14 @@ def test_single_record_conversion_also_matches_the_converter(workbench_client,
                         for f in records[idx]["fields_866"] if f["a"]],
         **SETTINGS,
     }
-    assert workbench_client.post("/api/convert-record", json=payload).status_code == 200
-    assert converter_client.post("/api/convert-record", json=payload).status_code == 200
+    assert client.post("/api/convert-record", json=payload).status_code == 200
+    assert client.post("/api/convert-record", json=payload).status_code == 200
 
-    assert workbench_client.get("/api/download-converted").data == \
-           converter_client.get("/api/download-converted").data
+    assert client.get("/api/download-converted").data == \
+           client.get("/api/download-converted").data
 
 
-def test_the_866_is_kept_unless_removal_is_asked_for(workbench_client,
+def test_the_866_is_kept_unless_removal_is_asked_for(client,
                                                      example_marc_bytes):
     """
     The default changed to keeping them: an ILS that rebuilds 866s from 853/863
@@ -1068,73 +1078,73 @@ def test_the_866_is_kept_unless_removal_is_asked_for(workbench_client,
     import io as _io
     from pymarc import MARCReader
 
-    upload_marc(workbench_client, example_marc_bytes)
+    upload_marc(client, example_marc_bytes)
     settings = {k: v for k, v in SETTINGS.items() if k != "remove_866"}
-    assert workbench_client.post("/api/batch-convert", json=settings).status_code == 200
+    assert client.post("/api/batch-convert", json=settings).status_code == 200
 
     records = list(MARCReader(_io.BytesIO(
-        workbench_client.get("/api/download-converted").data)))
+        client.get("/api/download-converted").data)))
     assert any(r.get_fields("866") for r in records), "every 866 was removed"
     # And the conversion still happened alongside them.
     assert any(r.get_fields("863") for r in records)
 
 
-def test_removal_still_works_when_asked_for(workbench_client, example_marc_bytes):
+def test_removal_still_works_when_asked_for(client, example_marc_bytes):
     """Flipping the default must not break the behaviour itself."""
     import io as _io
     from pymarc import MARCReader
 
-    upload_marc(workbench_client, example_marc_bytes)
-    assert workbench_client.post("/api/batch-convert", json={
+    upload_marc(client, example_marc_bytes)
+    assert client.post("/api/batch-convert", json={
         **SETTINGS, "remove_866": True}).status_code == 200
 
     records = list(MARCReader(_io.BytesIO(
-        workbench_client.get("/api/download-converted").data)))
+        client.get("/api/download-converted").data)))
     converted = [r for r in records if r.get_fields("863")]
     assert converted, "nothing converted, so the assertion below proves nothing"
     # A record whose statements all converted keeps no 866.
     assert any(not r.get_fields("866") for r in converted)
 
 
-def test_a_merged_run_is_flagged_to_the_screen(workbench_client, example_marc_bytes):
+def test_a_merged_run_is_flagged_to_the_screen(client, example_marc_bytes):
     """
     The screen has to be able to mark a merge, because it is the one grouping
     decision a cataloguer might disagree with.
     """
-    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    records = upload_marc(client, example_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "v.6(1995)-")
 
-    previews = previews_for(workbench_client, idx)
+    previews = previews_for(client, idx)
     # This record pairs a fully-captioned statement with one recording no issue
     # or month, so its run is a merge.
     assert any(p["merged_run"] for p in previews)
 
 
-def test_keep_separate_splits_a_record_back(workbench_client, example_marc_bytes):
+def test_keep_separate_splits_a_record_back(client, example_marc_bytes):
     """
     A per-record override: whether two statements are one publication is a
     judgement about the serial, so the cataloguer can say they are not.
     """
-    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    records = upload_marc(client, example_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "v.6(1995)-")
 
-    merged = previews_for(workbench_client, idx)
+    merged = previews_for(client, idx)
     assert len({p["link"] for p in merged}) == 1
 
-    body = workbench_client.post("/api/preview-record", json={
+    body = client.post("/api/preview-record", json={
         "record_index": idx, "keep_separate": [idx], **SETTINGS}).get_json()
     assert len({p["link"] for p in body["previews"]}) == 2
     assert not any(p["merged_run"] for p in body["previews"])
 
 
-def test_keep_separate_only_affects_the_record_named(workbench_client,
+def test_keep_separate_only_affects_the_record_named(client,
                                                      example_marc_bytes):
     """The override is per record, not a global setting worn by every record."""
-    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    records = upload_marc(client, example_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "v.6(1995)-")
 
     def links_per_record(payload):
-        body = workbench_client.post("/api/preview-records", json=payload).get_json()
+        body = client.post("/api/preview-records", json=payload).get_json()
         return {r["index"]: len({p["link"] for p in r["previews"]})
                 for r in body["records"] if r["has_866"]}
 
@@ -1146,54 +1156,54 @@ def test_keep_separate_only_affects_the_record_named(workbench_client,
     assert unchanged == {k: v for k, v in before.items() if k != idx}
 
 
-def test_keep_separate_reaches_the_written_file(workbench_client,
+def test_keep_separate_reaches_the_written_file(client,
                                                 example_marc_bytes):
     """Preview and conversion must agree, or the preview is not a preview."""
     import io as _io
     from pymarc import MARCReader
 
-    records = upload_marc(workbench_client, example_marc_bytes).get_json()["records"]
+    records = upload_marc(client, example_marc_bytes).get_json()["records"]
     idx = record_index_with(records, "v.6(1995)-")
 
-    workbench_client.post("/api/batch-convert", json={**SETTINGS,
+    client.post("/api/batch-convert", json={**SETTINGS,
                                                       "keep_separate": [idx]})
     written = list(MARCReader(_io.BytesIO(
-        workbench_client.get("/api/download-converted").data)))[idx]
+        client.get("/api/download-converted").data)))[idx]
     assert len(written.get_fields("853")) == 2
 
 
-def test_the_converter_does_not_delete_the_workbenchs_pattern_library(
-        workbench_client, workbench_app, converter_app, example_marc_bytes):
+def test_the_sweep_never_ages_a_library_as_an_upload(
+        client, marc_app, example_marc_bytes):
     """
-    Both applications default to the same store, and only one of them knew that
-    a pattern library is not an upload.
+    A pattern library is not an upload, and the sweep must know that whoever
+    runs it.
 
     0.9.1 taught the workbench to age a library by its own far longer limit.
-    The converter kept a sweep of its own, written before that and never
-    updated, which aged every file in the directory as an upload -- so a
-    cataloguer who used both on one machine lost any library they had not
-    touched for six hours, silently, to the *other* tool. The page went on
-    showing patterns the server no longer had and every record converted with
-    the standard parser.
+    The standalone converter kept a sweep of its own, written before that and
+    never updated, which aged every file in the directory as an upload -- and
+    both defaulted to the same directory. A cataloguer who used both tools on
+    one machine lost any library they had not touched for six hours, silently,
+    to the *other* tool: the page went on showing patterns the server no longer
+    had, and every record converted with the standard parser.
 
-    There is one sweep now, in marc_serials.store, and this asserts it from the
-    converter's side: the sweep the converter runs must leave the library alone.
+    That vector is gone with the converter's own URL, but the rule it broke is
+    the one worth guarding, so this calls the sweep directly rather than through
+    an upload -- the path the retired tool took.
     """
-    upload_marc(workbench_client, example_marc_bytes)
-    confirm(workbench_client, group_for(workbench_client, "v.1(1990)-v.5(1994)"))
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 1
+    upload_marc(client, example_marc_bytes)
+    confirm(client, group_for(client, "v.1(1990)-v.5(1994)"))
+    assert client.get("/api/patterns").get_json()["count"] == 1
 
     libraries = [n for n in os.listdir(store.UPLOAD_DIR)
                  if n.endswith(store.LIBRARY_EXT)]
     assert libraries, "the confirmed library should be on disk"
 
     # Older than an upload is allowed to be, younger than a library may be.
-    _age_stored_files(workbench_app, store.UPLOAD_TTL_SECONDS + 60)
+    _age_stored_files(marc_app, store.UPLOAD_TTL_SECONDS + 60)
 
-    # The converter reaches the same sweep the workbench does.
-    converter_app._purge_old_uploads()
+    store.purge_old_stored_files()
 
     survived = [n for n in os.listdir(store.UPLOAD_DIR)
                 if n.endswith(store.LIBRARY_EXT)]
-    assert survived == libraries, "the converter swept away the pattern library"
-    assert workbench_client.get("/api/patterns").get_json()["count"] == 1
+    assert survived == libraries, "the sweep took the pattern library"
+    assert client.get("/api/patterns").get_json()["count"] == 1

@@ -1,41 +1,41 @@
 """
-app.py
-------
-Holdings Workbench — the pattern detector and the converter as one tool.
+The MARC Serials Toolkit application.
 
-Upload a MARC file once, detect the patterns in its 866 statements, confirm what
-each captured value means, and convert with those patterns applied.  A statement
-no confirmed pattern matches is converted by holdings_parser.parse_866() exactly
-as the standalone converter converts it, so nothing the converter can do today
-is lost here.
+Upload a MARC file, detect the patterns in its 866 statements, confirm what
+each captured value means, and convert with those patterns applied. A statement
+no confirmed pattern matches is read by marc_serials.parser.parse_866(), so an
+empty pattern library converts exactly as the plain parser does.
 
-Run:
-    WORKBENCH_PORT=5003 python app.py
+There was a time when this was three applications on three ports -- a
+converter, a pattern detector, and this, which joined them up. They shared a
+goal and duplicated each other's code, and the copies drifted: one of them
+deleted the other's pattern libraries for six months. They are one application
+now. The converter's screens and the detector's screens were both already here.
 
-The two standalone apps are untouched and keep running on their own ports; this
-one imports their engines rather than copying them.
+Run it:
+    marc-serials                 (after `pip install -e .`)
+    python run.py                (from a clone, without installing)
+
+Both open http://localhost:5003. The port is settable with MARC_PORT; 5003
+rather than 5000 because macOS gives 5000 to AirPlay Receiver.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import logging
 import os
 import re
 import sys
 import time
 from typing import Optional
 
-# The engines live in the two standalone apps' directories and import each other
-# by bare name ("from holdings_parser import parse_866"), so those directories
-# have to be importable before anything below can load.  tests/conftest.py does
-# the same thing for the same reason.  Prepended so a same-named module
-# elsewhere on the path cannot shadow ours.
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.dirname(_BASE_DIR)
 # Run from a clone without installing: put the repository root on the path so
 # `import marc_serials` resolves. A pip-installed copy already has it and this
 # is a no-op.
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(_BASE_DIR)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
@@ -57,9 +57,6 @@ from marc_serials.store import (
     purge_old_stored_files as _purge_old_stored_files,
     save_file as _save_file,
 )
-from marc_serials.webui import (convention_opts as _convention_opts,
-                                load_about as _load_about,
-                                register_shared_routes)
 from marc_serials.records import (
     add_853 as _add_853,
     apply_record_conversion as _apply_record_conversion,
@@ -95,7 +92,6 @@ app = Flask(__name__,
             static_folder=os.path.join(_BASE_DIR, "static"))
 app.secret_key = os.environ.get("SECRET_KEY", "marc-workbench-dev-key")
 
-register_shared_routes(app)
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # 25 MB
 
 # Flask names its session cookie "session" at path / by default, and the three
@@ -103,7 +99,9 @@ app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # 25 MB
 # the converter overwrite each other's cookie. Neither can then read what it
 # wrote, and the cataloguer is told their uploaded file has gone. The workbench
 # is the newcomer, so it is the one that yields.
-app.config["SESSION_COOKIE_NAME"] = "workbench_session"
+# One application, so the cookie needs no name of its own. It carried one
+# because the workbench and the converter ran on the same host and the
+# workbench's session signed the converter out of its own upload.
 
 # Uploads, pattern libraries and the sweep that ages them out live in
 # marc_serials.store, shared with the converter. Keeping the rules in one place
@@ -1340,9 +1338,151 @@ def api_download_converted():
 
 
 # ---------------------------------------------------------------------------
+# Shared chrome and request parsing
+#
+# These briefly lived in marc_serials/webui.py, which existed so three
+# applications could share one copy. With one application there is nothing to
+# share them with, and the indirection stopped earning its keep.
+# ---------------------------------------------------------------------------
+
+# Inside the package, so a non-editable `pip install` finds the stylesheet
+# and the version file too.
+SHARED_DIR = os.path.join(_BASE_DIR, "shared")
+
+
+def _load_about() -> dict:
+    """
+    Version and changelog for the badge in the header.
+
+    Read per request rather than cached at import, so editing the file and
+    reloading the page is enough to see the change. Never fatal: a missing or
+    malformed file degrades to no badge rather than a broken page.
+    """
+    try:
+        with open(os.path.join(SHARED_DIR, "about.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        app.logger.warning("Could not read shared/about.json", exc_info=True)
+        return {}
+
+
+@app.route("/ui.css")
+def ui_css():
+    """Serve the stylesheet."""
+    return send_from_directory(SHARED_DIR, "ui.css", mimetype="text/css")
+
+
+def _convention_opts(data: dict) -> tuple:
+    """
+    Build a caption-convention spec from a request body.
+
+    The named preset ('standard' follows MARC 21; 'house' reproduces the local
+    practice of year in $a with chronology as text) is only a starting point --
+    per-level subfields, indicators and the chronology format may all be
+    overridden.  Returns (kwargs for convert_holdings, rejection messages).
+    """
+    conv = (data.get("convention") or CONVENTION_STANDARD).strip().lower()
+
+    subfields = data.get("subfields")
+    if not isinstance(subfields, dict):
+        subfields = None
+
+    indicators = data.get("indicators")
+    if not (isinstance(indicators, (list, tuple)) and len(indicators) == 2):
+        indicators = None
+
+    chron = data.get("chronology")
+    if isinstance(chron, str) and chron.strip().lower() in ("text", "code"):
+        chron_as_text = chron.strip().lower() == "text"
+    else:
+        chron_as_text = None
+
+    spec, rejections = resolve_convention(
+        conv, subfields=subfields, indicators=indicators,
+        chron_as_text=chron_as_text
+    )
+    return {"convention_spec": spec}, rejections
+
+
+# ---------------------------------------------------------------------------
+# Converting one statement on its own
+#
+# Carried over from the standalone converter, which is where a cataloguer went
+# to ask "what does this statement convert to?" without a file or a pattern.
+# ---------------------------------------------------------------------------
+
+@app.route("/api/parse-text", methods=["POST"])
+def api_parse_text():
+    """
+    Parse a single 866 $a text string and return structured data + preview.
+
+    This previews one statement in isolation, so its $8 is always 1.1.  Applied
+    numbering is decided per record by convert_record(), which shares an 853
+    across statements with the same publication pattern.
+    """
+    data = request.get_json(force=True)
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+
+    captions = data.get("captions") or {}
+    frequency = data.get("frequency", "")
+    continuity = data.get("numbering_continuity", "r")
+    linking = int(data.get("linking_number", 1))
+
+    conv_opts, rejections = _convention_opts(data)
+    parse_result = parse_866(text)
+    conversion = convert_holdings(
+        parse_result,
+        linking_number=linking,
+        captions=captions or None,
+        frequency=frequency,
+        numbering_continuity=continuity,
+        **conv_opts,
+    )
+    conversion.warnings.extend(rejections)
+
+    return jsonify({
+        "parse": {
+            "success": parse_result.success,
+            "needs_review": parse_result.needs_review,
+            "warnings": parse_result.warnings,
+            "ranges": [
+                {
+                    "raw": r.raw,
+                    "open_ended": r.open_ended,
+                    "start": {
+                        "enum": [{"caption": lvl.caption, "value": lvl.value}
+                                 for lvl in r.start.enum],
+                        "year": r.start.year,
+                        "month": r.start.month,
+                    },
+                    "end": {
+                        "enum": [{"caption": lvl.caption, "value": lvl.value}
+                                 for lvl in r.end.enum] if r.end else [],
+                        "year": r.end.year if r.end else None,
+                        "month": r.end.month if r.end else None,
+                    } if r.end else None,
+                }
+                for r in parse_result.ranges
+            ],
+        },
+        "conversion": conversion.to_dict(),
+        "preview": {
+            "field_853": conversion.field_853.display() if conversion.field_853 else None,
+            "fields_863": [f.display() for f in conversion.fields_863],
+        },
+    })
+
+
+
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    """Run the application locally. Installed as the `marc-serials` command."""
+    port = int(os.environ.get("MARC_PORT", 5003))
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1", port=port)
+
 
 if __name__ == "__main__":
-    # Named separately from the two standalone apps' ports so all three can be
-    # exported at once; see the note in converter/app.py about port 5000.
-    app.run(debug=os.environ.get("FLASK_DEBUG") == "1",
-            port=int(os.environ.get("WORKBENCH_PORT", 5003)))
+    main()

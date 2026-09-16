@@ -89,39 +89,39 @@ def _convert(client, data: bytes) -> bytes:
 # Converter invariants
 # ---------------------------------------------------------------------------
 
-def test_output_is_readable_marc(converter_client, any_corpus):
+def test_output_is_readable_marc(client, any_corpus):
     """Whatever else happens, the file has to come back out as MARC."""
     before = _records(any_corpus)
-    after = _records(_convert(converter_client, any_corpus))
+    after = _records(_convert(client, any_corpus))
     assert len(after) == len(before)
 
 
-def test_no_duplicate_853_links(converter_client, any_corpus):
+def test_no_duplicate_853_links(client, any_corpus):
     """
     Two 853s sharing a linking number make the record ambiguous: an 863 pointing
     at that number no longer names one pattern.
     """
-    for index, record in enumerate(_records(_convert(converter_client, any_corpus))):
+    for index, record in enumerate(_records(_convert(client, any_corpus))):
         assert duplicate_853_links(record) == [], f"record {index}"
 
 
-def test_no_orphaned_863s(converter_client, any_corpus):
+def test_no_orphaned_863s(client, any_corpus):
     """An 863 whose 853 is missing describes a pattern that is not there."""
-    for index, record in enumerate(_records(_convert(converter_client, any_corpus))):
+    for index, record in enumerate(_records(_convert(client, any_corpus))):
         assert orphaned_863s(record) == [], f"record {index}"
 
 
-def test_links_are_well_formed(converter_client, any_corpus):
-    for index, record in enumerate(_records(_convert(converter_client, any_corpus))):
+def test_links_are_well_formed(client, any_corpus):
+    for index, record in enumerate(_records(_convert(client, any_corpus))):
         assert malformed_links(record) == [], f"record {index}"
 
 
-def test_863_sequence_is_contiguous(converter_client, any_corpus):
+def test_863_sequence_is_contiguous(client, any_corpus):
     """
     Within one link the 863s run 1..n. A gap or a repeat means a statement was
     dropped or counted twice while numbering was assigned across the record.
     """
-    for index, record in enumerate(_records(_convert(converter_client, any_corpus))):
+    for index, record in enumerate(_records(_convert(client, any_corpus))):
         by_parent: dict[str, list[int]] = {}
         for field in record.get_fields("863"):
             parent, _, seq = _link_of(field).partition(".")
@@ -132,17 +132,17 @@ def test_863_sequence_is_contiguous(converter_client, any_corpus):
                 f"record {index}, link {parent}: {sorted(seqs)}"
 
 
-def test_conversion_is_idempotent(converter_client, any_corpus):
+def test_conversion_is_idempotent(client, any_corpus):
     """
     Converting an already-converted file must not stack a second set of 863s on
     top of the first. This is the property that makes re-running safe.
     """
-    once = _convert(converter_client, any_corpus)
-    twice = _convert(converter_client, once)
+    once = _convert(client, any_corpus)
+    twice = _convert(client, once)
     assert twice == once
 
 
-def _holdings_survived(converter_client, corpus: bytes) -> list[int]:
+def _holdings_survived(client, corpus: bytes) -> list[int]:
     """
     Indexes of records that arrived carrying an 866 and left with nothing.
 
@@ -151,7 +151,7 @@ def _holdings_survived(converter_client, corpus: bytes) -> list[int]:
     not understand.
     """
     before = _records(corpus)
-    after = _records(_convert(converter_client, corpus))
+    after = _records(_convert(client, corpus))
 
     lost = []
     for index, (original, converted) in enumerate(zip(before, after)):
@@ -165,17 +165,17 @@ def _holdings_survived(converter_client, corpus: bytes) -> list[int]:
     return lost
 
 
-def test_no_record_loses_its_only_holdings(converter_client, any_corpus):
+def test_no_record_loses_its_only_holdings(client, any_corpus):
     """
     A record that arrived carrying holdings must leave carrying holdings, in one
     form or another. Until 0.5.2 this failed on any corpus containing a
     statement neither grammar accepts: stripping was decided per record, so an
     unreadable statement had its 866 removed alongside its converted neighbours.
     """
-    assert _holdings_survived(converter_client, any_corpus) == []
+    assert _holdings_survived(client, any_corpus) == []
 
 
-def test_unparseable_statement_is_never_deleted(converter_client, example_marc_bytes):
+def test_unparseable_statement_is_never_deleted(client, example_marc_bytes):
     """
     Regression test for the data-loss bug fixed in 0.5.2.
 
@@ -195,46 +195,46 @@ def test_unparseable_statement_is_never_deleted(converter_client, example_marc_b
     Kept as a named case alongside the corpus-wide check because this one is
     deterministic: it is the exact record the bug was found on.
     """
-    assert _holdings_survived(converter_client, example_marc_bytes) == []
+    assert _holdings_survived(client, example_marc_bytes) == []
 
 
 # ---------------------------------------------------------------------------
 # Detector invariants
 # ---------------------------------------------------------------------------
 
-def _statements(detector_client, corpus: bytes) -> list[str]:
-    return upload_marc(detector_client, corpus).get_json()["statements"]
+def _statements(client, corpus: bytes) -> list[str]:
+    return upload_marc(client, corpus).get_json()["statements"]
 
 
-def test_every_generated_regex_matches_its_own_cluster(detector_client, any_corpus):
+def test_every_generated_regex_matches_its_own_cluster(client, any_corpus):
     """
     The detector's central claim. A regex that does not match the statements it
     was generated from is worse than no regex, because it looks authoritative.
     """
-    for group in detect_patterns(_statements(detector_client, any_corpus)):
+    for group in detect_patterns(_statements(client, any_corpus)):
         if group.too_complex:
             continue
         assert group.match_rate == 1.0, group.human_label
         assert group.failed == []
 
 
-def test_every_generated_regex_is_testable(detector_client, any_corpus):
+def test_every_generated_regex_is_testable(client, any_corpus):
     """
     MAX_REGEX_CHARS is the ceiling /api/test-regex enforces. Emitting a longer
     one would mean the tool rejecting its own output.
     """
-    for group in detect_patterns(_statements(detector_client, any_corpus)):
+    for group in detect_patterns(_statements(client, any_corpus)):
         assert len(group.regex) <= MAX_REGEX_CHARS, group.human_label
 
 
-def test_complexity_guard_and_output_agree(detector_client, any_corpus):
-    for group in detect_patterns(_statements(detector_client, any_corpus)):
+def test_complexity_guard_and_output_agree(client, any_corpus):
+    for group in detect_patterns(_statements(client, any_corpus)):
         assert group.too_complex == (group.token_count > MAX_PATTERN_TOKENS)
         assert group.too_complex == (group.regex == "")
 
 
-def test_no_statement_is_lost_in_clustering(detector_client, any_corpus):
-    statements = _statements(detector_client, any_corpus)
+def test_no_statement_is_lost_in_clustering(client, any_corpus):
+    statements = _statements(client, any_corpus)
     groups = detect_patterns(statements)
     assert sum(g.count for g in groups) == len([s for s in statements if s.strip()])
 

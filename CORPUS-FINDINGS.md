@@ -24,6 +24,12 @@ anything was changed.
 >
 > Their test modules moved with them: `tests/test_holdings_parser.py` is now
 > `tests/test_parser.py`, and so on.
+>
+> The three Flask applications were merged into one on 16 September 2026.
+> `workbench/app.py` is now `marc_serials/webapp.py`; `converter/app.py` and
+> `pattern-detector/app.py` are gone, their routes carried across. Where an
+> entry below says "the converter" or "the workbench" it means what that tool
+> did at the time, not a directory that still exists.
 
 **Fixed so far:** D17 and D18 (0.6.1); D2, D15 and D16 (0.6.2); D1 and D3
 (0.6.3); D4, D5, D9, D12 and D13 (0.6.4); D6 and D8 (0.7.0); D14 (0.7.4);

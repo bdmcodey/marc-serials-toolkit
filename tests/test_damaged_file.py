@@ -100,7 +100,7 @@ def test_the_refusal_names_the_position(damaged_marc):
 # Both applications refuse it, and store nothing
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("client_name", ["converter_client", "workbench_client"])
+@pytest.mark.parametrize("client_name", ["client", "client"])
 def test_the_upload_is_refused_rather_than_failing(request, client_name,
                                                    damaged_marc):
     client = request.getfixturevalue(client_name)
@@ -109,7 +109,7 @@ def test_the_upload_is_refused_rather_than_failing(request, client_name,
     assert "could not be read" in response.get_json()["error"]
 
 
-@pytest.mark.parametrize("client_name", ["converter_client", "workbench_client"])
+@pytest.mark.parametrize("client_name", ["client", "client"])
 def test_a_refused_upload_stores_nothing(request, client_name, damaged_marc,
                                          clean_marc):
     """

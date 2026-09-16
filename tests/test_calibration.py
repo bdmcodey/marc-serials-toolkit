@@ -67,10 +67,10 @@ def corpus(request):
     return name, path.read_bytes()
 
 
-def _field_totals(converter_client, data: bytes, convention: str) -> tuple[int, int]:
-    upload_marc(converter_client, data)
-    converter_client.post("/api/batch-convert", json={"convention": convention})
-    converted = converter_client.get("/api/download-converted").data
+def _field_totals(client, data: bytes, convention: str) -> tuple[int, int]:
+    upload_marc(client, data)
+    client.post("/api/batch-convert", json={"convention": convention})
+    converted = client.get("/api/download-converted").data
 
     total_853 = total_863 = 0
     for record in MARCReader(io.BytesIO(converted)):
@@ -81,15 +81,15 @@ def _field_totals(converter_client, data: bytes, convention: str) -> tuple[int, 
     return total_853, total_863
 
 
-def test_generated_field_counts(converter_client, corpus):
+def test_generated_field_counts(client, corpus):
     name, data = corpus
     expected = EXPECTED[name]
 
-    total_853, total_863 = _field_totals(converter_client, data, expected["convention"])
+    total_853, total_863 = _field_totals(client, data, expected["convention"])
     assert (total_853, total_863) == (expected["fields_853"], expected["fields_863"])
 
 
-def test_parse_rate(detector_client, corpus):
+def test_parse_rate(client, corpus):
     """
     How many 866 statements the parser accepts. 0.3.0 took one file from 6% to
     94%, so this number moving is the single clearest signal that parsing
@@ -98,16 +98,16 @@ def test_parse_rate(detector_client, corpus):
     name, data = corpus
     expected = EXPECTED[name]
 
-    statements = upload_marc(detector_client, data).get_json()["statements"]
+    statements = upload_marc(client, data).get_json()["statements"]
     assert len(statements) == expected["statements"]
 
     parsed = sum(1 for s in statements if parse_866(s).ranges)
     assert parsed == expected["parsed"]
 
 
-def test_detector_matches_every_cluster_it_describes(detector_client, corpus):
+def test_detector_matches_every_cluster_it_describes(client, corpus):
     _, data = corpus
-    statements = upload_marc(detector_client, data).get_json()["statements"]
+    statements = upload_marc(client, data).get_json()["statements"]
 
     for group in detect_patterns(statements):
         if group.too_complex:
@@ -115,14 +115,14 @@ def test_detector_matches_every_cluster_it_describes(detector_client, corpus):
         assert group.match_rate == 1.0, group.human_label
 
 
-def test_detector_regexes_stay_testable(detector_client, corpus):
+def test_detector_regexes_stay_testable(client, corpus):
     """
     The observation MAX_PATTERN_TOKENS was calibrated from: at 40 tokens the
     longest regex these files produced was 1,506 characters, inside the
     MAX_REGEX_CHARS limit /api/test-regex enforces.
     """
     _, data = corpus
-    statements = upload_marc(detector_client, data).get_json()["statements"]
+    statements = upload_marc(client, data).get_json()["statements"]
 
     longest = max((len(g.regex) for g in detect_patterns(statements)), default=0)
     assert longest <= MAX_REGEX_CHARS

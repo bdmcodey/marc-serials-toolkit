@@ -1,9 +1,7 @@
 """
 MARC Serials Toolkit — the holdings pipeline.
 
-One installable package holding every engine the tools run on, so that a fix
-to the parser reaches the Converter, the Pattern Detector and the Workbench
-without any of them importing the others by path.
+One installable package: every engine, and the application that serves them.
 
     parser     866 text            -> ParseResult (ranges, levels, chronology)
     converter  ParseResult         -> MARC 853 / 863 fields
@@ -11,10 +9,14 @@ without any of them importing the others by path.
     bridge     a confirmed pattern -> the same ParseResult the parser produces
     library    the confirmed patterns a cataloguer has built up
     budget     runs a regex in a child process, under a wall-clock limit
+    records    reading MARC records and writing a conversion onto one
+    store      the per-session file store, and the sweep that ages it out
+    webapp     the Flask application: routes, templates and session handling,
+               and no holdings logic of its own
 
-The web applications in converter/, pattern-detector/ and workbench/ are
-adapters over this package. They hold routes, templates and session handling,
-and no holdings logic of their own.
+It was three applications on three ports until September 2026 -- a converter, a
+pattern detector, and a workbench that joined them up.
 """
 
-__all__ = ["parser", "converter", "detector", "bridge", "library", "budget"]
+__all__ = ["parser", "converter", "detector", "bridge", "library",
+           "budget", "records", "store", "webapp"]

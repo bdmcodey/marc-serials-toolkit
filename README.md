@@ -7,57 +7,60 @@ machine-actionable **853 / 863** enumeration-and-chronology fields.
 It grew out of a real cataloging problem and is the subject of an upcoming
 conference presentation on applying AI to serials-holdings enhancement.
 
-## The tools
+## What it does
 
-Every engine lives in one installable package, `marc_serials`. The three
-applications are adapters over it — routes, templates and session handling, and
-no holdings logic of their own — so a fix to the parser reaches all three.
+One application, run locally on your own machine. It is deterministic — no
+network calls, no API key, nothing leaves the machine.
 
-| Tool | Folder | What it does | Type |
-|---|---|---|---|
-| **Holdings Workbench** | [`workbench/`](workbench/) | Detect patterns, confirm what each captured value means in MARC, and convert with them — the other two tools joined up | Flask web app |
-| **Converter** | [`converter/`](converter/) | Convert an 866 statement — or a whole MARC file — into structured 853 / 863 fields | Flask web app |
-| **Pattern Detector** | [`pattern-detector/`](pattern-detector/) | Scan a collection of 866 statements, cluster them by structure, and generate a named-group regex per pattern | Flask web app |
+| Step | What happens |
+|---|---|
+| **Holdings** | Upload a MARC file, or paste 866 statements. One statement can be converted on its own, with no file and no pattern. |
+| **Patterns** | The 866 statements are clustered by structure and a named-group regex is generated for each cluster. You confirm what each captured value means in MARC — which number is a volume, which is an issue, what caption the 853 should declare — once per pattern. |
+| **Convert** | Every record is converted, with your confirmed patterns supplying what the parser cannot work out on its own. Review the file record by record and download it. |
 
-All three are deterministic and run locally — no network calls, no API key, and
-nothing leaves the machine.
-
-The Workbench does not replace the other two. Use the Converter or the Pattern
-Detector on its own when that is all you need; use the Workbench when the
-detector has found a pattern the converter should be using.
+It was three separate web apps until September 2026 — a Converter, a Pattern
+Detector, and a Workbench that joined them up. They shared a goal and duplicated
+each other's code, and the copies drifted far enough that one of them deleted
+the other's pattern libraries. Everything the three did is in the one
+application; nothing was dropped.
 
 ## Quick start
-
-Install once, then run whichever application you want. Everything runs locally.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e .
-
-python workbench/app.py           # Holdings Workbench  http://localhost:5003
-python converter/app.py           # Converter           http://localhost:5000
-python pattern-detector/app.py    # Pattern Detector    http://localhost:5001
+marc-serials
 ```
 
-Each application can also be started from any directory: it puts the repository
-root on `sys.path` itself, so a clone works without installing.
+Then open <http://localhost:5003>. Port 5003 rather than 5000 because macOS
+gives 5000 to AirPlay Receiver; set `MARC_PORT` to change it.
+
+From a clone, without installing:
+
+```bash
+pip install flask pymarc
+python run.py
+```
 
 ## Repository layout
 
 ```
 marc-serials-toolkit/
-├── marc_serials/       the engines, as one installable package
+├── marc_serials/       the whole tool, as one installable package
+│   ├── webapp.py           the Flask application: routes and session handling
+│   ├── templates/          the page
+│   ├── shared/             stylesheet and version/changelog
 │   ├── parser.py           866 text            → ParseResult
 │   ├── converter.py        ParseResult         → MARC 853 / 863 fields
 │   ├── detector.py         many 866 statements → clusters, each with a regex
 │   ├── bridge.py           a confirmed pattern → the parser's ParseResult
 │   ├── library.py          the patterns a cataloguer has confirmed
+│   ├── records.py          reading and writing MARC records
+│   ├── store.py            the per-session file store, and its sweep
 │   └── budget.py           runs a regex in a child process, under a time limit
-├── workbench/          detect → confirm → convert, in one app (Flask web app)
-├── converter/          866 → 853/863 converter (Flask web app)
-├── pattern-detector/   866 pattern detector + regex generator (Flask web app)
+├── run.py              start it without installing
 ├── pyproject.toml      package metadata and the runtime pins
-├── tests/              pytest suite covering all three apps
+├── tests/              pytest suite
 ├── data/
 │   ├── example_holdings.mrc   Small SYNTHETIC sample for demos/tests
 │   ├── messy_holdings.mrc     SYNTHETIC awkward cases, for the test suite
@@ -65,8 +68,8 @@ marc-serials-toolkit/
 ├── scripts/
 │   ├── create_example_mrc.py  Regenerates the synthetic sample
 │   ├── create_messy_mrc.py    Regenerates the awkward-case fixture
-│   └── corpus_report.py       Runs the corpus through all three engines
-├── CORPUS-FINDINGS.md  What that corpus reveals about the three tools
+│   └── corpus_report.py       Runs the corpus through the engines
+├── CORPUS-FINDINGS.md  What that corpus reveals about the tool
 ├── NOTICE.md           Licensing status — no license currently granted
 ├── THIRD-PARTY-NOTICES.md  Attribution for derived third-party code
 └── .gitignore
@@ -90,7 +93,7 @@ statements transcribed from real catalogue records, as plain text rather than
 MARC. It covers far more caption and chronology styles than the synthetic
 fixtures do, and it exists to find where the engines fall short. It carries no
 patron data, no local identifiers and no institutional codes — only enumeration
-and chronology strings. Run it through all three engines with:
+and chronology strings. Run it through the engines with:
 
 ```bash
 python scripts/corpus_report.py            # summary
@@ -125,19 +128,19 @@ those files:
 MARC_TEST_DATA_DIR=/path/to/mounted/share python -m pytest -m calibration
 ```
 
-## How the Workbench joins the two tools
+## Why confirming a pattern is not ceremony
 
-The Pattern Detector generates a regex whose capture groups are named for the
+Pattern detection generates a regex whose capture groups are named for the
 level and boundary they hold — `start_vol`, `end_year`. What it cannot know is
 whether that reading is *right*: which number is a volume rather than an issue,
-and whether a value belongs to the holdings at all. The Workbench asks, once per
+and whether a value belongs to the holdings at all. The tool asks, once per
 pattern, and then converts every matching statement with the answer.
 
 That confirmation step is not ceremony. A bare number — the `16` in `?: 16`, or
 the `5` in `v.1(1990)-5(1994)` where no caption reaches across the separator —
-carries nothing at all to say which level it belongs to. That is why the
-Converter refuses to guess and holds such statements for review, and no amount
-of better parsing can fix it: the information is not in the statement. A
+carries nothing at all to say which level it belongs to. That is why the parser
+refuses to guess and holds such statements for review, and no amount of better
+parsing can fix it: the information is not in the statement. A
 cataloguer who knows the collection can supply it in a moment, once.
 
 For enumeration the screen asks two further things, both with a default it
@@ -150,9 +153,9 @@ nothing about which words go in them, so a title numbered by issue alone quite
 properly gets `$a no.`
 
 Every statement is read by `marc_serials.parser.parse_866()`, whether a pattern
-matches it or not, so an empty pattern library produces output identical to the
-Converter's — asserted byte for byte in `tests/test_workbench_api.py`. A
-confirmed pattern supplies what the parser cannot work out on its own: the
+matches it or not, so an empty pattern library converts exactly as the plain
+parser does — asserted against the engine itself in `tests/test_api_patterns.py`.
+A confirmed pattern supplies what the parser cannot work out on its own: the
 caption for a level written as a bare number, and the meaning of a value nothing
 in the statement can type.
 
@@ -169,7 +172,7 @@ The **866** field holds a human-readable "textual holdings" summary such as
 `v.1:no.1(1990:Jan.)-v.5:no.4(1994:Dec.)`. The **853** (captions & pattern) and
 **863** (enumeration & chronology) fields encode the same information in a
 structured, parseable form. Converting 866 → 853/863 across messy real-world
-data — with dozens of caption styles — is what these tools are for. See
+data — with dozens of caption styles — is what this tool is for. See
 [`marc_serials/converter.py`](marc_serials/converter.py) for the full
 field-by-field breakdown.
 

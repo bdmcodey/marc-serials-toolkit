@@ -1,8 +1,8 @@
 """
-Pattern detector HTTP routes.
+The pattern-detection routes.
 
 The last test in this file is the one that matters most: it takes a regex the
-detector generated and feeds it to the detector's own Test button. That
+detector generated and feeds it to the Test button. That
 round-trip is the workflow the UI performs, and it is the entire reason
 MAX_PATTERN_TOKENS is set where it is -- a pattern the tool cannot test is a
 pattern the cataloguer cannot trust.
@@ -17,8 +17,8 @@ from marc_serials.detector import MAX_REGEX_CHARS
 from conftest import upload_marc
 
 
-def test_detect_groups_statements(detector_client):
-    response = detector_client.post("/api/detect", json={
+def test_detect_groups_statements(client):
+    response = client.post("/api/detect", json={
         "statements": ["v.1(1990)-v.3(1992)", "v.5(1994)-v.8(1997)"],
     })
     assert response.status_code == 200
@@ -29,33 +29,33 @@ def test_detect_groups_statements(detector_client):
     assert body["groups"][0]["match_rate"] == 1.0
 
 
-def test_detect_requires_statements(detector_client):
-    assert detector_client.post("/api/detect", json={"statements": []}).status_code == 400
+def test_detect_requires_statements(client):
+    assert client.post("/api/detect", json={"statements": []}).status_code == 400
 
 
-def test_detect_rejects_only_whitespace(detector_client):
-    response = detector_client.post("/api/detect", json={"statements": ["  ", ""]})
+def test_detect_rejects_only_whitespace(client):
+    response = client.post("/api/detect", json={"statements": ["  ", ""]})
     assert response.status_code == 400
 
 
-def test_split_option_is_honoured(detector_client):
+def test_split_option_is_honoured(client):
     """
     Splitting is the default. Turning it off has to leave the statement whole,
     since a cataloguer may be looking at exactly how it was recorded.
     """
     statement = "v.1(1990)-v.3(1992), v.5(1994)-"
 
-    split = detector_client.post("/api/detect", json={
+    split = client.post("/api/detect", json={
         "statements": [statement], "split_multi_range": True}).get_json()
-    whole = detector_client.post("/api/detect", json={
+    whole = client.post("/api/detect", json={
         "statements": [statement], "split_multi_range": False}).get_json()
 
     assert split["total_statements"] == 2
     assert whole["total_statements"] == 1
 
 
-def test_upload_extracts_statements(detector_client, example_marc_bytes):
-    response = upload_marc(detector_client, example_marc_bytes)
+def test_upload_extracts_statements(client, example_marc_bytes):
+    response = upload_marc(client, example_marc_bytes)
     assert response.status_code == 200
 
     body = response.get_json()
@@ -63,8 +63,8 @@ def test_upload_extracts_statements(detector_client, example_marc_bytes):
     assert len(body["statements"]) == 10
 
 
-def test_test_regex_reports_matches(detector_client):
-    response = detector_client.post("/api/test-regex", json={
+def test_test_regex_reports_matches(client):
+    response = client.post("/api/test-regex", json={
         "regex": r"v\.(?P<vol>\d+)\((?P<year>\d{4})\)",
         "statements": ["v.1(1990)", "v.2(1991)", "nope"],
     })
@@ -75,52 +75,55 @@ def test_test_regex_reports_matches(detector_client):
     assert body["failed"] == 1
 
 
-def test_test_regex_requires_a_pattern(detector_client):
-    assert detector_client.post("/api/test-regex",
+def test_test_regex_requires_a_pattern(client):
+    assert client.post("/api/test-regex",
                                 json={"statements": ["v.1(1990)"]}).status_code == 400
 
 
-def test_invalid_regex_is_a_400_not_a_500(detector_client):
+def test_invalid_regex_is_a_400_not_a_500(client):
     """A user typing a broken pattern is expected input, not a server fault."""
-    response = detector_client.post("/api/test-regex",
+    response = client.post("/api/test-regex",
                                     json={"regex": "(", "statements": ["v.1(1990)"]})
     assert response.status_code == 400
     assert "error" in response.get_json()
 
 
 @pytest.mark.parametrize("over, expected_status", [(0, 200), (1, 400)])
-def test_regex_length_limit(detector_client, over, expected_status):
+def test_regex_length_limit(client, over, expected_status):
     """
     The MAX_REGEX_CHARS ceiling is what MAX_PATTERN_TOKENS is calibrated
     against, so the boundary is pinned on both sides.
     """
     regex = "a" * (MAX_REGEX_CHARS + over)
-    response = detector_client.post("/api/test-regex",
+    response = client.post("/api/test-regex",
                                     json={"regex": regex, "statements": ["aaa"]})
     assert response.status_code == expected_status
 
 
 def test_a_runaway_expression_is_stopped_rather_than_hanging_the_worker(
-        detector_client):
+        client):
     """
     The Test button runs a hand-edited expression against real text, which is
     where a runaway one comes from. MAX_REGEX_CHARS above does not help: this
     one is eleven characters. The matching happens in a child process the
     request kills, so the endpoint answers and the worker stays usable.
     """
-    response = detector_client.post("/api/test-regex", json={
+    response = client.post("/api/test-regex", json={
         "regex": r"^(a+)+$", "statements": ["a" * 30 + "!"]})
     assert response.status_code == 400
     assert "repeat" in response.get_json()["error"]
 
-    # The worker is not wedged: the next request is served normally.
-    ok = detector_client.post("/api/test-regex", json={
-        "regex": r"v\.(?P<vol>\d+)", "statements": ["v.1(1990)"]})
+    # The worker is not wedged: the next request is served normally. The
+    # expression has to span the whole statement -- a pattern that matches only
+    # part of one does not describe it, and the route counts full matches only.
+    ok = client.post("/api/test-regex", json={
+        "regex": r"v\.(?P<vol>\d+)\((?P<year>\d{4})\)",
+        "statements": ["v.1(1990)"]})
     assert ok.status_code == 200
     assert ok.get_json()["matched"] == 1
 
 
-def test_generated_regexes_survive_the_tools_own_test_button(detector_client,
+def test_generated_regexes_survive_the_tools_own_test_button(client,
                                                              example_marc_bytes):
     """
     The contract that ties the two endpoints together. Every regex the detector
@@ -128,15 +131,15 @@ def test_generated_regexes_survive_the_tools_own_test_button(detector_client,
     statements it was generated from -- otherwise the tool contradicts itself in
     front of the cataloguer.
     """
-    statements = upload_marc(detector_client, example_marc_bytes).get_json()["statements"]
-    groups = detector_client.post("/api/detect",
+    statements = upload_marc(client, example_marc_bytes).get_json()["statements"]
+    groups = client.post("/api/detect",
                                   json={"statements": statements}).get_json()["groups"]
 
     tested = 0
     for group in groups:
         if group["too_complex"]:
             continue
-        response = detector_client.post("/api/test-regex", json={
+        response = client.post("/api/test-regex", json={
             "regex": group["regex"], "statements": group["examples"]})
         assert response.status_code == 200, group["regex"][:80]
         assert response.get_json()["match_rate"] == 1.0
