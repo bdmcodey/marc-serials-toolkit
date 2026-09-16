@@ -3,10 +3,9 @@
 **No license is granted at this time.**
 **Last updated: 2026-09-16**
 
-> **Draft pending institutional review.** The statement below, and in
-> particular the section on prior MIT licensing, has not been confirmed by the
-> University of Southern California. It records what happened; it is not a
-> determination of who owns the work, and should not be relied on as one.
+> **Pending institutional review.** Nothing below has been confirmed by the
+> University of Southern California, and none of it is a determination of who
+> owns the work.
 
 ## Current status
 
@@ -23,19 +22,6 @@ The intent is to release this project under the GNU Affero General Public
 License, version 3.0 or later (`AGPL-3.0-or-later`). This is a statement of
 intent only. It grants no rights, and no rights are granted until a `LICENSE`
 file is in place.
-
-## Prior MIT licensing
-
-An MIT license was applied to this work from 24 July 2026 until 4 August 2026,
-when it was withdrawn pending the review described above.
-
-Anyone who obtained a copy of the software under those terms retains whatever
-rights that license granted with respect to that copy. Nothing in this notice is
-intended to alter or revoke rights already granted, and nothing here should be
-read as a statement about whether that grant was validly made.
-
-This paragraph is deliberately about the work rather than about any one
-repository, so that it stays accurate wherever the work is published.
 
 ## Prior work and attribution
 
