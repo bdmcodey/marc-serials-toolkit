@@ -31,6 +31,26 @@ def read_marc_file(fileobj) -> list[dict]:
     reader = MARCReader(fileobj, to_unicode=True, force_utf8=True,
                         utf8_handling="replace")
     for rec_idx, record in enumerate(reader):
+        if record is None:
+            # pymarc yields None for a record it could not decode -- a bad
+            # length in the leader, a truncated directory. Its position is
+            # kept, so every index here still means the same record it means
+            # in the file, and it is marked rather than dropped. Reading
+            # straight through used to raise AttributeError on the next line,
+            # so one damaged record in a library export made the whole file
+            # fail to upload with nothing to say which record was at fault.
+            records_out.append({
+                "index": rec_idx,
+                "title": f"Record {rec_idx + 1} — could not be read",
+                "issn": "",
+                "location": "",
+                "fields_866": [],
+                "has_853": False,
+                "has_863": False,
+                "unreadable": True,
+            })
+            continue
+
         title_field = record.get("245")
         title = ""
         if title_field:
@@ -67,9 +87,40 @@ def read_marc_file(fileobj) -> list[dict]:
             "fields_866": fields_866,
             "has_853": bool(record.get_fields("853")),
             "has_863": bool(record.get_fields("863")),
+            "unreadable": False,
         })
 
     return records_out
+
+
+def unreadable_positions(records: list[dict]) -> list[int]:
+    """One-based positions of the records read_marc_file() could not decode."""
+    return [r["index"] + 1 for r in records if r.get("unreadable")]
+
+
+def refuse_unreadable(records: list[dict]) -> Optional[str]:
+    """
+    Why this file cannot be worked on, or None when every record decoded.
+
+    A record pymarc cannot decode cannot be written back out either, so
+    converting the file would mean returning it with that record missing. The
+    file is refused instead, naming the positions, which is the same rule the
+    converter applies to a statement it can only partly read: better to say so
+    than to hand back holdings with something quietly gone.
+    """
+    bad = unreadable_positions(records)
+    if not bad:
+        return None
+    where = ", ".join(str(n) for n in bad[:10])
+    more = f" and {len(bad) - 10} more" if len(bad) > 10 else ""
+    plural = "s" if len(bad) > 1 else ""
+    return (
+        f"This file has {len(bad)} record{plural} that could not be read "
+        f"(position{plural} {where}{more}). A record that cannot be read "
+        f"cannot be written back out, so converting the file would return it "
+        f"with that record missing. Nothing has been loaded. Repair or remove "
+        f"the record{plural} and upload the file again."
+    )
 
 
 def records_from_bytes(data: bytes) -> list:

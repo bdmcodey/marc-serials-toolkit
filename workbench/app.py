@@ -66,6 +66,8 @@ from marc_serials.records import (
     display_marc_field as _display_marc_field,
     match_866_sources as _match_866_sources,
     read_marc_file as _read_marc_file,
+    records_from_bytes,
+    refuse_unreadable,
     records_to_bytes as _records_to_bytes,
     remove_converted_866s as _remove_converted_866s,
 )
@@ -232,12 +234,18 @@ def _record_title(record) -> str:
 
 
 def _load_all_records() -> Optional[list]:
+    """
+    Every pymarc Record in the stored file, at its own position.
+
+    Positions are preserved rather than compacted: every index here means the
+    same record it means in the file, which is what the record_index the screens
+    send is counted against. api_upload_marc() refuses a file containing a
+    record pymarc cannot decode, so nothing in this list is None.
+    """
     marc_bytes = _load_file("marc_file")
     if not marc_bytes:
         return None
-    reader = MARCReader(io.BytesIO(marc_bytes), to_unicode=True,
-                        force_utf8=True, utf8_handling="replace")
-    return [rec for rec in reader if rec is not None]
+    return records_from_bytes(marc_bytes)
 
 
 # ---------------------------------------------------------------------------
@@ -515,10 +523,17 @@ def api_upload_marc():
 
     try:
         file_bytes = f.read()
+        records = _read_marc_file(io.BytesIO(file_bytes))
+
+        # Checked before anything is stored, so a refused file leaves the
+        # cataloguer's current file and pattern library exactly as they were.
+        refusal = refuse_unreadable(records)
+        if refusal:
+            return jsonify({"error": refusal}), 400
+
         _save_file("marc_file", file_bytes)
         session.pop("marc_file_converted", None)
 
-        records = _read_marc_file(io.BytesIO(file_bytes))
         statements = [
             fld["a"].strip()
             for rec in records for fld in rec["fields_866"] if (fld["a"] or "").strip()

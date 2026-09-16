@@ -55,6 +55,8 @@ from marc_serials.records import (
     display_marc_field as _display_marc_field,
     match_866_sources as _match_866_sources,
     read_marc_file as _read_marc_file,
+    records_from_bytes,
+    refuse_unreadable,
     records_to_bytes as _records_to_bytes,
     remove_converted_866s as _remove_converted_866s,
 )
@@ -129,18 +131,18 @@ app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # 25 MB upload limit
 # ---------------------------------------------------------------------------
 
 def _load_all_records() -> Optional[list]:
-    """Load the uploaded MARC file and return all pymarc Record objects."""
+    """
+    Every pymarc Record in the stored file, at its own position.
+
+    Positions are preserved rather than compacted: every index here means the
+    same record it means in the file, which is what the record_index the screens
+    send is counted against. api_upload_marc() refuses a file containing a
+    record pymarc cannot decode, so nothing in this list is None.
+    """
     marc_bytes = _load_file("marc_file")
     if not marc_bytes:
         return None
-    all_records = []
-    reader = MARCReader(
-        io.BytesIO(marc_bytes), to_unicode=True,
-        force_utf8=True, utf8_handling="replace"
-    )
-    for rec in reader:
-        all_records.append(rec)
-    return all_records
+    return records_from_bytes(marc_bytes)
 
 
 # ---------------------------------------------------------------------------
@@ -242,12 +244,19 @@ def api_upload_marc():
 
     try:
         file_bytes = f.read()
+        records = _read_marc_file(io.BytesIO(file_bytes))
+
+        # Checked before anything is stored, so a refused file leaves whatever
+        # the cataloguer was working on untouched.
+        refusal = refuse_unreadable(records)
+        if refusal:
+            return jsonify({"error": refusal}), 400
+
         # Store on disk; only a UUID goes into the session cookie
         _save_file("marc_file", file_bytes)
         # Clear any previous converted version when a new file is uploaded
         session.pop("marc_file_converted", None)
 
-        records = _read_marc_file(io.BytesIO(file_bytes))
         return jsonify({"records": records, "total": len(records)})
     except Exception as exc:
         app.logger.exception("Request failed")
