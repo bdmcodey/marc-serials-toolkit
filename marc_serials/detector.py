@@ -632,7 +632,7 @@ SPACER = r"\s*"
 
 
 def _join(parts: List[str]) -> str:
-    """
+    r"""
     Assemble the parts, collapsing runs of the whitespace separator.
 
     Most branches above append r"\s*" after their group, and a token that also
