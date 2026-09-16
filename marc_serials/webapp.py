@@ -454,6 +454,44 @@ def _statement_origins(do_split: bool) -> dict:
     return origins
 
 
+# What confirming a pattern still changes, now that parse_866() reads every
+# statement it can and a confirmed pattern supplies only what it cannot.
+DECIDES_READING = "reading"     # the parser writes nothing for these
+DECIDES_CAPTION = "caption"     # the parser reads them; the 853 wants a word
+DECIDES_NOTHING = "nothing"     # the parser reads them, captions and all
+
+# How many of a cluster's statements to examine. Every one is parsed for a
+# cluster of ordinary size; the cap only bounds a pathological one.
+DECISION_SAMPLE = 200
+
+
+def _what_confirming_decides(examples) -> str:
+    """
+    What a cataloguer's answers on this pattern would actually affect.
+
+    Before 0.10.0 a confirmed pattern read its statements itself, so every
+    answer changed the output and the screen could ask about all of them alike.
+    The parser reads them now. An answer still decides the *reading* of a
+    statement the parser refuses -- "v.1(1990)-5(1994)" carries a 5 no caption
+    reaches, and nothing but a cataloguer can say what it is. Otherwise it
+    decides a *caption*: the word the 853 declares for a level the statement
+    writes as a bare number, where the parser can only write "(*)". Where the
+    statement names its own captions, the answer changes nothing, and asking
+    for it is asking a question whose answer is discarded.
+    """
+    caption_slots = 0
+    for text in list(examples)[:DECISION_SAMPLE]:
+        result = parse_866(text)
+        if not result.ranges:
+            return DECIDES_READING
+        for hr in result.ranges:
+            for boundary in (hr.start, hr.end):
+                if boundary is None:
+                    continue
+                caption_slots += sum(1 for lvl in boundary.enum if not lvl.caption)
+    return DECIDES_CAPTION if caption_slots else DECIDES_NOTHING
+
+
 def _annotate_group(group_dict: dict, origins: Optional[dict] = None) -> dict:
     """Add the roles to offer, and per-example values and provenance."""
     named = group_dict.get("named_groups") or []
@@ -470,7 +508,15 @@ def _annotate_group(group_dict: dict, origins: Optional[dict] = None) -> dict:
         origins.get((e or "").strip()[:MAX_STATEMENT_CHARS]) for e in shown
     ]
     group_dict["examples_shown"] = len(shown)
-    group_dict["needs_decision"] = any(r.needs_a_decision for r in roles)
+    group_dict["decides"] = _what_confirming_decides(examples)
+    # A pattern only wants a decision if one is outstanding *and* the answer
+    # would change something. Both halves matter: an unresolved role on a
+    # statement the parser reads in full is not work, it is a question with no
+    # consequence.
+    group_dict["needs_decision"] = (
+        any(r.needs_a_decision for r in roles)
+        and group_dict["decides"] != DECIDES_NOTHING
+    )
     return group_dict
 
 
@@ -664,7 +710,10 @@ def api_test_regex():
         # Aligned with the statements sent, so the card can keep showing the
         # example it was already on after the expression is edited.
         "example_values": _example_values(regex_str, statements, roles),
-        "needs_decision": any(r.needs_a_decision for r in roles),
+        "decides": _what_confirming_decides(statements),
+        "needs_decision": (any(r.needs_a_decision for r in roles)
+                           and _what_confirming_decides(statements)
+                           != DECIDES_NOTHING),
     })
 
 

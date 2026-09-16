@@ -374,6 +374,9 @@
     }
     .role-table tr:last-child td { border-bottom: none; }
     .role-table tr.needs-decision td { background: var(--warn-soft); }
+    /* What answering this card would change: the first thing in the body,
+       because it decides how much care the rest of it deserves. */
+    .decides-note { margin-bottom: var(--sp-3); }
     .role-group  { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text); }
     .role-sample { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); word-break: break-word; }
     .role-guess {
@@ -1523,6 +1526,15 @@ async function runDetect() {
  * separates a pattern that is ready from one that is not is whether every
  * captured value got a meaning — an unresolved one cannot be stored at all.
  *
+ * A pattern that decides the *reading* is never confirmed unasked, however
+ * confident its roles look. The standard parser writes nothing for those
+ * statements, and it refuses them on purpose: it read part of the wording and
+ * could not account for the rest. Confirming such a pattern overrides that
+ * refusal and writes holdings on the strength of an inference nobody checked.
+ * "v. 19 no. 2 Suppl. (1998)" is the shape that showed this up — the pattern
+ * reads it confidently as volume 19, issue 2, and the supplement, which is what
+ * the library actually holds, disappears into an ordinary 863.
+ *
  * Patterns the cataloguer has removed are never re-added; taking one out is a
  * decision, and a detection run should not undo it.
  */
@@ -1530,6 +1542,7 @@ async function autoConfirm(groups) {
   const ready = groups.filter(g =>
     !g.too_complex &&
     g.regex &&
+    g.decides !== 'reading' &&
     !(g.suggested_roles || []).some(r => r.kind === UNRESOLVED_KIND || r.suggested) &&
     !dismissed.has(patternIdFor(g)) &&
     !library.some(p => p.id === patternIdFor(g))
@@ -1566,13 +1579,17 @@ async function autoConfirm(groups) {
  * the detection run, not its position on screen.
  */
 function partitionGroups(groups) {
-  const parts = { open: [], confirmed: [], skipped: [], complex: [] };
+  const parts = { open: [], readable: [], confirmed: [], skipped: [], complex: [] };
   groups.forEach((group, idx) => {
     const entry = { group, idx };
     const stored = library.find(p => p.id === patternIdFor(group));
     if (stored && stored.skip) parts.skipped.push(entry);
     else if (group.too_complex) parts.complex.push(entry);
     else if (stored) parts.confirmed.push(entry);
+    // Asking about a pattern whose answer would change nothing is asking a
+    // question with no consequence. The parser reads these statements in full,
+    // captions and all, so they are finished business rather than work.
+    else if (group.decides === 'nothing') parts.readable.push(entry);
     else parts.open.push(entry);
   });
   return parts;
@@ -1614,10 +1631,17 @@ function renderPatterns(data) {
       <span class="tag">${data.total_statements} statements</span></div>
     <p class="small dim">${
       undecided
-        ? `Patterns that could be read on their own are already confirmed.
-           <strong>${undecided}</strong> still ${undecided === 1 ? 'needs' : 'need'}
-           you to say what a value means.`
-        : 'All patterns are confirmed and will be used when you convert.'
+        ? `Patterns that could be read on their own are already confirmed${
+            parts.readable.length
+              ? `, and ${parts.readable.length} more ${parts.readable.length === 1
+                  ? 'is read' : 'are read'} in full by the standard parser`
+              : ''}.
+           <strong>${undecided}</strong> still ${undecided === 1 ? 'wants' : 'want'}
+           an answer — ${openBreakdown(parts.open)}.`
+        : `Nothing is waiting on you${
+            parts.readable.length
+              ? ': the confirmed patterns and the standard parser between them read every statement'
+              : ' — all patterns are confirmed and will be used when you convert'}.`
     }</p>`;
   area.appendChild(summary);
 
@@ -1628,6 +1652,13 @@ function renderPatterns(data) {
     area.appendChild(buildPatternFold('confirmed',
       `${n} confirmed pattern${n !== 1 ? 's' : ''} — nothing to decide`,
       parts.confirmed));
+  }
+  if (parts.readable.length) {
+    const n = parts.readable.length;
+    area.appendChild(buildPatternFold('readable',
+      `${n} pattern${n !== 1 ? 's' : ''} the standard parser reads on ${
+        n !== 1 ? 'their' : 'its'} own — nothing to decide`,
+      parts.readable));
   }
   if (parts.skipped.length) {
     const n = parts.skipped.length;
@@ -1658,6 +1689,7 @@ function patternsSummaryLine() {
   const parts = partitionGroups(detected);
   const bits = [`${detected.length} pattern${detected.length !== 1 ? 's' : ''}`];
   if (parts.confirmed.length) bits.push(`${parts.confirmed.length} confirmed`);
+  if (parts.readable.length) bits.push(`${parts.readable.length} read by the parser`);
   if (parts.skipped.length) bits.push(`${parts.skipped.length} skipped`);
   if (parts.complex.length) bits.push(`${parts.complex.length} too complex`);
   if (parts.open.length) {
@@ -1701,6 +1733,59 @@ function hashString(s) {
   for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; }
   return h;
 }
+
+/**
+ * What answering this card would actually change.
+ *
+ * The parser reads every statement it can, and a confirmed pattern supplies
+ * only what it cannot. So the same screen can be doing one of three quite
+ * different jobs, and a cataloguer deciding how much care to spend deserves to
+ * know which. Before 0.10.0 they were all the same job and the screen was right
+ * not to distinguish them.
+ */
+/**
+ * What the outstanding patterns are outstanding *for*.
+ *
+ * "Say what a value means" described every card until 0.10.0, when most of them
+ * stopped deciding a reading and started supplying only a caption. Two quite
+ * different amounts of care, so the count says which is which.
+ */
+function openBreakdown(open) {
+  const reading = open.filter(e => e.group.decides === 'reading').length;
+  const caption = open.length - reading;
+  const bits = [];
+  if (reading) {
+    bits.push(`<strong>${reading}</strong> ${reading === 1 ? 'decides' : 'decide'}
+               how a statement is read`);
+  }
+  if (caption) {
+    bits.push(`<strong>${caption}</strong> ${caption === 1 ? 'supplies' : 'supply'}
+               a caption`);
+  }
+  return bits.join(', ');
+}
+
+
+function decidesNote(group, skipped) {
+  if (skipped || group.too_complex) return '';
+  const note = {
+    reading: ['alert-warn',
+      `The standard parser writes nothing for ${group.count !== 1 ? 'some of these statements' : 'this statement'}
+       — nothing in the wording says what the values are. What you say here is what converts
+       ${group.count !== 1 ? 'them' : 'it'}.`],
+    caption: ['alert-info',
+      `The standard parser reads ${group.count !== 1 ? 'these statements' : 'this statement'} already.
+       What you add here is the caption: the word the 853 declares for a level written as a bare
+       number, where the parser can only write &ldquo;(*)&rdquo;.`],
+    nothing: ['alert-info',
+      `The standard parser reads ${group.count !== 1 ? 'these statements' : 'this statement'} in full,
+       captions and all. Confirming this pattern is optional — it will not change what is written.`],
+  }[group.decides];
+  if (!note) return '';
+  const [cls, text] = note;
+  return `<div class="alert ${cls} decides-note">${text}</div>`;
+}
+
 
 function buildPatternCard(group, idx) {
   const card = document.createElement('div');
@@ -1749,6 +1834,7 @@ function buildPatternCard(group, idx) {
       <button type="button" class="btn btn-secondary btn-sm pc-toggle">Review</button>
     </div>
     <div class="pc-body" hidden>
+      ${decidesNote(group, skipped)}
       <div class="example-bar">
         <button type="button" class="btn btn-ghost btn-sm ex-prev"
                 aria-label="Previous example">‹</button>

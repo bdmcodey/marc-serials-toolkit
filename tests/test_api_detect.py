@@ -146,3 +146,71 @@ def test_generated_regexes_survive_the_tools_own_test_button(client,
         tested += 1
 
     assert tested, "no testable groups were produced; the assertion proved nothing"
+
+
+# ---------------------------------------------------------------------------
+# What confirming a pattern still decides
+# ---------------------------------------------------------------------------
+
+def test_a_pattern_the_parser_reads_in_full_decides_nothing(client):
+    """
+    "Series 1, v. 6 no. 1 (Summer/Fall 1992)" captures a bare "1" the detector
+    cannot type, so a role comes back unresolved and the screen used to ask
+    about it. The parser reads the statement completely -- ser. 1, v. 6,
+    no. 1 -- captions and all, so whatever the cataloguer answered was
+    discarded. It is no longer presented as work.
+    """
+    group = client.post("/api/detect", json={
+        "statements": ["Series 1, v. 6 no. 1 (Summer/Fall 1992)"]}).get_json()["groups"][0]
+
+    assert group["decides"] == "nothing"
+    assert group["needs_decision"] is False
+    # The unresolved role is still there; it simply has no consequence.
+    assert any(r["kind"] == "unresolved" for r in group["suggested_roles"])
+
+
+def test_a_pattern_the_parser_refuses_decides_the_reading(client):
+    """The case confirmation exists for: nothing else can convert it."""
+    group = client.post("/api/detect", json={
+        "statements": ["50th Anniversary Issue (2017)"]}).get_json()["groups"][0]
+
+    assert group["decides"] == "reading"
+    assert group["needs_decision"] is True
+
+
+def test_a_pattern_supplying_a_caption_says_so(client):
+    """
+    The parser reads "1979: 1 (6-8 [Sep-Dec])" but writes "(*)" for the two
+    levels the statement gives as bare numbers. A confirmed caption is the word
+    that goes there, and that is all it changes.
+    """
+    group = client.post("/api/detect", json={
+        "statements": ["1979: 1 (6-8 [Sep-Dec])"]}).get_json()["groups"][0]
+
+    assert group["decides"] == "caption"
+    assert group["needs_decision"] is True
+
+
+def test_the_test_button_reports_the_same_thing(client):
+    """
+    A cataloguer editing the expression must see the consequence change with it,
+    not keep the verdict from before the edit.
+    """
+    body = client.post("/api/test-regex", json={
+        "regex": r"(?P<start_num>\d+)(?P<t1>[^\d]+)(?P<start_year>\d{4})\)",
+        "statements": ["50th Anniversary Issue (2017)"],
+    }).get_json()
+    assert body["decides"] == "reading"
+
+
+def test_every_group_carries_a_verdict(client, example_marc_bytes):
+    """
+    The card renders from it, so a group without one would render a blank note
+    rather than fail loudly.
+    """
+    statements = upload_marc(client, example_marc_bytes).get_json()["statements"]
+    groups = client.post("/api/detect",
+                         json={"statements": statements}).get_json()["groups"]
+    assert groups
+    for group in groups:
+        assert group["decides"] in ("reading", "caption", "nothing"), group["human_label"]

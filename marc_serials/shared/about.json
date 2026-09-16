@@ -1,6 +1,6 @@
 {
   "name": "MARC Serials Toolkit",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "released": "2026-09-16",
   "status": "Proof of concept — under active development. Check your output before loading it into the catalog.",
   "description": "One tool for MARC serials holdings. Upload a MARC file, find the patterns in its 866 statements, confirm what each part of a pattern means, and convert to structured 853 caption/pattern and 863 enumeration/chronology fields. Statements no pattern matches are converted by the standard parser.",
@@ -9,6 +9,33 @@
   "contact": "Matthew Codey, codey@usc.edu",
   "_comment": "Written for cataloging staff, not developers. Say what changed about the output or the screen, not how the code changed. Newest version first.",
   "changelog": [
+    {
+      "version": "0.11.1",
+      "date": "2026-09-16",
+      "summary": "Confirming a pattern now says what your answer will change — the reading of a statement, a caption, or nothing at all — and stops asking where the answer would change nothing.",
+      "changes": [
+        {
+          "tool": "MARC Serials Toolkit",
+          "text": "Since 0.10.0 the standard parser reads every statement it can and a confirmed pattern supplies only what it cannot. The Patterns step had not caught up: it asked about every pattern in the same words, whether the answer decided how a statement was read or was discarded entirely. Each pattern now says which."
+        },
+        {
+          "tool": "MARC Serials Toolkit",
+          "text": "Three things an answer can do. It can decide the reading — the parser writes nothing for those statements, so what you say is what converts them. It can supply a caption — the parser reads the statement, and your word goes where it could only write “(*)”. Or it can change nothing, when the statement names its own captions and the parser reads it in full."
+        },
+        {
+          "tool": "MARC Serials Toolkit",
+          "text": "Patterns in that third group are no longer presented as work. They are folded away with the confirmed ones under “the standard parser reads on its own”. In the test collection one pattern of 44 was being asked about for an answer that was then discarded — “Series 1, v. 6 no. 1 (Summer/Fall 1992)”, which the parser reads as ser. 1, v. 6, no. 1 without help."
+        },
+        {
+          "tool": "MARC Serials Toolkit",
+          "text": "A pattern whose answer decides the reading is no longer confirmed for you automatically, however confident it looks. The parser refuses those statements deliberately — it read part of the wording and could not account for the rest — so confirming one unasked writes holdings on a guess nobody checked. “v. 19 no. 2 Suppl. (1998)” is the case that showed it up: the pattern reads it as volume 19, issue 2, and the supplement, which is what the library actually holds, disappears into an ordinary 863. Those patterns now wait for you."
+        },
+        {
+          "tool": "MARC Serials Toolkit",
+          "text": "The count at the top of the step says what is outstanding and why: “3 still want an answer — 1 decides how a statement is read, 2 supply a caption”, rather than describing them all as needing you to say what a value means."
+        }
+      ]
+    },
     {
       "version": "0.11.0",
       "date": "2026-09-16",

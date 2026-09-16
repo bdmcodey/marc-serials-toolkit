@@ -1787,6 +1787,62 @@ independent of this one.
 
 ---
 
+## The screen catches up with the parser · **DONE in 0.11.1**
+
+*16 September 2026. The interface half of "One reader, not two".*
+
+0.10.0 made the parser the single reader of holdings structure, leaving a
+confirmed pattern to supply only what the parser cannot settle. The Patterns
+step still asked about every pattern in the same words.
+
+**Measured over the corpus.** Of 44 clusters the screen asked about 6:
+
+| What the cataloguer's answer would do | Clusters |
+|---|---|
+| decide the reading — the parser writes nothing | 1 |
+| supply a caption — the parser reads it, but writes `(*)` | 4 |
+| **change nothing** — the parser reads it, captions and all | **1** |
+
+The last row is the defect in miniature: `Series 1, v. 6 no. 1 (Summer/Fall
+1992)` captures a bare `1` the detector cannot type, so a role came back
+unresolved and the screen asked. The parser reads the statement as `ser. 1`,
+`v. 6`, `no. 1` without help, so whatever was answered was discarded.
+
+**What was changed.** `_what_confirming_decides()` parses a cluster's statements
+and returns `reading`, `caption` or `nothing`. Each card carries a note saying
+which, and `needs_decision` is now "a decision is outstanding *and* the answer
+would change something". A pattern that changes nothing is folded away with the
+confirmed ones rather than sitting in the work queue.
+
+**What the measurement turned up on the way.** Four clusters decide the
+*reading*, but only one reached the screen — the other three were
+auto-confirmed, because auto-confirmation asks only whether every role is
+resolved. They were:
+
+    v. 19 no. 2 Suppl. (1998)
+    v. 58 Suppl. (Sep 2003)
+    Special Issue (October/November 1995)
+
+These are the statements the audit for "One reader, not two" found converting
+into the *wrong field* — supplements belong in an 867, not an 863. The parser
+refuses them deliberately: it reads `v. 19 no. 2` and cannot account for
+`Suppl.`, so it writes nothing. An auto-confirmed pattern then overrode that
+refusal and wrote an 863 saying the library holds volume 19 number 2, when what
+it holds is a supplement to it — and no cataloguer ever saw the decision.
+
+So auto-confirmation now skips any pattern that decides a reading, however
+confident its roles look. The rule is general, not about supplements: a pattern
+overriding the parser's deliberate refusal is exactly the case a human should
+see. Flagging `Suppl.` as belonging in an 867 remains a separate, unstarted
+feature — this only stops the statements being converted silently in the
+meantime.
+
+The cost is more questions: across the corpus the screen asks about 9 rather
+than 6, and every one it adds is a supplement, an unnumbered special issue, a
+bare number no caption reaches, or the brace-note statement. No false positives.
+
+---
+
 ## Requested, not yet started
 
 Raised 1 September 2026 alongside D15–D18, recorded here so they are not lost.

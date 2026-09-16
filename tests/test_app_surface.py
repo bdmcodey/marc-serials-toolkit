@@ -148,3 +148,56 @@ def test_the_summary_knows_which_sources_are_not_patterns():
 
     in_template = set(re.findall(r"'([^']+)'", match.group(1)))
     assert in_template == {PARSER_SOURCE, UNMATCHED_SOURCE, SKIPPED_SOURCE}
+
+
+def test_the_page_explains_what_confirming_decides(client):
+    """
+    The note that tells a cataloguer whether their answer changes the reading,
+    a caption, or nothing at all. It is built client-side from group.decides,
+    so no route test would notice it going missing.
+    """
+    page = client.get("/").get_data(as_text=True)
+    assert "function decidesNote(" in page
+    assert "decides-note" in page
+    for verdict in ("reading:", "caption:", "nothing:"):
+        assert verdict in page, verdict
+
+
+def test_patterns_the_parser_reads_are_not_presented_as_work(client):
+    """
+    partitionGroups must route a group whose answer changes nothing away from
+    the `open` list -- that list is the work, and a question with no consequence
+    is not work.
+    """
+    page = client.get("/").get_data(as_text=True)
+    assert "group.decides === 'nothing'" in page
+    assert "parts.readable" in page
+
+
+def test_a_pattern_deciding_a_reading_is_never_confirmed_unasked(client):
+    """
+    Auto-confirmation must skip a pattern whose answer decides the reading.
+
+    The parser refuses those statements on purpose -- it read part of the
+    wording and could not account for the rest -- so confirming one unasked
+    writes holdings on an inference nobody checked. "v. 19 no. 2 Suppl. (1998)"
+    is the shape that showed it up: the pattern reads it confidently as volume
+    19, issue 2, and the supplement, which is what the library actually holds,
+    disappears into an ordinary 863.
+    """
+    page = client.get("/").get_data(as_text=True)
+    assert "g.decides !== 'reading'" in page, \
+        "auto-confirm no longer excludes patterns that decide a reading"
+
+
+def test_the_summary_says_what_the_outstanding_patterns_decide(client):
+    """
+    "Say what a value means" described every card until 0.10.0. Most of them now
+    supply only a caption, which is a different amount of care, so the count
+    distinguishes them.
+    """
+    page = client.get("/").get_data(as_text=True)
+    assert "function openBreakdown(" in page
+    assert "how a statement is read" in page
+    assert "supply' : 'supplies'" in page or "supplies' : 'supply'" in page \
+        or "supplies" in page

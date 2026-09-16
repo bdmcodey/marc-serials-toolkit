@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "marc-serials-toolkit"
-version = "0.11.0"
+version = "0.11.1"
 description = "Convert free-text MARC 866 serials holdings into structured 853/863 fields"
 readme = "README.md"
 requires-python = ">=3.10"
